@@ -596,6 +596,39 @@ describe('deck rules', () => {
     expect(cardSlots(s.objects, spread()).map((x) => x.index)).toEqual([0]);
   });
 
+  it('a spread runs down a tall holder (top card bottom-most) and takes drops where they land', () => {
+    let s = tableOf(fixtureGame());
+    const id = deckOf(s).id;
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 160, height: 800 } });
+    const spread = () => s.objects.find((o) => o.id === id) as DeckObject;
+    const slots = cardSlots(s.objects, spread());
+    expect(slots.map((sl) => sl.index)).toEqual([4, 3, 2, 1, 0]);
+    expect(new Set(slots.map((sl) => sl.x)).size).toBe(1);
+    expect(slots[4].y).toBeGreaterThan(slots[0].y);
+    const at = (y: number) => ({ x: spread().position.x + spread().width / 2, y: spread().position.y + y });
+    expect(spreadInsertIndex(s.objects, spread(), at(1))).toBe(5);
+    expect(spreadInsertIndex(s.objects, spread(), at(spread().height - 1))).toBe(0);
+    const gapped = spreadLayout(s.objects, spread(), 5);
+    expect(gapped.gap!.y).toBeLessThan(gapped.slots[0].y);
+  });
+
+  it('a holder can show its cards sideways; they still come out upright', () => {
+    let s = tableOf(fixtureGame());
+    const id = deckOf(s).id;
+    const size = cardSizeOf(deckOf(s));
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 900, height: 200, cardsSideways: true } });
+    const holder = () => s.objects.find((o) => o.id === id) as DeckObject;
+    const slots = cardSlots(s.objects, holder());
+    expect(slots.every((sl) => sl.width === size.height && sl.height === size.width)).toBe(true);
+    expect(new Set(slots.map((sl) => sl.y)).size).toBe(1);
+    const draw = drawCardCommand(holder())! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, draw);
+    const card = cardsOnTable(s).find((c) => c.id === draw.cardId)!;
+    expect([card.width, card.height, card.rotation]).toEqual([size.width, size.height, 0]);
+    // Piles never lie sideways.
+    expect(cardSlots(s.objects, { ...holder(), isPile: true, layout: 'stack' })[0].width).toBe(size.width);
+  });
+
   it('hover zoom is per object; cards inherit their deck setting unless they have their own', () => {
     let s = tableOf(fixtureGame());
     const draw = drawCardCommand(deckOf(s))! as Extract<Command, { type: 'DrawCard' }>;
@@ -610,6 +643,20 @@ describe('deck rules', () => {
     expect(effectiveHoverZoom(s, card())).toBe('off');
     s = applyCommand(s, { type: 'UpdateObject', id: byKind(s, 'board').id, patch: { hoverZoom: 'small' } });
     expect(effectiveHoverZoom(s, byKind(s, 'board'))).toBe('small');
+  });
+
+  it('a holder without its own hover zoom uses the setting of the deck its shown card belongs to', () => {
+    let s = tableOf(fixtureGame());
+    s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { hoverZoom: 'medium' } });
+    const draw = drawCardCommand(deckOf(s))! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, draw);
+    s = applyCommand(s, { type: 'AddCardToDeck', cardId: draw.cardId, deckId: holderOf(s).id });
+    const cardId = holderOf(s).cards[0].id;
+    expect(effectiveHoverZoom(s, holderOf(s))).toBe('medium');
+    expect(effectiveHoverZoom(s, holderOf(s), cardId)).toBe('medium');
+    expect(effectiveHoverZoom(s, holderOf(s), 'missing')).toBe('off');
+    s = applyCommand(s, { type: 'UpdateObject', id: holderOf(s).id, patch: { hoverZoom: 'off' } });
+    expect(effectiveHoverZoom(s, holderOf(s), cardId)).toBe('off');
   });
 
   it('a pile dropped on a deck goes on top of it in order, keeping each card’s look; the pile disappears', () => {

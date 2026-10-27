@@ -39,7 +39,7 @@ import {
   sortByZ,
   tokenCount,
 } from '../domain/objects';
-import { HOVER_ZOOM_LABELS, homeDeckOf, pileHasHome, pileHolders } from '../domain/rules';
+import { HOVER_ZOOM_LABELS, homeDeckOf, hoverZoomInheritLabel, inheritsHoverZoom, pileHasHome, pileHolders } from '../domain/rules';
 import {
   DIE_SIDES,
   HOVER_ZOOM_SIZES,
@@ -98,6 +98,23 @@ function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
       <div className="button-row">
         <button
           type="button"
+          className="btn btn-small"
+          title="Swap width and height (keeps the centre)"
+          onClick={() =>
+            transform({
+              x: Math.round(o.position.x + (o.width - o.height) / 2),
+              y: Math.round(o.position.y + (o.height - o.width) / 2),
+              width: o.height,
+              height: o.width,
+            })
+          }
+        >
+          <Icon name="swap" size={14} /> Swap width / height
+        </button>
+      </div>
+      <div className="button-row">
+        <button
+          type="button"
           className={`btn btn-small ${o.locked ? 'is-active' : ''}`}
           aria-pressed={o.locked}
           onClick={() => dispatch({ type: 'ToggleLock', id: o.id })}
@@ -126,8 +143,8 @@ function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
           label="Zoom on hover"
           value={o.hoverZoom ?? ''}
           options={[
-            { value: '', label: o.kind === 'card' ? 'Same as deck' : 'Off' },
-            ...HOVER_ZOOM_SIZES.filter((z) => z !== 'off' || o.kind === 'card').map((z) => ({ value: z, label: HOVER_ZOOM_LABELS[z] })),
+            { value: '', label: hoverZoomInheritLabel(o) },
+            ...HOVER_ZOOM_SIZES.filter((z) => z !== 'off' || inheritsHoverZoom(o)).map((z) => ({ value: z, label: HOVER_ZOOM_LABELS[z] })),
           ]}
           onChange={(v) => setHoverZoom(o.id, (v || undefined) as HoverZoom | undefined)}
         />
@@ -315,6 +332,19 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
             max={2000}
             onCommit={(cardHeight) => update({ cardHeight: cardHeight ?? CARD_SIZE.height })}
           />
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn btn-small"
+            title="Swap card width and height"
+            onClick={() => {
+              const size = cardSizeOf(o);
+              update({ cardWidth: size.height, cardHeight: size.width });
+            }}
+          >
+            <Icon name="swap" size={14} /> Swap card width / height
+          </button>
         </div>
         <DrawSideField o={o} update={update} />
         <div className="button-row">
@@ -747,12 +777,29 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               value={o.strokeOpacity ?? 1}
               onChange={(strokeOpacity) => update({ strokeOpacity }, `strokeOpacity:${o.id}`)}
             />
+            <SelectField
+              label="Stroke style"
+              value={o.strokeStyle ?? 'dashed'}
+              options={[
+                { value: 'dashed', label: 'Dashed' },
+                { value: 'solid', label: 'Solid' },
+              ]}
+              onChange={(strokeStyle) => update({ strokeStyle })}
+            />
+            <CheckboxField
+              label="Cards lie sideways (turned 90°)"
+              checked={!!o.cardsSideways}
+              onChange={(cardsSideways) => update({ cardsSideways })}
+            />
             <CheckboxField
               label="Rotate objects to match holder"
               checked={!!o.alignRotation}
               onChange={(alignRotation) => update({ alignRotation })}
             />
-            <p className="hint">Cards dropped on a holder go into it. A holder with its own card list (above) is a deck.</p>
+            <p className="hint">
+              Cards dropped on a holder go into it. A holder with its own card list (above) is a deck. A spread runs along the holder's
+              longer side: left to right when it is wider than tall, top to bottom otherwise.
+            </p>
           </Section>
           <DeckEditor o={o} update={update} part="settings" />
         </>

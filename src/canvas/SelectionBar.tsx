@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon';
 import { worldToScreen } from '../domain/camera';
 import { objectBounds, unionRects } from '../domain/geometry';
 import { bagCount, dieFaceLabel, displayName, tokenCount } from '../domain/objects';
-import { HOVER_ZOOM_LABELS } from '../domain/rules';
+import { HOVER_ZOOM_LABELS, hoverZoomInheritLabel, inheritsHoverZoom } from '../domain/rules';
 import { HOVER_ZOOM_SIZES, type HoverZoom, type TabletopObject } from '../domain/types';
 import { MULTI_BAR, useTableStore } from '../state/tableStore';
 import { incrementCounter, pickDieFace, setCounterValue, setHoverZoom } from './actions';
@@ -88,10 +88,10 @@ function CounterControls({ id, value }: { id: string; value: number }) {
   );
 }
 
-/** Hover-zoom size picker (context menu and inspector). Cards can inherit the setting from their deck. */
+/** Hover-zoom size picker (context menu and inspector). Cards and holders can inherit the setting from a deck. */
 export function HoverZoomSelect({ o, className }: { o: TabletopObject; className?: string }) {
-  const inheritLabel = o.kind === 'card' ? 'Same as deck' : 'Off';
-  const value = o.hoverZoom === undefined || (o.kind !== 'card' && o.hoverZoom === 'off') ? '' : o.hoverZoom;
+  const inherits = inheritsHoverZoom(o);
+  const value = o.hoverZoom === undefined || (!inherits && o.hoverZoom === 'off') ? '' : o.hoverZoom;
   return (
     <select
       className={className}
@@ -99,8 +99,8 @@ export function HoverZoomSelect({ o, className }: { o: TabletopObject; className
       value={value}
       onChange={(e) => setHoverZoom(o.id, (e.target.value || undefined) as HoverZoom | undefined)}
     >
-      <option value="">{inheritLabel}</option>
-      {HOVER_ZOOM_SIZES.filter((z) => z !== 'off' || o.kind === 'card').map((z) => (
+      <option value="">{hoverZoomInheritLabel(o)}</option>
+      {HOVER_ZOOM_SIZES.filter((z) => z !== 'off' || inherits).map((z) => (
         <option key={z} value={z}>
           {HOVER_ZOOM_LABELS[z]}
         </option>

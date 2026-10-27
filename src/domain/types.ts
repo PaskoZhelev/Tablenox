@@ -81,7 +81,7 @@ export type DrawSide = 'keep' | 'faceUp' | 'faceDown';
  */
 export interface DeckObject extends BaseObject {
   kind: 'deck';
-  /** Cards currently in the holder. Index 0 is the TOP (in a spread: the right-most card). */
+  /** Cards currently in the holder. Index 0 is the TOP (in a spread: the right-most card, or bottom-most when it runs down). */
   cards: CardDef[];
   /** Full, ordered card definition used by Reset (empty for piles and plain holders). */
   initialCards: CardDef[];
@@ -103,6 +103,10 @@ export interface DeckObject extends BaseObject {
   fillOpacity?: number;
   /** Opacity (0–1) of the zone outline; missing means fully opaque. */
   strokeOpacity?: number;
+  /** Zone outline style; missing means dashed. */
+  strokeStyle?: 'dashed' | 'solid';
+  /** Holders only: cards inside are shown turned 90° (lying sideways). They come out upright. */
+  cardsSideways?: boolean;
   /** Text shown next to the zone; empty means no text. */
   label?: string;
   /** Where the label sits relative to the zone; missing means above. */

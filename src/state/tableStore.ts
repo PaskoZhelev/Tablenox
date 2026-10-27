@@ -115,6 +115,8 @@ export interface TableStoreState {
   contextMenu: ContextMenuState | null;
   /** Card or deck under the mouse (for the hover preview). */
   hoverId: string | null;
+  /** Id of the card under the mouse inside the hovered holder/pile (a spread can show any of its cards). */
+  hoverCardId: string | null;
   picking: PickingState | null;
   /** Edit mode: button whose automations panel is open (independent of the selection). */
   automationButtonId: string | null;
@@ -157,7 +159,7 @@ export interface TableStoreActions {
   setSelectionBar(id: string | null): void;
   setDropTarget(id: string | null, index?: number | null): void;
   setContextMenu(m: ContextMenuState | null): void;
-  setHover(id: string | null): void;
+  setHover(id: string | null, cardId?: string | null): void;
   setPicking(p: PickingState | null): void;
   openAutomations(buttonId: string | null): void;
   /** Briefly pulses an outline around an object on the table. */
@@ -188,6 +190,7 @@ const transient = {
   dropIndex: null,
   contextMenu: null,
   hoverId: null,
+  hoverCardId: null,
   picking: null as PickingState | null,
   automationButtonId: null as string | null,
   flash: null as { id: string; seq: number } | null,
@@ -375,8 +378,9 @@ export const useTableStore = create<TableStore>()((set, get) => ({
     set({ contextMenu });
   },
 
-  setHover(hoverId) {
-    if (get().hoverId !== hoverId) set({ hoverId });
+  setHover(hoverId, hoverCardId = null) {
+    const s = get();
+    if (s.hoverId !== hoverId || s.hoverCardId !== hoverCardId) set({ hoverId, hoverCardId });
   },
 
   setPicking(picking) {

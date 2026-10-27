@@ -193,6 +193,17 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     if (!tapsSuppressed()) runDoubleAction(e);
   };
 
+  /** Reports the object (and, for a holder/pile, the card) under the mouse for the hover preview. */
+  const hoverAt = (e: KonvaEventObject<MouseEvent>) => {
+    let cardId: string | null = null;
+    if (o.kind === 'deck') {
+      const world = e.target.getStage()?.getRelativePointerPosition();
+      const index = world ? cardIndexAt(currentTable().objects, o, world) : null;
+      cardId = index === null ? null : (o.cards[index]?.id ?? null);
+    }
+    useTableStore.getState().setHover(o.id, cardId);
+  };
+
   return (
     <Group
       id={o.id}
@@ -213,10 +224,11 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       onTouchStart={onPress}
       onDblTap={onDblTap}
       onMouseEnter={(e) => {
-        useTableStore.getState().setHover(o.id);
+        hoverAt(e);
         const c = e.target.getStage()?.container();
         if (clickInPlay && c) c.style.cursor = 'pointer';
       }}
+      onMouseMove={o.kind === 'deck' ? hoverAt : undefined}
       onMouseLeave={(e) => {
         useTableStore.getState().setHover(null);
         const c = e.target.getStage()?.container();

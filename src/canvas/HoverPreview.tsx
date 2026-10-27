@@ -3,9 +3,10 @@ import { Layer, Stage } from 'react-konva';
 import { worldToScreen } from '../domain/camera';
 import { objectBounds } from '../domain/geometry';
 import { ownerDeckOf, resolveCardLook } from '../domain/objects';
-import { effectiveHoverZoom, HOVER_ZOOM_PX } from '../domain/rules';
+import { effectiveHoverZoom, HOVER_ZOOM_PX, isSpread } from '../domain/rules';
 import type { Mode, TableState, TabletopObject } from '../domain/types';
 import { CardVisual, ObjectVisual } from '../objects/visuals';
+import { RenderScaleContext } from '../objects/useAssetImage';
 import { useTableStore } from '../state/tableStore';
 
 const SHOW_DELAY_MS = 250;
@@ -16,10 +17,12 @@ interface Preview {
   render: () => React.ReactNode;
 }
 
-/** What to show enlarged: card faces only (never hidden backs), any other object as it looks on the table. */
-function previewOf(o: TabletopObject, table: TableState, mode: Mode): Preview | null {
+/**
+ * What to show enlarged: a card as it lies (face or back), upright; a holder/pile shows its top card (a spread: the
+ * card under the mouse); any other object as it looks on the table.
+ */
+function previewOf(o: TabletopObject, table: TableState, mode: Mode, hoverCardId: string | null): Preview | null {
   if (o.kind === 'card') {
-    if (!o.faceUp) return null;
     return {
       w: o.width,
       h: o.height,
@@ -27,8 +30,9 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode): Preview | 
         <CardVisual
           w={o.width}
           h={o.height}
-          faceUp
+          faceUp={o.faceUp}
           faceAssetId={o.faceAssetId}
+          backAssetId={o.backAssetId}
           faceText={o.faceText}
           faceColor={o.faceColor}
           backColor={o.backColor}
@@ -37,9 +41,9 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode): Preview | 
     };
   }
   if (o.kind === 'deck') {
-    const top = o.cards[0];
-    if (!top || top.faceUp !== true) return null;
-    const look = resolveCardLook(top, o, ownerDeckOf(table.objects, top.id));
+    const card = isSpread(o) ? o.cards.find((c) => c.id === hoverCardId) : o.cards[0];
+    if (!card) return null;
+    const look = resolveCardLook(card, o, ownerDeckOf(table.objects, card.id));
     return {
       w: look.width,
       h: look.height,
@@ -47,10 +51,11 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode): Preview | 
         <CardVisual
           w={look.width}
           h={look.height}
-          faceUp
-          faceAssetId={top.faceAssetId}
-          faceText={top.faceText}
-          faceColor={top.faceColor}
+          faceUp={card.faceUp === true}
+          faceAssetId={card.faceAssetId}
+          backAssetId={look.backAssetId}
+          faceText={card.faceText}
+          faceColor={card.faceColor}
           backColor={look.backColor}
         />
       ),
@@ -62,13 +67,14 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode): Preview | 
 /** Enlarged view of the object under the mouse, for objects with "Zoom on hover" set. */
 export function HoverPreview() {
   const hoverId = useTableStore((s) => (s.tool === 'select' && !s.draggingId && !s.contextMenu ? s.hoverId : null));
+  const hoverCardId = useTableStore((s) => s.hoverCardId);
   const hovered = useTableStore((s) => s.history.present.objects.find((o) => o.id === hoverId));
   const table = useTableStore((s) => s.history.present);
   const mode = useTableStore((s) => s.mode);
   const camera = useTableStore((s) => s.camera);
   const viewport = useTableStore((s) => s.viewport);
   const [readyId, setReadyId] = useState<string | null>(null);
-  const zoom = hovered ? effectiveHoverZoom(table, hovered) : 'off';
+  const zoom = hovered ? effectiveHoverZoom(table, hovered, hovered.kind === 'deck' && isSpread(hovered) ? hoverCardId : null) : 'off';
 
   useEffect(() => {
     if (zoom === 'off' || !hoverId) return;
@@ -77,7 +83,7 @@ export function HoverPreview() {
   }, [zoom, hoverId]);
 
   if (zoom === 'off' || !hovered || readyId !== hoverId) return null;
-  const preview = previewOf(hovered, table, mode);
+  const preview = previewOf(hovered, table, mode, hoverCardId);
   if (!preview) return null;
 
   const scale = Math.min(
@@ -106,7 +112,9 @@ export function HoverPreview() {
       aria-hidden="true"
     >
       <Stage width={w} height={h} scaleX={scale} scaleY={scale} listening={false}>
-        <Layer listening={false}>{preview.render()}</Layer>
+        <RenderScaleContext.Provider value={scale}>
+          <Layer listening={false}>{preview.render()}</Layer>
+        </RenderScaleContext.Provider>
       </Stage>
     </div>
   );

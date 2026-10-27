@@ -109,13 +109,15 @@ export interface CardSlot {
   /** Top-left corner in the holder's unrotated frame. */
   x: number;
   y: number;
+  /** Size of the slot as seen in the holder (a sideways card's width is its height). */
   width: number;
   height: number;
 }
 
 /**
  * Where the visible cards of a holder/pile sit, in its own frame, in drawing order (bottom first). A stack
- * shows only its top card, centred. A spread lays every card out along the long side, right-most on top.
+ * shows only its top card, centred. A spread lays every card out along the holder's long side: left to right
+ * (top card right-most) in a wide holder, top to bottom (top card bottom-most) in a tall one.
  */
 export function cardSlots(objects: TabletopObject[], deck: DeckObject): CardSlot[] {
   return spreadLayout(objects, deck).slots;
@@ -123,6 +125,16 @@ export function cardSlots(objects: TabletopObject[], deck: DeckObject): CardSlot
 
 export function isSpread(deck: DeckObject): boolean {
   return !deck.isPile && deck.layout === 'spread';
+}
+
+/** True when the holder shows its cards turned 90° (piles never do). */
+export function cardsSideways(deck: DeckObject): boolean {
+  return !deck.isPile && !!deck.cardsSideways;
+}
+
+/** A spread runs down a holder that is taller than it is wide. */
+export function spreadsVertically(deck: DeckObject): boolean {
+  return deck.height > deck.width;
 }
 
 /**
@@ -137,44 +149,54 @@ export function spreadLayout(
   const n = deck.cards.length;
   const withGap = isSpread(deck) && gapAt !== undefined && gapAt !== null;
   if (n === 0 && !withGap) return { slots: [] };
-  const look = (i: number) => resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id));
+  const sideways = cardsSideways(deck);
+  const slotSize = (s: { width: number; height: number }) => (sideways ? { width: s.height, height: s.width } : s);
+  const look = (i: number) => slotSize(resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id)));
   if (!isSpread(deck)) {
     const l = look(0);
     return { slots: [{ index: 0, x: (deck.width - l.width) / 2, y: (deck.height - l.height) / 2, width: l.width, height: l.height }] };
   }
+  // Lay out along the main axis (x for a row, y for a column); the cross axis centres each card.
+  const vertical = spreadsVertically(deck);
+  const main = (s: { width: number; height: number }) => (vertical ? s.height : s.width);
+  const cross = (s: { width: number; height: number }) => (vertical ? s.width : s.height);
+  const length = main(deck);
   const looks = deck.cards.map((_, i) => look(i));
-  const own = cardSizeOf(deck);
-  const cardW = looks.length ? Math.max(...looks.map((l) => l.width)) : own.width;
+  const own = slotSize(cardSizeOf(deck));
+  const cardMain = looks.length ? Math.max(...looks.map(main)) : main(own);
   const at = withGap ? Math.max(0, Math.min(n, gapAt)) : -1;
   const places = n + (withGap ? 1 : 0);
-  const avail = deck.width - HOLDER_PADDING * 2;
-  const gap = places > 1 ? Math.min(cardW + 8, Math.max(8, (avail - cardW) / (places - 1))) : 0;
-  const total = cardW + gap * (places - 1);
-  const start = Math.max(HOLDER_PADDING, (deck.width - total) / 2);
-  // Left to right: the bottom card (last index) first, the top card (index 0) right-most and drawn last.
-  // The gap takes the place the inserted card would get: right of every card with index >= `at`.
+  const avail = length - HOLDER_PADDING * 2;
+  const step = places > 1 ? Math.min(cardMain + 8, Math.max(8, (avail - cardMain) / (places - 1))) : 0;
+  const total = cardMain + step * (places - 1);
+  const start = Math.max(HOLDER_PADDING, (length - total) / 2);
+  const place = (along: number, size: { width: number; height: number }) => {
+    const across = (cross(deck) - cross(size)) / 2;
+    return vertical ? { x: across, y: along, ...size } : { x: along, y: across, ...size };
+  };
+  // The bottom card (last index) comes first, the top card (index 0) last (right-most / bottom-most) and drawn last.
+  // The gap takes the place the inserted card would get: after every card with index >= `at`.
   const placeOf = (i: number) => (withGap && i < at ? places - 1 - i : n - 1 - i);
   const slots = looks
     .map((l, i) => ({
       index: i,
-      x: start + placeOf(i) * gap + (cardW - l.width) / 2,
-      y: (deck.height - l.height) / 2,
-      width: l.width,
-      height: l.height,
+      ...place(start + placeOf(i) * step + (cardMain - main(l)) / 2, { width: l.width, height: l.height }),
     }))
     .reverse();
   if (!withGap) return { slots };
-  return { slots, gap: { x: start + (n - at) * gap, y: (deck.height - own.height) / 2, width: cardW, height: own.height } };
+  const gapSize = vertical ? { width: own.width, height: cardMain } : { width: cardMain, height: own.height };
+  return { slots, gap: place(start + (n - at) * step, gapSize) };
 }
 
 /**
  * Where a card dropped with its centre at world point `p` goes in a spread holder: the index in `cards`
- * (0 = top, right-most). It lands right of every card whose middle is left of `p`.
+ * (0 = top: right-most, or bottom-most in a column). It lands after every card whose middle is before `p`.
  */
 export function spreadInsertIndex(objects: TabletopObject[], deck: DeckObject, p: Vec2): number {
   const local = toLocal(p, deck);
-  const leftOf = cardSlots(objects, deck).filter((s) => s.x + s.width / 2 < local.x).length;
-  return deck.cards.length - leftOf;
+  const vertical = spreadsVertically(deck);
+  const before = cardSlots(objects, deck).filter((s) => (vertical ? s.y + s.height / 2 < local.y : s.x + s.width / 2 < local.x)).length;
+  return deck.cards.length - before;
 }
 
 /** Insert position for an object dropped into `target` with its centre at `center` (spread holders only). */
@@ -449,13 +471,27 @@ export const HOVER_ZOOM_LABELS: Record<HoverZoom, string> = {
   xlarge: 'Extra large',
 };
 
+/** Cards, holders and piles without their own hover-zoom setting use the one of the deck their card belongs to. */
+export function inheritsHoverZoom(o: TabletopObject): boolean {
+  return o.kind === 'card' || o.kind === 'deck';
+}
+
+/** Name of the "no own setting" choice in the hover-zoom pickers. */
+export function hoverZoomInheritLabel(o: TabletopObject): string {
+  return o.kind === 'card' ? 'Same as deck' : o.kind === 'deck' ? "Same as the cards' deck" : 'Off';
+}
+
 /**
- * Hover-zoom size of an object. Cards without their own setting use their deck's; piles use the deck that
- * owns their top card.
+ * Hover-zoom size of an object. Cards without their own setting use their deck's; holders and piles use the deck
+ * that owns the card shown (`cardId` in a spread, otherwise the top card).
  */
-export function effectiveHoverZoom(state: TableState, o: TabletopObject): HoverZoom {
+export function effectiveHoverZoom(state: TableState, o: TabletopObject, cardId?: string | null): HoverZoom {
   if (o.hoverZoom) return o.hoverZoom;
   if (o.kind === 'card') return homeDeckOf(state, o)?.hoverZoom ?? 'off';
-  if (o.kind === 'deck' && o.isPile && o.cards[0]) return ownerDeckOf(state.objects, o.cards[0].id)?.hoverZoom ?? 'off';
+  if (o.kind === 'deck') {
+    const card = cardId ? o.cards.find((c) => c.id === cardId) : o.cards[0];
+    const owner = card && ownerDeckOf(state.objects, card.id);
+    return (owner && owner.id !== o.id && owner.hoverZoom) || 'off';
+  }
   return 'off';
 }

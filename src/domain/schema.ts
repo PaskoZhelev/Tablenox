@@ -87,6 +87,8 @@ const deckSchema = z.object({
   strokeColor: color.optional(),
   fillOpacity: z.number().min(0).max(1).optional(),
   strokeOpacity: z.number().min(0).max(1).optional(),
+  strokeStyle: z.enum(['dashed', 'solid']).optional(),
+  cardsSideways: z.boolean().optional(),
   label: z.string().max(500).optional(),
   labelPosition: z.enum(['above', 'below']).optional(),
   alignRotation: z.boolean().optional(),

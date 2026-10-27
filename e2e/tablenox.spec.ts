@@ -1005,6 +1005,13 @@ test('zoom on hover is set per object, with a size', async ({ page }) => {
   // Other kinds (e.g. tokens) can zoom too.
   await hover('Marker');
   await expect(preview).toHaveAttribute('data-zoom', 'medium');
+  // A face-down card shows its back enlarged.
+  await storeState(
+    page,
+    `(s) => { const c = s.history.present.objects.find(o => o.name === ${JSON.stringify(follower)}); if (c.faceUp) s.dispatch({ type: 'FlipCard', id: c.id }); return 0; }`,
+  );
+  await hover(follower);
+  await expect(preview).toHaveAttribute('data-zoom', 'large');
 });
 
 test('edit mode: box-select with the camera locked, duplicate all, drag all as one undo step', async ({ page }) => {

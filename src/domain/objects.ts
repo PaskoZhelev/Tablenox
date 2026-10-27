@@ -81,7 +81,7 @@ export function bagCount(bag: BagObject): number {
 export const DEFAULT_BAG_COLOR = '#8b6b43';
 
 export const DEFAULT_HOLDER_COLOR = '#8a8f98';
-export const DEFAULT_HOLDER_FILL_OPACITY = 0.18;
+export const DEFAULT_HOLDER_FILL_OPACITY = 0;
 
 /** Number of tokens in a token stack. */
 export function tokenCount(t: TokenObject): number {

@@ -11,7 +11,7 @@ import {
   resolveCardLook,
   tokenCount,
 } from '../domain/objects';
-import { isSpread, spreadLayout } from '../domain/rules';
+import { cardsSideways, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import type {
   BagObject,
@@ -30,7 +30,7 @@ import type {
 } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import { tapsSuppressed } from '../canvas/touch';
-import { useAssetImage } from './useAssetImage';
+import { useAssetImage, useCrispImage } from './useAssetImage';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -62,7 +62,7 @@ function Placeholder({ w, h, text, fill = '#e9e4d6' }: { w: number; h: number; t
 }
 
 export function BoardVisual({ o, mode }: { o: BoardObject; mode: Mode }) {
-  const img = useAssetImage(o.assetId);
+  const img = useCrispImage(o.assetId, o.width, o.height);
   if (img) return <KImage image={img} width={o.width} height={o.height} />;
   return o.assetId ? (
     <Placeholder w={o.width} h={o.height} text="Loading image…" fill={o.fill} />
@@ -74,7 +74,7 @@ export function BoardVisual({ o, mode }: { o: BoardObject; mode: Mode }) {
 }
 
 export function ImageVisual({ o }: { o: ImageObject }) {
-  const img = useAssetImage(o.assetId);
+  const img = useCrispImage(o.assetId, o.width, o.height);
   if (img) return <KImage image={img} width={o.width} height={o.height} />;
   return <Placeholder w={o.width} h={o.height} text={o.assetId ? 'Loading image…' : 'Choose an image in the inspector'} />;
 }
@@ -91,7 +91,7 @@ interface CardFaceProps {
 }
 
 function CardBack({ w, h, backAssetId, backColor }: Pick<CardFaceProps, 'w' | 'h' | 'backAssetId' | 'backColor'>) {
-  const img = useAssetImage(backAssetId);
+  const img = useCrispImage(backAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) {
     return <KImage image={img} width={w} height={h} cornerRadius={r} />;
@@ -115,7 +115,7 @@ function CardBack({ w, h, backAssetId, backColor }: Pick<CardFaceProps, 'w' | 'h
 }
 
 function CardFront({ w, h, faceAssetId, faceText, faceColor }: Pick<CardFaceProps, 'w' | 'h' | 'faceAssetId' | 'faceText' | 'faceColor'>) {
-  const img = useAssetImage(faceAssetId);
+  const img = useCrispImage(faceAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) return <KImage image={img} width={w} height={h} cornerRadius={r} />;
   const color = cardTextColor(faceText);
@@ -211,6 +211,7 @@ export function DeckVisual({ o }: { o: DeckObject }) {
   const zone = o.color ?? DEFAULT_HOLDER_COLOR;
   const labelBelow = o.labelPosition === 'below';
   const { slots, gap } = spreadLayout(objects, o, gapAt);
+  const sideways = cardsSideways(o);
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
   const lookOf = (i: number) => resolveCardLook(o.cards[i], o, ownerDeckOf(objects, o.cards[i].id));
@@ -225,7 +226,7 @@ export function DeckVisual({ o }: { o: DeckObject }) {
             cornerRadius={10}
             stroke={o.strokeColor ?? zone}
             strokeWidth={2}
-            dash={[10, 6]}
+            dash={o.strokeStyle === 'solid' ? undefined : [10, 6]}
             opacity={o.strokeOpacity ?? 1}
           />
           {o.label && (
@@ -275,11 +276,12 @@ export function DeckVisual({ o }: { o: DeckObject }) {
       {slots.map((s) => {
         const c = o.cards[s.index];
         const look = lookOf(s.index);
+        // A sideways card is drawn upright and turned 90° clockwise about its slot's top-right corner.
         return (
-          <Group key={c.id} x={s.x} y={s.y} name="deck-card">
+          <Group key={c.id} x={s.x + (sideways ? s.width : 0)} y={s.y} rotation={sideways ? 90 : 0} name="deck-card">
             <CardVisual
-              w={s.width}
-              h={s.height}
+              w={sideways ? s.height : s.width}
+              h={sideways ? s.width : s.height}
               faceUp={c.faceUp === true}
               faceAssetId={c.faceAssetId}
               faceText={c.faceText}
@@ -460,7 +462,7 @@ export function TokenVisual({ o }: { o: TokenObject }) {
 
 /** One token. `shadeOnly` draws a dark translucent copy, used to darken the tokens under a stack's top one. */
 function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
-  const img = useAssetImage(o.assetId);
+  const img = useCrispImage(o.assetId, o.width, o.height);
   const w = o.width;
   const h = o.height;
   const r = Math.min(w, h) / 2;
