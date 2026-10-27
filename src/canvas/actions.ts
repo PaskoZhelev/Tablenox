@@ -147,7 +147,7 @@ export function runButton(id: string): void {
 }
 
 /**
- * Pick mode: adds/removes table objects in the step being edited (for a destination, the click replaces it).
+ * Pick mode: adds/removes table objects in the step being edited (its object list or a move step's destinations).
  * A single click on an object the step can't use explains why.
  */
 export function pickOnTable(ids: string[], how: 'toggle' | 'add'): void {

@@ -105,8 +105,8 @@ export interface DeckObject extends BaseObject {
   strokeOpacity?: number;
   /** Zone outline style; missing means dashed. */
   strokeStyle?: 'dashed' | 'solid';
-  /** Holders only: cards inside are shown turned 90° (lying sideways). They come out upright. */
-  cardsSideways?: boolean;
+  /** Holders only: degrees (clockwise, 0–359) the cards inside are turned; missing means upright. They come out upright. */
+  cardRotation?: number;
   /** Text shown next to the zone; empty means no text. */
   label?: string;
   /** Where the label sits relative to the zone; missing means above. */
@@ -228,14 +228,17 @@ interface StepBase {
   objectIds: ObjectId[];
 }
 
-/** Moves objects (or cards out of holders/piles) onto a destination object. */
+/** Moves objects (or cards out of holders/piles) onto one or more destination objects. */
 export interface MoveStep extends StepBase {
   type: 'move';
-  /** Holder, pile or any other object the items are moved onto. */
-  targetId?: ObjectId;
+  /**
+   * Holders, piles or any other objects the items are moved onto. With several, cards from holders/piles/bags
+   * are dealt to them in turn (`count` each) and loose pieces go one per destination in turn.
+   */
+  targetIds: ObjectId[];
   /** Holders/piles give up cards from their top or bottom (the holder itself never moves). */
   deckMode: DeckMoveMode;
-  /** Number of cards taken from each holder/pile; missing means all of them. */
+  /** Number of cards each destination gets from each holder/pile/bag; missing means all of them. */
   count?: number;
   orientation: StepOrientation;
 }

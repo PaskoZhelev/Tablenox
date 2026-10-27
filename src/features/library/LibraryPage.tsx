@@ -57,8 +57,8 @@ function StorageNotice({ onDismiss }: { onDismiss: () => void }) {
   return (
     <aside className="notice" aria-label="Storage information">
       <div className="notice-text">
-        <strong>Games are stored in this browser only.</strong> Clearing site data or using a private window will remove them, so export
-        the ones you care about ({EXPORT_EXTENSION}).
+        <strong>Games are stored in this browser only.</strong> Clearing site data or using a private window will remove them, so export the
+        ones you care about ({EXPORT_EXTENSION}).
         {estimate && estimate.quota > 0 && (
           <span className="notice-meta">
             {' '}
@@ -162,19 +162,19 @@ function GameCard({ g }: { g: Game }) {
               className="lib-tool lib-tool-danger"
               aria-label={`Delete ${g.title}`}
               title="Delete"
-            onClick={() =>
-              run(async () => {
-                const ok = await confirmDialog({
-                  title: `Delete "${g.title}"?`,
-                  message: 'This cannot be undone. Export it first if you want a backup.',
-                  confirmLabel: 'Delete',
-                  danger: true,
-                });
-                if (ok) await repo.deleteGame(g.id);
-              })
-            }
-          >
-            <Icon name="trash" size={16} />
+              onClick={() =>
+                run(async () => {
+                  const ok = await confirmDialog({
+                    title: `Delete "${g.title}"?`,
+                    message: 'This cannot be undone. Export it first if you want a backup.',
+                    confirmLabel: 'Delete',
+                    danger: true,
+                  });
+                  if (ok) await repo.deleteGame(g.id);
+                })
+              }
+            >
+              <Icon name="trash" size={16} />
             </button>
           </span>
         </div>
@@ -261,17 +261,13 @@ export function LibraryPage() {
       )}
 
       <section className="library-section" aria-labelledby="games-h">
-        <h2 id="games-h">
-          Games{games && games.length > 0 && <span className="count">{games.length}</span>}
-        </h2>
+        <h2 id="games-h">Games{games && games.length > 0 && <span className="count">{games.length}</span>}</h2>
         {games === undefined ? (
           <p className="hint">Loading…</p>
         ) : games.length === 0 ? (
           <div className="empty-state">
             <p className="empty-title">The table is empty.</p>
-            <p>
-              Start a new game, import a {EXPORT_EXTENSION} file, or add the sample roll-and-write to see how things fit together.
-            </p>
+            <p>Start a new game, import a {EXPORT_EXTENSION} file, or add the sample roll-and-write to see how things fit together.</p>
           </div>
         ) : (
           <ul className="lib-grid">

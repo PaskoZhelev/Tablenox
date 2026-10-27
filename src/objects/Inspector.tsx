@@ -615,6 +615,12 @@ function HolderLinks({ holders, empty }: { holders: DeckObject[]; empty: string 
 
 const MAX_LISTED_BAG_ITEMS = 200;
 
+/** A holder's card rotation as stored: whole degrees in 0–359, upright stored as missing. */
+function setCardRotation(deg: number): number | undefined {
+  const d = ((Math.round(deg) % 360) + 360) % 360 || 0;
+  return d === 0 ? undefined : d;
+}
+
 function bagItemLabel(i: BagItem): string {
   const name = displayName(i);
   if (i.kind === 'deck') return `${name} (${i.cards.length} card${i.cards.length === 1 ? '' : 's'})`;
@@ -786,11 +792,24 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               ]}
               onChange={(strokeStyle) => update({ strokeStyle })}
             />
-            <CheckboxField
-              label="Cards lie sideways (turned 90°)"
-              checked={!!o.cardsSideways}
-              onChange={(cardsSideways) => update({ cardsSideways })}
+            <NumberField
+              label="Card rotation in the holder (°)"
+              value={o.cardRotation ?? 0}
+              onCommit={(deg) => update({ cardRotation: setCardRotation(deg ?? 0) })}
             />
+            <div className="button-row" role="group" aria-label="Card rotation presets">
+              {[0, 90, 180, 270].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  className={`btn btn-small ${(o.cardRotation ?? 0) === deg ? 'is-active' : ''}`}
+                  aria-pressed={(o.cardRotation ?? 0) === deg}
+                  onClick={() => update({ cardRotation: setCardRotation(deg) })}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
             <CheckboxField
               label="Rotate objects to match holder"
               checked={!!o.alignRotation}

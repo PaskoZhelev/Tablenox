@@ -65,7 +65,7 @@ describe('automation buttons', () => {
   it('does nothing without steps or with missing objects', () => {
     const { state, button } = setup();
     expect(planButton(state, button)).toBeNull();
-    const missing = { ...button, steps: [step('roll', ['gone']), step('move', ['gone'], { targetId: 'nowhere' })] };
+    const missing = { ...button, steps: [step('roll', ['gone']), step('move', ['gone'], { targetIds: ['nowhere'] })] };
     expect(planButton(state, missing)).toBeNull();
   });
 
@@ -147,7 +147,7 @@ describe('automation buttons', () => {
 
   it('moves cards from one holder into another, face down; the holders themselves stay put', () => {
     const { state, button, deck, holder } = setup();
-    const move = step<MoveStep>('move', [deck.id], { targetId: holder.id, deckMode: 'top', count: 2, orientation: 'faceDown' });
+    const move = step<MoveStep>('move', [deck.id], { targetIds: [holder.id], deckMode: 'top', count: 2, orientation: 'faceDown' });
     const next = run(state, { ...button, steps: [move] });
     expect(names(next, deck.id)).toEqual(['C3', 'C4', 'C5']);
     expect(names(next, holder.id)).toEqual(['C1', 'C2']);
@@ -163,11 +163,11 @@ describe('automation buttons', () => {
 
   it('a holder without a card count gives up all its cards; top / bottom choose which ones', () => {
     const { state, button, deck, holder } = setup();
-    const all = run(state, { ...button, steps: [step('move', [deck.id], { targetId: holder.id })] });
+    const all = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [holder.id] })] });
     expect(names(all, holder.id)).toEqual(['C1', 'C2', 'C3', 'C4', 'C5']);
     expect(get<DeckObject>(all, deck.id).cards).toHaveLength(0);
     expect(get(all, deck.id).position).toEqual(deck.position);
-    const bottom = run(state, { ...button, steps: [step('move', [deck.id], { targetId: holder.id, deckMode: 'bottom', count: 2 })] });
+    const bottom = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [holder.id], deckMode: 'bottom', count: 2 })] });
     expect(names(bottom, holder.id)).toEqual(['C4', 'C5']);
   });
 
@@ -176,7 +176,7 @@ describe('automation buttons', () => {
     const token = byKind(state, 'token');
     const next = run(state, {
       ...button,
-      steps: [step('move', [card.id], { targetId: holder.id }), step('move', [token.id], { targetId: holder.id })],
+      steps: [step('move', [card.id], { targetIds: [holder.id] }), step('move', [token.id], { targetIds: [holder.id] })],
     });
     expect(get(next, card.id)).toBeUndefined();
     expect(get<DeckObject>(next, holder.id).cards).toHaveLength(1);
@@ -186,14 +186,14 @@ describe('automation buttons', () => {
   it('stacks cards moved onto a non-holder object into one pile (so the count shows)', () => {
     const { state, button, deck } = setup();
     const token = byKind(state, 'token');
-    const next = run(state, { ...button, steps: [step('move', [deck.id], { targetId: token.id, count: 2 })] });
+    const next = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [token.id], count: 2 })] });
     expect(piles(next)).toHaveLength(1);
     // Dealt one after the other: the second card ends on top.
     expect(piles(next)[0].cards.map((c) => c.name)).toEqual(['C2', 'C1']);
     const pile = piles(next)[0];
     expect(pile.position.x + pile.width / 2).toBeCloseTo(token.position.x + token.width / 2, 0);
     // A single card stays a card.
-    const one = run(state, { ...button, steps: [step('move', [deck.id], { targetId: token.id, count: 1 })] });
+    const one = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [token.id], count: 1 })] });
     expect(piles(one)).toHaveLength(0);
     expect(
       cardsOnTable(one)
@@ -202,9 +202,33 @@ describe('automation buttons', () => {
     ).toEqual(['C1']);
   });
 
+  it('deals to several destinations in turn: N cards each, or every card when no count is set', () => {
+    const { state, button, deck, holder, card } = setup();
+    const extra = [1, 2, 3].map((i) => ({
+      ...createObject('deck', { center: { x: 2000 + i * 300, y: 0 }, zIndex: 60 + i }),
+      name: `H${i}`,
+    }));
+    const s = { ...state, objects: [...state.objects, ...extra] };
+    const targets = [holder.id, ...extra.map((h) => h.id)];
+    const one = run(s, { ...button, steps: [step('move', [deck.id], { targetIds: targets, count: 1 })] });
+    expect(targets.map((id) => names(one, id))).toEqual([['C1'], ['C2'], ['C3'], ['C4']]);
+    expect(names(one, deck.id)).toEqual(['C5']);
+    // Without a count the whole deck is dealt round after round; the last card dealt to a holder is on top.
+    const all = run(s, { ...button, steps: [step('move', [deck.id], { targetIds: [holder.id, extra[0].id] })] });
+    expect(names(all, holder.id)).toEqual(['C5', 'C3', 'C1']);
+    expect(names(all, extra[0].id)).toEqual(['C4', 'C2']);
+    // Asking for more than there is deals what is left.
+    const short = run(s, { ...button, steps: [step('move', [deck.id], { targetIds: targets, count: 2 })] });
+    expect(targets.map((id) => get<DeckObject>(short, id).cards.length)).toEqual([2, 1, 1, 1]);
+    // Loose cards go one per destination; a destination is never its own source.
+    const loose = run(s, { ...button, steps: [step('move', [card.id, holder.id], { targetIds: [extra[1].id, holder.id] })] });
+    expect(get<DeckObject>(loose, extra[1].id).cards).toHaveLength(1);
+    expect(get(loose, card.id)).toBeUndefined();
+  });
+
   it('recall sends a holder’s foreign cards home, and a deck gathers all of its cards', () => {
     const { state, button, deck, holder } = setup();
-    const moved = run(state, { ...button, steps: [step('move', [deck.id], { targetId: holder.id, count: 3 })] });
+    const moved = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [holder.id], count: 3 })] });
     expect(get<DeckObject>(moved, deck.id).cards).toHaveLength(2);
     const recalled = run(moved, { ...button, steps: [step('recall', [holder.id])] });
     expect(get<DeckObject>(recalled, deck.id).cards).toHaveLength(5);
@@ -219,7 +243,7 @@ describe('automation buttons', () => {
     const next = run(state, {
       ...button,
       steps: [
-        step('move', [deck.id], { targetId: holder.id, count: 2, orientation: 'faceDown' }),
+        step('move', [deck.id], { targetIds: [holder.id], count: 2, orientation: 'faceDown' }),
         step('flip', [holder.id], { mode: 'faceUp' }),
       ],
     });
@@ -229,7 +253,7 @@ describe('automation buttons', () => {
 
   it('plans one deterministic batch command (random values and new ids are decided while planning)', () => {
     const { state, button, deck, holder, die } = setup();
-    const steps = [step('shuffle', [deck.id]), step('move', [deck.id], { targetId: holder.id, count: 2 }), step('roll', [die.id])];
+    const steps = [step('shuffle', [deck.id]), step('move', [deck.id], { targetIds: [holder.id], count: 2 }), step('roll', [die.id])];
     const cmd = planButton(state, { ...button, steps })!;
     expect(cmd.type).toBe('Batch');
     expect(applyCommand(state, cmd)).toEqual(applyCommand(state, cmd));
@@ -244,10 +268,16 @@ describe('automation buttons', () => {
 
   it('describes steps', () => {
     const { state, deck, holder } = setup();
-    expect(describeStep(state, step('move', [deck.id], { targetId: holder.id, deckMode: 'top', count: 2 }))).toBe(
+    expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id], deckMode: 'top', count: 2 }))).toBe(
       `Move top 2 cards of ${deck.name} to ${holder.name}`,
     );
-    expect(describeStep(state, step('move', [deck.id], { targetId: holder.id }))).toBe(`Move ${deck.name} to ${holder.name}`);
+    expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id] }))).toBe(`Move ${deck.name} to ${holder.name}`);
+    expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id, deck.id], count: 1 }))).toBe(
+      `Deal top 1 card of ${deck.name} to each of ${holder.name}, ${deck.name}`,
+    );
+    expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id, deck.id] }))).toBe(
+      `Deal ${deck.name} among ${holder.name}, ${deck.name}`,
+    );
     expect(describeStep(state, step('roll', []))).toBe('Roll nothing selected');
   });
 });
@@ -274,15 +304,17 @@ describe('button label size', () => {
 });
 
 describe('picking step objects on the table', () => {
-  it('toggles objects, adds box selections without duplicates and replaces the destination', () => {
+  it('toggles objects and destinations, adding box selections without duplicates', () => {
     const roll = step('roll', ['a']);
     expect(applyPick(roll, 'objects', ['b'], 'toggle').objectIds).toEqual(['a', 'b']);
     expect(applyPick(roll, 'objects', ['a'], 'toggle').objectIds).toEqual([]);
     expect(applyPick(roll, 'objects', ['a', 'b', 'b', 'c'], 'add').objectIds).toEqual(['a', 'b', 'c']);
     expect(applyPick(roll, 'objects', ['a'], 'add')).toBe(roll);
-    const move = step<MoveStep>('move', [], { targetId: 'x' });
-    expect(applyPick(move, 'target', ['y'], 'toggle')).toMatchObject({ targetId: 'y', objectIds: [] });
-    expect(applyPick(move, 'target', ['x'], 'toggle')).toBe(move);
+    const move = step<MoveStep>('move', [], { targetIds: ['x'] });
+    expect(applyPick(move, 'target', ['y'], 'toggle')).toMatchObject({ targetIds: ['x', 'y'], objectIds: [] });
+    expect(applyPick(move, 'target', ['x'], 'toggle')).toMatchObject({ targetIds: [] });
+    expect(applyPick(move, 'target', ['x', 'z'], 'add')).toMatchObject({ targetIds: ['x', 'z'] });
+    expect(applyPick(move, 'target', ['x'], 'add')).toBe(move);
     expect(pickedIds(move, 'target')).toEqual(['x']);
   });
 
@@ -301,7 +333,7 @@ describe('picking step objects on the table', () => {
 describe('button persistence', () => {
   it('round-trips buttons through the game schema', () => {
     const { state, button } = setup(
-      step('move', ['d'], { targetId: 'h', deckMode: 'bottom', count: 3, orientation: 'faceUp' }),
+      step('move', ['d'], { targetIds: ['h'], deckMode: 'bottom', count: 3, orientation: 'faceUp' }),
       step('rotate', ['d'], { mode: 'to', degrees: 90 }),
       step('sort', ['d'], { by: 'name' }),
       step('counter', ['c'], { mode: 'set', amount: 3 }),
@@ -311,6 +343,17 @@ describe('button persistence', () => {
     const parsed = byKind<ButtonObject>(tableOf(parseGame(JSON.parse(JSON.stringify(game)))), 'button');
     expect(parsed.steps).toEqual(button.steps);
     expect(parsed.fontSize).toBe(30);
+  });
+
+  it("reads a move step's single destination and a holder's sideways flag from earlier builds", () => {
+    const { state, button } = setup();
+    const old = { ...button, steps: [{ id: 's', type: 'move', objectIds: ['d'], targetId: 'h', deckMode: 'top', orientation: 'keep' }] };
+    const game = { ...fixtureGame(), objects: [...state.objects.filter((o) => o.id !== button.id), old] };
+    const parsed = byKind<ButtonObject>(tableOf(parseGame(JSON.parse(JSON.stringify(game)))), 'button');
+    expect(parsed.steps[0]).toEqual({ id: 's', type: 'move', objectIds: ['d'], targetIds: ['h'], deckMode: 'top', orientation: 'keep' });
+    const sideways = { ...game, objects: game.objects.map((o) => (o.kind === 'deck' && !o.isPile ? { ...o, cardsSideways: true } : o)) };
+    const decks = parseGame(JSON.parse(JSON.stringify(sideways))).objects.filter((o): o is DeckObject => o.kind === 'deck' && !o.isPile);
+    expect(decks.every((d) => d.cardRotation === 90 && !('cardsSideways' in d))).toBe(true);
   });
 
   it('rejects unknown step types', () => {

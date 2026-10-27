@@ -109,7 +109,7 @@ export interface CardSlot {
   /** Top-left corner in the holder's unrotated frame. */
   x: number;
   y: number;
-  /** Size of the slot as seen in the holder (a sideways card's width is its height). */
+  /** Size of the slot: the box around the card as turned by the holder's `cardRotation`. */
   width: number;
   height: number;
 }
@@ -127,9 +127,24 @@ export function isSpread(deck: DeckObject): boolean {
   return !deck.isPile && deck.layout === 'spread';
 }
 
-/** True when the holder shows its cards turned 90° (piles never do). */
-export function cardsSideways(deck: DeckObject): boolean {
-  return !deck.isPile && !!deck.cardsSideways;
+/** Degrees (clockwise, 0–359) a holder turns the cards it shows; piles never turn them. */
+export function cardRotationOf(deck: DeckObject): number {
+  return deck.isPile ? 0 : normalizeDegrees(deck.cardRotation ?? 0);
+}
+
+function normalizeDegrees(d: number): number {
+  const n = ((Math.round(d) % 360) + 360) % 360;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Size of the box around a `size` card turned by `degrees`. */
+export function rotatedBox(size: { width: number; height: number }, degrees: number): { width: number; height: number } {
+  if (degrees % 180 === 0) return { width: size.width, height: size.height };
+  if (degrees % 90 === 0) return { width: size.height, height: size.width };
+  const r = (degrees * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(r));
+  const sin = Math.abs(Math.sin(r));
+  return { width: size.width * cos + size.height * sin, height: size.width * sin + size.height * cos };
 }
 
 /** A spread runs down a holder that is taller than it is wide. */
@@ -149,8 +164,8 @@ export function spreadLayout(
   const n = deck.cards.length;
   const withGap = isSpread(deck) && gapAt !== undefined && gapAt !== null;
   if (n === 0 && !withGap) return { slots: [] };
-  const sideways = cardsSideways(deck);
-  const slotSize = (s: { width: number; height: number }) => (sideways ? { width: s.height, height: s.width } : s);
+  const turn = cardRotationOf(deck);
+  const slotSize = (s: { width: number; height: number }) => rotatedBox(s, turn);
   const look = (i: number) => slotSize(resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id)));
   if (!isSpread(deck)) {
     const l = look(0);

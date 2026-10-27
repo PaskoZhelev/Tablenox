@@ -301,7 +301,7 @@ describe('automation with bags', () => {
     const { state, button, bag, card, die, holder, deck } = setup();
     const into = run(state, {
       ...button,
-      steps: [step('move', [card.id, die.id], { targetId: bag.id }), step('move', [deck.id], { targetId: bag.id, count: 2 })],
+      steps: [step('move', [card.id, die.id], { targetIds: [bag.id] }), step('move', [deck.id], { targetIds: [bag.id], count: 2 })],
     });
     const b = get<BagObject>(into, bag.id)!;
     expect(b.items.map((i) => i.kind).sort()).toEqual(['card', 'card', 'card', 'die']);
@@ -310,7 +310,7 @@ describe('automation with bags', () => {
     const topThree = b.items.slice(0, 3);
     const onto = run(into, {
       ...button,
-      steps: [step('move', [bag.id], { targetId: holder.id, count: 3 })],
+      steps: [step('move', [bag.id], { targetIds: [holder.id], count: 3 })],
     });
     // Cards go into the holder; anything else is centred on it on the table.
     expect(get<DeckObject>(onto, holder.id)!.cards.map((c) => c.id)).toHaveLength(topThree.filter((i) => i.kind === 'card').length);
@@ -320,7 +320,7 @@ describe('automation with bags', () => {
 
   it('shuffles a bag and draws from its top or bottom', () => {
     const { state, button, bag, card, die, token } = setup();
-    const filled = run(state, { ...button, steps: [step('move', [card.id, die.id, token.id], { targetId: bag.id })] });
+    const filled = run(state, { ...button, steps: [step('move', [card.id, die.id, token.id], { targetIds: [bag.id] })] });
     const order = get<BagObject>(filled, bag.id)!.items.map((i) => i.id);
     const shuffled = run(filled, { ...button, steps: [step('shuffle', [bag.id])] }, 5);
     expect(
@@ -333,20 +333,20 @@ describe('automation with bags', () => {
     const withTarget = { ...shuffled, objects: [...shuffled.objects, target] };
     const top = get<BagObject>(withTarget, bag.id)!.items[0].id;
     const bottom = get<BagObject>(withTarget, bag.id)!.items.at(-1)!.id;
-    const drawnTop = run(withTarget, { ...button, steps: [step('move', [bag.id], { targetId: target.id, count: 1 })] });
+    const drawnTop = run(withTarget, { ...button, steps: [step('move', [bag.id], { targetIds: [target.id], count: 1 })] });
     expect(get(drawnTop, top)).toBeDefined();
     expect(get<BagObject>(drawnTop, bag.id)!.items.some((i) => i.id === top)).toBe(false);
     const drawnBottom = run(withTarget, {
       ...button,
-      steps: [step('move', [bag.id], { targetId: target.id, count: 1, deckMode: 'bottom' })],
+      steps: [step('move', [bag.id], { targetIds: [target.id], count: 1, deckMode: 'bottom' })],
     });
     expect(get(drawnBottom, bottom)).toBeDefined();
   });
 
   it('recalls pieces to their bag, one by one or through the bag itself', () => {
     const { state, button, bag, card, die } = setup();
-    const filled = run(state, { ...button, steps: [step('move', [card.id, die.id], { targetId: bag.id })] });
-    const out = run(filled, { ...button, steps: [step('move', [bag.id], { targetId: filled.objects[0].id })] });
+    const filled = run(state, { ...button, steps: [step('move', [card.id, die.id], { targetIds: [bag.id] })] });
+    const out = run(filled, { ...button, steps: [step('move', [bag.id], { targetIds: [filled.objects[0].id] })] });
     expect(get<BagObject>(out, bag.id)!.items).toHaveLength(0);
     const one = run(out, { ...button, steps: [step('recall', [die.id])] });
     expect(get<BagObject>(one, bag.id)!.items.map((i) => i.id)).toEqual([die.id]);

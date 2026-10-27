@@ -49,13 +49,17 @@ const objectLabel = (o: TabletopObject) => (o.name.trim() ? `${o.name} (${kindLa
 /** Toggles pick mode for one step field: clicks on the table then choose objects for it. */
 function PickToggle({ buttonId, stepId, field }: { buttonId: ObjectId; stepId: string; field: PickField }) {
   const active = useTableStore((s) => s.picking?.buttonId === buttonId && s.picking.stepId === stepId && s.picking.field === field);
-  const label = field === 'target' ? 'Pick destination on table' : 'Pick on table';
+  const label = field === 'target' ? 'Pick destinations on table' : 'Pick on table';
   return (
     <button
       type="button"
       className={`btn btn-small ${active ? 'is-active' : ''}`}
       aria-pressed={active}
-      title={field === 'target' ? 'Click the destination on the table' : 'Click objects on the table; Shift+drag to box-select several'}
+      title={
+        field === 'target'
+          ? 'Click destinations on the table; click again to remove one'
+          : 'Click objects on the table; Shift+drag to box-select several'
+      }
       onClick={() => useTableStore.getState().setPicking(active ? null : { buttonId, stepId, field })}
     >
       <Icon name="select" size={14} /> {active ? 'Done picking' : label}
@@ -139,7 +143,7 @@ function ObjectPicker({
   );
 }
 
-/** A move step's destination: one object, picked on the table or from the list. */
+/** A move step's destinations: one or more objects, picked on the table or from the list. */
 function TargetPicker({
   step,
   candidates,
@@ -151,31 +155,41 @@ function TargetPicker({
   candidates: TabletopObject[];
   allObjects: TabletopObject[];
   pick: { buttonId: ObjectId; stepId: string };
-  onChange: (targetId: ObjectId | undefined) => void;
+  onChange: (targetIds: ObjectId[]) => void;
 }) {
+  const ids = step.targetIds;
+  const available = candidates.filter((o) => !ids.includes(o.id));
   return (
     <div className="field pick-target">
       <span className="pick-heading">
         <Icon name="move" size={14} /> Where to move it
       </span>
-      {step.targetId && (
+      {ids.length > 0 && (
         <ul className="pick-list" aria-label="Where to move it">
-          <Chip id={step.targetId} objects={allObjects} onRemove={() => onChange(undefined)} />
+          {ids.map((id) => (
+            <Chip key={id} id={id} objects={allObjects} onRemove={() => onChange(ids.filter((x) => x !== id))} />
+          ))}
         </ul>
       )}
       <div className="pick-row">
         <PickToggle {...pick} field="target" />
-        <select aria-label="Destination from list" value="" onChange={(e) => e.target.value && onChange(e.target.value)}>
-          <option value="">{step.targetId ? 'Change from list…' : 'Choose from list…'}</option>
-          {candidates
-            .filter((o) => o.id !== step.targetId)
-            .map((o) => (
-              <option key={o.id} value={o.id}>
-                {objectLabel(o)}
-              </option>
-            ))}
+        <select
+          aria-label="Destination from list"
+          value=""
+          disabled={available.length === 0}
+          onChange={(e) => e.target.value && onChange([...ids, e.target.value])}
+        >
+          <option value="">{available.length === 0 ? 'No more objects' : ids.length ? 'Add from list…' : 'Choose from list…'}</option>
+          {available.map((o) => (
+            <option key={o.id} value={o.id}>
+              {objectLabel(o)}
+            </option>
+          ))}
         </select>
       </div>
+      {ids.length > 1 && (
+        <p className="hint">Cards are dealt to these destinations in turn (the number below is how many each one gets).</p>
+      )}
     </div>
   );
 }
@@ -214,10 +228,14 @@ function StepFields({
             candidates={byZ.filter((o) => canPick(step, 'target', o, buttonId))}
             allObjects={objects}
             pick={pick}
-            onChange={(targetId) => onChange({ ...step, targetId })}
+            onChange={(targetIds) => onChange({ ...step, targetIds })}
           />
           <NumberField
-            label="Cards or pieces taken from each holder / pile / bag (empty = all)"
+            label={
+              step.targetIds.length > 1
+                ? 'Cards or pieces each destination gets from each holder / pile / bag (empty = deal them all)'
+                : 'Cards or pieces taken from each holder / pile / bag (empty = all)'
+            }
             value={step.count ?? null}
             min={1}
             max={5000}
@@ -545,7 +563,7 @@ export function PickBanner() {
       <Icon name="select" size={16} />
       <span>
         {picking.field === 'target'
-          ? `Click the destination for ${what}. Click another object to change it.`
+          ? `Click destinations for ${what}; click one again to remove it. Shift+drag to select several.`
           : `Click objects to add or remove them for ${what}. Shift+drag to select several.`}
       </span>
       <button type="button" className="btn btn-small" onClick={() => useTableStore.getState().setPicking(null)}>

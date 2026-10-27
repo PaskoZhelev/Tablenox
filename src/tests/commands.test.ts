@@ -4,6 +4,7 @@ import { createHistory, HISTORY_LIMIT, pushHistory, redoHistory, undoHistory } f
 import { seededSource } from '../domain/random';
 import {
   cardIndexAt,
+  cardRotationOf,
   cardSlots,
   drawCardCommand,
   drawCardsCommand,
@@ -14,6 +15,7 @@ import {
   homeDeckOf,
   resolveDrop,
   rollDieCommand,
+  rotatedBox,
   shuffleDeckCommand,
   spreadInsertIndex,
   spreadLayout,
@@ -612,20 +614,26 @@ describe('deck rules', () => {
     expect(gapped.gap!.y).toBeLessThan(gapped.slots[0].y);
   });
 
-  it('a holder can show its cards sideways; they still come out upright', () => {
+  it('a holder can turn the cards it shows by any angle; they still come out upright', () => {
     let s = tableOf(fixtureGame());
     const id = deckOf(s).id;
     const size = cardSizeOf(deckOf(s));
-    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 900, height: 200, cardsSideways: true } });
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 900, height: 200, cardRotation: 90 } });
     const holder = () => s.objects.find((o) => o.id === id) as DeckObject;
     const slots = cardSlots(s.objects, holder());
     expect(slots.every((sl) => sl.width === size.height && sl.height === size.width)).toBe(true);
     expect(new Set(slots.map((sl) => sl.y)).size).toBe(1);
+    // Upside down keeps the slot size; other angles take the box around the turned card.
+    expect(rotatedBox(size, 180)).toEqual(size);
+    expect(rotatedBox(size, 270)).toEqual({ width: size.height, height: size.width });
+    const diag = rotatedBox(size, 45);
+    expect(diag.width).toBeCloseTo(((size.width + size.height) * Math.SQRT2) / 2);
+    expect(cardRotationOf({ ...holder(), cardRotation: -90 })).toBe(270);
     const draw = drawCardCommand(holder())! as Extract<Command, { type: 'DrawCard' }>;
     s = applyCommand(s, draw);
     const card = cardsOnTable(s).find((c) => c.id === draw.cardId)!;
     expect([card.width, card.height, card.rotation]).toEqual([size.width, size.height, 0]);
-    // Piles never lie sideways.
+    // Piles never turn their cards.
     expect(cardSlots(s.objects, { ...holder(), isPile: true, layout: 'stack' })[0].width).toBe(size.width);
   });
 

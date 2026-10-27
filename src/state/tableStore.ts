@@ -38,7 +38,7 @@ export interface ContextMenuState {
 export interface PickingState {
   buttonId: string;
   stepId: string;
-  /** `objects`: the step's object list (toggle); `target`: a move step's destination (single). */
+  /** `objects`: the step's object list; `target`: a move step's destinations (both toggle). */
   field: 'objects' | 'target';
 }
 

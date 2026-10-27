@@ -677,7 +677,7 @@ test('bags: drop pieces in, draw by dragging or menu, shuffle, recall; automatio
       const step = (type, extra) => ({ id: 'st-' + type, objectIds: [bag.id], type, ...extra });
       s.dispatch({ type: 'AddObject', object: { id: 'btn-1', kind: 'button', name: 'Go', position: { x: 900, y: 500 }, width: 150, height: 52,
         rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Go', color: '#3f8fd8', textColor: '#ffffff',
-        steps: [step('shuffle'), { ...step('move'), id: 'st-move', targetId: discard.id, deckMode: 'top', count: 1, orientation: 'keep' }] } });
+        steps: [step('shuffle'), { ...step('move'), id: 'st-move', targetIds: [discard.id], deckMode: 'top', count: 1, orientation: 'keep' }] } });
     }`,
   );
   const go = await objectScreenPos(page, 'Go');
@@ -1416,14 +1416,20 @@ test('automation button: pick step objects on the table by clicking and Shift+dr
   await expect(banner).toBeVisible();
   await click('Bonus deck');
   await panel.getByRole('button', { name: 'Done picking' }).click();
-  await panel.getByRole('button', { name: 'Pick destination on table' }).click();
+  await panel.getByRole('button', { name: 'Pick destinations on table' }).click();
   const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
   const discardId = await obj<string>(page, 'Discard', 'o.id');
-  // Picking a destination waits for Done too; clicking another object changes it.
+  const markerId = await obj<string>(page, 'Marker', 'o.id');
+  // Picking destinations waits for Done too; clicks add destinations, a second click removes one.
   await click('Marker');
-  await expect.poll(() => obj(page, 'Button', 'o.steps[0].targetId')).toBe(await obj<string>(page, 'Marker', 'o.id'));
+  await expect.poll(() => obj(page, 'Button', 'o.steps[0].targetIds')).toEqual([markerId]);
   await click('Discard');
-  await expect.poll(() => obj(page, 'Button', 'o.steps[0].targetId')).toBe(discardId);
+  await expect.poll(() => obj(page, 'Button', 'o.steps[0].targetIds')).toEqual([markerId, discardId]);
+  await expect(
+    panel.getByLabel('Cards or pieces each destination gets from each holder / pile / bag (empty = deal them all)'),
+  ).toBeVisible();
+  await click('Marker');
+  await expect.poll(() => obj(page, 'Button', 'o.steps[0].targetIds')).toEqual([discardId]);
   await expect(banner).toBeVisible();
   await panel.getByRole('button', { name: 'Done picking' }).click();
   await expect(banner).toHaveCount(0);
@@ -1434,7 +1440,7 @@ test('automation button: pick step objects on the table by clicking and Shift+dr
   await panel.getByLabel('Face of moved cards').selectOption('faceDown');
   await expect
     .poll(() => obj(page, 'Button', 'o.steps[0]'))
-    .toMatchObject({ objectIds: [deckId], targetId: discardId, deckMode: 'top', count: 2, orientation: 'faceDown' });
+    .toMatchObject({ objectIds: [deckId], targetIds: [discardId], deckMode: 'top', count: 2, orientation: 'faceDown' });
   // Picking never selected or moved the clicked objects.
   expect(await storeState(page, '(s) => s.selectedId')).toBe(buttonId);
   // Clicking an object in the step's list selects it on the table.

@@ -104,7 +104,7 @@ export function createStep(type: StepType): ButtonStep {
   const base = { id: newId(), objectIds: [] as ObjectId[] };
   switch (type) {
     case 'move':
-      return { ...base, type, deckMode: 'top', orientation: 'keep' };
+      return { ...base, type, targetIds: [], deckMode: 'top', orientation: 'keep' };
     case 'rotate':
       return { ...base, type, mode: 'by', degrees: 90 };
     case 'flip':
@@ -149,21 +149,29 @@ export function canPick(step: ButtonStep, field: PickField, o: TabletopObject, b
 /** Ids currently chosen in a step field. */
 export function pickedIds(step: ButtonStep, field: PickField): ObjectId[] {
   if (field === 'objects') return step.objectIds;
-  return step.type === 'move' && step.targetId ? [step.targetId] : [];
+  return step.type === 'move' ? step.targetIds : [];
+}
+
+/** `ids` with a pick applied: `toggle` adds or removes one id, `add` adds every given id (box selection). */
+function pickInto(list: ObjectId[], ids: ObjectId[], how: 'toggle' | 'add'): ObjectId[] {
+  if (how === 'toggle' && ids.length === 1 && list.includes(ids[0])) return list.filter((id) => id !== ids[0]);
+  const added = [...new Set(ids)].filter((id) => !list.includes(id));
+  return added.length ? [...list, ...added] : list;
 }
 
 /**
- * Applies a table pick to a step: `toggle` adds or removes one object, `add` adds every given object (box
- * selection). For a destination, the (first) object replaces the current one.
+ * Applies a table pick to a step's object list or (move steps) its destinations: `toggle` adds or removes one
+ * object, `add` adds every given object (box selection).
  */
 export function applyPick(step: ButtonStep, field: PickField, ids: ObjectId[], how: 'toggle' | 'add'): ButtonStep {
   if (ids.length === 0) return step;
-  if (field === 'target') return step.type === 'move' && step.targetId !== ids[0] ? { ...step, targetId: ids[0] } : step;
-  if (how === 'toggle' && ids.length === 1 && step.objectIds.includes(ids[0])) {
-    return { ...step, objectIds: step.objectIds.filter((id) => id !== ids[0]) };
+  if (field === 'target') {
+    if (step.type !== 'move') return step;
+    const targetIds = pickInto(step.targetIds, ids, how);
+    return targetIds === step.targetIds ? step : { ...step, targetIds };
   }
-  const added = [...new Set(ids)].filter((id) => !step.objectIds.includes(id));
-  return added.length ? { ...step, objectIds: [...step.objectIds, ...added] } : step;
+  const objectIds = pickInto(step.objectIds, ids, how);
+  return objectIds === step.objectIds ? step : { ...step, objectIds };
 }
 
 /** Kinds that never count as lying on a holder (surfaces and controls). */
@@ -323,13 +331,25 @@ function deliver(plan: Plan, target: TabletopObject, id: string, rotation: numbe
 /**
  * Move step: holders, piles and bags give up cards or pieces (the container itself never moves); cards go
  * into a destination holder/pile, pieces into a destination bag, and everything is stacked on any other
- * destination; other pieces are centred on the destination.
+ * destination; other pieces are centred on the destination. With several destinations, cards and pieces
+ * from containers are dealt to them in turn, `count` each, and loose pieces go one per destination in turn.
  */
 function planMove(plan: Plan, step: MoveStep): void {
-  const target = plan.find(step.targetId);
-  if (!target) return;
+  const targets = step.targetIds.map((id) => plan.find(id)).filter((t): t is TabletopObject => !!t);
+  if (targets.length === 1) moveToOne(plan, step, targets[0]);
+  else if (targets.length > 1)
+    dealToMany(
+      plan,
+      step,
+      targets.map((t) => t.id),
+    );
+}
+
+const alignedRotation = (target: TabletopObject) => (isHolder(target) && target.alignRotation ? target.rotation : undefined);
+
+function moveToOne(plan: Plan, step: MoveStep, target: TabletopObject): void {
   const into = target.kind === 'deck' ? target : undefined;
-  const rotation = isHolder(target) && target.alignRotation ? target.rotation : undefined;
+  const rotation = alignedRotation(target);
   for (const listed of resolveTargets(plan.state, step.objectIds)) {
     // Earlier iterations may have consumed it (an emptied pile, a merged card).
     const src = plan.find(listed.id);
@@ -351,6 +371,38 @@ function planMove(plan: Plan, step: MoveStep): void {
       deliver(plan, target, src.id, rotation);
     } else if (target.kind !== 'bag' || bagAccepts(src)) {
       deliver(plan, target, src.id, rotation);
+    }
+  }
+}
+
+function dealToMany(plan: Plan, step: MoveStep, targetIds: ObjectId[]): void {
+  const isTarget = new Set(targetIds);
+  const n = targetIds.length;
+  const deliverTo = (i: number, id: string) => {
+    const target = plan.find(targetIds[i % n]);
+    if (target) deliver(plan, target, id, alignedRotation(target));
+  };
+  // Loose pieces take turns across all sources, so four listed cards and four destinations give one each.
+  let turn = 0;
+  for (const listed of resolveTargets(plan.state, step.objectIds)) {
+    const src = plan.find(listed.id);
+    if (!src || isTarget.has(src.id)) continue;
+    if (src.kind === 'bag' || src.kind === 'deck') {
+      const available = src.kind === 'bag' ? bagCount(src) : src.cards.length;
+      const total = Math.min(step.count === undefined ? available : step.count * n, available);
+      if (total === 0) continue;
+      const ids =
+        src.kind === 'bag'
+          ? drawFromBag(plan, src, total, step.deckMode, step.orientation)
+          : drawCards(plan, src, total, step.deckMode, step.orientation);
+      // Dealt like cards at a table: one to each destination in turn, round after round.
+      ids.forEach((id, i) => deliverTo(i, id));
+    } else if (src.kind === 'card') {
+      setOrientation(plan, src, step.orientation);
+      deliverTo(turn++, src.id);
+    } else {
+      const target = plan.find(targetIds[turn % n]);
+      if (target && (target.kind !== 'bag' || bagAccepts(src))) deliverTo(turn++, src.id);
     }
   }
 }
@@ -506,9 +558,10 @@ export function describeStep(state: TableState, step: ButtonStep): string {
   const what = describeObjects(state, step.objectIds);
   switch (step.type) {
     case 'move': {
-      const to = step.targetId ? nameOf(state, step.targetId) : 'no destination';
+      const to = step.targetIds.length ? describeObjects(state, step.targetIds) : 'no destination';
       const n = step.count;
       const subject = n === undefined ? what : `${step.deckMode} ${n} card${n === 1 ? '' : 's'} of ${what}`;
+      if (step.targetIds.length > 1) return n === undefined ? `Deal ${what} among ${to}` : `Deal ${subject} to each of ${to}`;
       return `Move ${subject} to ${to}`;
     }
     case 'recall':

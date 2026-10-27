@@ -11,7 +11,7 @@ import {
   resolveCardLook,
   tokenCount,
 } from '../domain/objects';
-import { cardsSideways, isSpread, spreadLayout } from '../domain/rules';
+import { cardRotationOf, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import type {
   BagObject,
@@ -211,7 +211,7 @@ export function DeckVisual({ o }: { o: DeckObject }) {
   const zone = o.color ?? DEFAULT_HOLDER_COLOR;
   const labelBelow = o.labelPosition === 'below';
   const { slots, gap } = spreadLayout(objects, o, gapAt);
-  const sideways = cardsSideways(o);
+  const turn = cardRotationOf(o);
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
   const lookOf = (i: number) => resolveCardLook(o.cards[i], o, ownerDeckOf(objects, o.cards[i].id));
@@ -246,17 +246,23 @@ export function DeckVisual({ o }: { o: DeckObject }) {
         </>
       )}
       {stacked && (
-        <Rect
-          x={slots[0].x + STACK_EDGE}
-          y={slots[0].y + STACK_EDGE}
-          width={slots[0].width}
-          height={slots[0].height}
-          cornerRadius={Math.min(slots[0].width, slots[0].height) * 0.07}
-          fill={shade(lookOf(0).backColor, -30)}
-          stroke="rgba(0,0,0,0.3)"
-          strokeWidth={1}
+        <Group
+          x={slots[0].x + slots[0].width / 2 + STACK_EDGE}
+          y={slots[0].y + slots[0].height / 2 + STACK_EDGE}
+          rotation={turn}
+          offsetX={lookOf(0).width / 2}
+          offsetY={lookOf(0).height / 2}
           listening={false}
-        />
+        >
+          <Rect
+            width={lookOf(0).width}
+            height={lookOf(0).height}
+            cornerRadius={Math.min(lookOf(0).width, lookOf(0).height) * 0.07}
+            fill={shade(lookOf(0).backColor, -30)}
+            stroke="rgba(0,0,0,0.3)"
+            strokeWidth={1}
+          />
+        </Group>
       )}
       {gap && (
         <Rect
@@ -276,12 +282,20 @@ export function DeckVisual({ o }: { o: DeckObject }) {
       {slots.map((s) => {
         const c = o.cards[s.index];
         const look = lookOf(s.index);
-        // A sideways card is drawn upright and turned 90° clockwise about its slot's top-right corner.
+        // The card is drawn upright, then turned by the holder's card rotation about its slot's centre.
         return (
-          <Group key={c.id} x={s.x + (sideways ? s.width : 0)} y={s.y} rotation={sideways ? 90 : 0} name="deck-card">
+          <Group
+            key={c.id}
+            x={s.x + s.width / 2}
+            y={s.y + s.height / 2}
+            offsetX={look.width / 2}
+            offsetY={look.height / 2}
+            rotation={turn}
+            name="deck-card"
+          >
             <CardVisual
-              w={sideways ? s.height : s.width}
-              h={sideways ? s.width : s.height}
+              w={look.width}
+              h={look.height}
               faceUp={c.faceUp === true}
               faceAssetId={c.faceAssetId}
               faceText={c.faceText}

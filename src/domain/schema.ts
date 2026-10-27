@@ -42,7 +42,7 @@ export const stepSchema = z.discriminatedUnion('type', [
     id,
     objectIds,
     type: z.literal('move'),
-    targetId: id.optional(),
+    targetIds: objectIds,
     deckMode: z.enum(['top', 'bottom']),
     count: z.number().int().positive().max(5000).optional(),
     orientation: z.enum(['keep', 'faceUp', 'faceDown']),
@@ -88,7 +88,7 @@ const deckSchema = z.object({
   fillOpacity: z.number().min(0).max(1).optional(),
   strokeOpacity: z.number().min(0).max(1).optional(),
   strokeStyle: z.enum(['dashed', 'solid']).optional(),
-  cardsSideways: z.boolean().optional(),
+  cardRotation: z.number().min(0).lt(360).optional(),
   label: z.string().max(500).optional(),
   labelPosition: z.enum(['above', 'below']).optional(),
   alignRotation: z.boolean().optional(),
@@ -245,6 +245,32 @@ function formatIssues(err: z.ZodError): string {
     .join('; ');
 }
 
+/**
+ * Renames fields of earlier test builds that would otherwise be dropped silently (unknown keys are stripped):
+ * a move step's single `targetId` and a holder's `cardsSideways`.
+ */
+function renameOldFields(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { objects?: unknown }).objects)) return raw;
+  const objects = (raw as { objects: unknown[] }).objects.map((o) => {
+    if (!o || typeof o !== 'object') return o;
+    const obj = o as Record<string, unknown>;
+    if (obj.kind === 'deck' && 'cardsSideways' in obj) {
+      const { cardsSideways, ...rest } = obj;
+      return cardsSideways === true && rest.cardRotation === undefined ? { ...rest, cardRotation: 90 } : rest;
+    }
+    if (obj.kind === 'button' && Array.isArray(obj.steps)) {
+      const steps = obj.steps.map((s) => {
+        if (!s || typeof s !== 'object' || (s as { type?: unknown }).type !== 'move' || 'targetIds' in s) return s;
+        const { targetId, ...rest } = s as Record<string, unknown>;
+        return { ...rest, targetIds: typeof targetId === 'string' ? [targetId] : [] };
+      });
+      return { ...obj, steps };
+    }
+    return o;
+  });
+  return { ...raw, objects };
+}
+
 /** Validates a stored or imported record into a Game. */
 export function parseGame(raw: unknown): Game {
   if (raw && typeof raw === 'object' && 'schemaVersion' in raw) {
@@ -254,7 +280,7 @@ export function parseGame(raw: unknown): Game {
     }
     if (v !== SCHEMA_VERSION) throw new SchemaError(`Unsupported schema version: ${String(v)}`);
   }
-  const r = gameSchema.safeParse(raw);
+  const r = gameSchema.safeParse(renameOldFields(raw));
   if (!r.success) throw new SchemaError(`Invalid game: ${formatIssues(r.error)}`);
   return r.data;
 }
