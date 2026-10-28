@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
-import { collectConsoleErrors, makePng, newGame, objectScreenPos, pickStepObject, storeState, waitSaved, worldToPage } from './helpers.ts';
+import {
+  clickObject,
+  collectConsoleErrors,
+  makePng,
+  newGame,
+  objectScreenPos,
+  pickStepObject,
+  storeState,
+  waitSaved,
+  worldToPage,
+} from './helpers.ts';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -23,11 +33,15 @@ async function addSampleAndPlay(page: Page) {
   await page.waitForTimeout(300);
 }
 
-/** Switches between Edit and Play mode and waits for the table to be ready again. */
+/**
+ * Switches between Edit and Play mode and waits for the table to be ready again. The mode follows the URL a little
+ * later (hash change, then an effect), so this waits for the store too: a canvas click before that uses the old mode.
+ */
 async function switchMode(page: Page, mode: 'edit' | 'play') {
   await page.getByRole('button', { name: mode === 'edit' ? 'Edit' : 'Play', exact: true }).click();
   await expect(page).toHaveURL(mode === 'edit' ? /#\/edit\// : /#\/play\//);
   await expect(page.getByTestId('table-canvas')).toBeVisible();
+  await expect.poll(() => storeState(page, '(s) => s.mode')).toBe(mode);
   await page.waitForTimeout(300);
 }
 
@@ -784,8 +798,7 @@ test('bags: drop pieces in, draw by dragging or menu, shuffle, recall; automatio
         steps: [step('shuffle'), { ...step('move'), id: 'st-move', targetIds: [discard.id], deckMode: 'top', count: 1, orientation: 'keep' }] } });
     }`,
   );
-  const go = await objectScreenPos(page, 'Go');
-  await page.mouse.click(go.x, go.y);
+  const go = await clickObject(page, 'Go');
   await expect.poll(bagCount).toBe(1);
   await storeState(
     page,
@@ -1221,8 +1234,7 @@ test('automation: Rotate turns the cards in a holder (not the holder); Recall op
 
 test('edit mode: box-select with the camera locked, duplicate all, drag all as one undo step', async ({ page }) => {
   await addSampleAndPlay(page);
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(page).toHaveURL(/#\/edit\//);
+  await switchMode(page, 'edit');
   await page.keyboard.press('c'); // lock camera: dragging the table now draws a selection box
   const from = await worldToPage(page, 540, -540);
   const to = await worldToPage(page, 750, -420);
@@ -1395,7 +1407,7 @@ test('a card moved into another deck keeps its own size and back', async ({ page
       },
     });
   }, deckId);
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await switchMode(page, 'play');
   await page.keyboard.press('Shift+F');
   await page.waitForTimeout(200);
   const deckPos = await objectScreenPos(page, 'Bonus deck');
@@ -1528,7 +1540,7 @@ test('deck copies: 3 images become a 30-card deck; image token stacks have no ou
 
 test('custom dice: image faces, choose the shown face, roll within the custom faces', async ({ page }) => {
   await addSampleAndPlay(page);
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await switchMode(page, 'edit');
   const die = await objectScreenPos(page, 'White die 1');
   await page.mouse.click(die.x, die.y);
   await page.getByRole('button', { name: 'Properties panel' }).click();
@@ -1542,7 +1554,7 @@ test('custom dice: image faces, choose the shown face, roll within the custom fa
   await expect.poll(() => obj<number>(page, 'White die 1', 'o.faces.length')).toBe(8);
   expect(await obj(page, 'White die 1', 'o.faces[7].label')).toBe('moon');
 
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await switchMode(page, 'play');
   const p = await objectScreenPos(page, 'White die 1');
   await page.mouse.click(p.x, p.y);
   const bar = page.getByRole('toolbar', { name: 'White die 1 actions' });
@@ -1622,8 +1634,7 @@ test('object palette: add by click or by dragging a tile onto the table, pin it 
       rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Tick', color: '#3f8fd8', textColor: '#ffffff',
       steps: [{ id: 'st-1', type: 'check', mode: 'check', objectIds: [${JSON.stringify(checkboxId)}] }] } })`,
   );
-  const tick = await objectScreenPos(page, 'Tick');
-  await page.mouse.click(tick.x, tick.y);
+  await clickObject(page, 'Tick');
   await expect.poll(isChecked).toBe(true);
 });
 
@@ -1692,8 +1703,7 @@ test('timer: start / pause / reset with its buttons and action bar, a countdown 
       rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Go', color: '#3f8fd8', textColor: '#ffffff',
       steps: [{ id: 'st-t', type: 'timer', mode: 'restart', objectIds: [${JSON.stringify(timerId)}] }] } })`,
   );
-  const go = await objectScreenPos(page, 'Go');
-  await page.mouse.click(go.x, go.y);
+  await clickObject(page, 'Go');
   await expect.poll(() => obj(page, 'Timer', 'o.startedAt')).toEqual(expect.any(Number));
   expect(await obj<number>(page, 'Timer', 'o.elapsedMs')).toBe(0);
   expect(errors).toEqual([]);
@@ -1817,7 +1827,7 @@ test('automation button: configure, reorder and edit steps; run in Play mode as 
   await page.keyboard.press('Escape'); // closes the panel
   await expect(panel).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await switchMode(page, 'play');
   const before = await obj<number>(page, 'Round', 'o.value');
   const pos = await objectScreenPos(page, 'Button');
   const buttonId = await obj<string>(page, 'Button', 'o.id');
@@ -1953,8 +1963,8 @@ test('automation button: pick step objects on the table by clicking and Shift+dr
   await panel.getByRole('button', { name: 'Done picking' }).click();
   await expect(banner).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await click('Button');
+  await switchMode(page, 'play');
+  await clickObject(page, 'Button');
   await expect.poll(() => obj<number>(page, 'White die 2', 'o.rollCount')).toBe(1);
   // The two cards went into the Discard holder (shown with its count), turned face up by step 2; the deck stayed put.
   const discardCards = await obj<{ faceUp?: boolean }[]>(page, 'Discard', 'o.cards');

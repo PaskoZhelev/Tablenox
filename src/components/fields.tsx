@@ -17,7 +17,9 @@ export function Field({ label, children, inline }: { label: string; children: Re
  */
 function useCommitOnUnmount(dirty: boolean, commit: () => void) {
   const latest = useRef({ dirty, commit });
-  latest.current = { dirty, commit };
+  useEffect(() => {
+    latest.current = { dirty, commit };
+  });
   useEffect(
     () => () => {
       if (latest.current.dirty) latest.current.commit();

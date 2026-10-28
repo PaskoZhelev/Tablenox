@@ -32,6 +32,36 @@ export async function objectScreenPos(page: Page, name: string): Promise<{ x: nu
 }
 
 /**
+ * Clicks an object on the canvas once Konva can actually hit it there. Konva hit-tests against its last drawn frame,
+ * so a click sent right after a state change (object added, mode switched) can miss on a slow machine.
+ */
+export async function clickObject(page: Page, name: string): Promise<{ x: number; y: number }> {
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const hit = () =>
+    page.evaluate((name) => {
+      type KNode = { id(): string; getParent(): KNode | null };
+      const w = window as unknown as {
+        __tablenoxStore: { getState(): StoreState };
+        Konva: { stages: { getIntersection(p: { x: number; y: number }): KNode | null }[] };
+      };
+      const s = w.__tablenoxStore.getState();
+      const o = s.history.present.objects.find((x) => x.name === name) as
+        { id: string; position: { x: number; y: number }; width: number; height: number } | undefined;
+      if (!o) throw new Error(`No object named ${name}`);
+      const c = s.camera;
+      const p = { x: (o.position.x + o.width / 2) * c.scale + c.x, y: (o.position.y + o.height / 2) * c.scale + c.y };
+      let n = w.Konva.stages[0].getIntersection(p);
+      while (n && n.id() !== o.id) n = n.getParent();
+      return n ? p : null;
+    }, name);
+  const found: { p: { x: number; y: number } | null } = { p: null };
+  await expect.poll(async () => (found.p = await hit()) !== null, { message: `${name} is drawn under the pointer` }).toBe(true);
+  const at = { x: box.x + found.p!.x, y: box.y + found.p!.y };
+  await page.mouse.click(at.x, at.y);
+  return at;
+}
+
+/**
  * Adds an object (found by name or id) to the open automation step's object list by clicking it on the table:
  * centres the camera on it (left of the automations panel), then Pick on table → click → Done picking.
  */
