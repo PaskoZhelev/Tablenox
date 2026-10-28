@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Layer, Stage } from 'react-konva';
+import { Group, Layer, Stage } from 'react-konva';
 import { worldToScreen } from '../domain/camera';
 import { objectBounds } from '../domain/geometry';
 import { ownerDeckOf, resolveCardLook } from '../domain/objects';
-import { effectiveHoverZoom, HOVER_ZOOM_PX, isSpread } from '../domain/rules';
+import { effectiveHoverRotate, effectiveHoverZoom, HOVER_ZOOM_PX, hoverRotationOf, isSpread, rotatedBox } from '../domain/rules';
 import type { Mode, TableState, TabletopObject } from '../domain/types';
 import { CardVisual, ObjectVisual } from '../objects/visuals';
 import { RenderScaleContext } from '../objects/useAssetImage';
@@ -18,8 +18,8 @@ interface Preview {
 }
 
 /**
- * What to show enlarged: a card as it lies (face or back), upright; a holder/pile shows its top card (a spread: the
- * card under the mouse); any other object as it looks on the table.
+ * What to show enlarged: a card as it lies (face or back); a holder/pile shows its top card (a spread: the card under
+ * the mouse); any other object as it looks on the table. Upright here; the caller turns it when it follows the object.
  */
 function previewOf(o: TabletopObject, table: TableState, mode: Mode, hoverCardId: string | null): Preview | null {
   if (o.kind === 'card') {
@@ -86,13 +86,17 @@ export function HoverPreview() {
   const preview = previewOf(hovered, table, mode, hoverCardId);
   if (!preview) return null;
 
+  // Turned like the object on the table, or upright (the default).
+  const shownCardId = hovered.kind === 'deck' && isSpread(hovered) ? hoverCardId : null;
+  const turn = effectiveHoverRotate(table, hovered, shownCardId) ? hoverRotationOf(hovered) : 0;
+  const box = rotatedBox({ width: preview.w, height: preview.h }, turn);
   const scale = Math.min(
-    HOVER_ZOOM_PX[zoom] / Math.max(preview.w, preview.h),
-    (viewport.width - 16) / preview.w,
-    (viewport.height - 16) / preview.h,
+    HOVER_ZOOM_PX[zoom] / Math.max(box.width, box.height),
+    (viewport.width - 16) / box.width,
+    (viewport.height - 16) / box.height,
   );
-  const w = preview.w * scale;
-  const h = preview.h * scale;
+  const w = box.width * scale;
+  const h = box.height * scale;
 
   const b = objectBounds(hovered);
   const tl = worldToScreen(camera, { x: b.x, y: b.y });
@@ -108,12 +112,17 @@ export function HoverPreview() {
       className="hover-preview"
       data-testid="card-preview"
       data-zoom={zoom}
+      data-rotation={turn}
       style={{ left, top, width: w, height: h }}
       aria-hidden="true"
     >
       <Stage width={w} height={h} scaleX={scale} scaleY={scale} listening={false}>
         <RenderScaleContext.Provider value={scale}>
-          <Layer listening={false}>{preview.render()}</Layer>
+          <Layer listening={false}>
+            <Group x={box.width / 2} y={box.height / 2} offsetX={preview.w / 2} offsetY={preview.h / 2} rotation={turn} listening={false}>
+              {preview.render()}
+            </Group>
+          </Layer>
         </RenderScaleContext.Provider>
       </Stage>
     </div>

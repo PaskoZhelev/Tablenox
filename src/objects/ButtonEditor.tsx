@@ -278,6 +278,7 @@ function StepFields({
             onChange={(mode) => onChange({ ...step, mode })}
           />
           <NumberField label="Degrees" value={step.degrees} onCommit={(degrees) => onChange({ ...step, degrees: degrees ?? 0 })} />
+          <p className="hint">A holder stays as it is: the cards in it and the pieces lying on it are turned.</p>
         </>
       );
     case 'flip':
@@ -344,6 +345,35 @@ function StepFields({
         </>
       );
     case 'recall':
+      return (
+        <>
+          {picker}
+          <SelectField
+            label="Card rotation in the holders"
+            value={step.rotation ?? 'reset'}
+            options={[
+              { value: 'reset', label: 'Turn back to how they were set up' },
+              { value: 'keep', label: 'Keep as they are' },
+            ]}
+            onChange={(rotation) => onChange({ ...step, rotation: rotation === 'reset' ? undefined : rotation })}
+          />
+          <SelectField
+            label="Face of recalled cards"
+            value={step.orientation ?? 'keep'}
+            options={[
+              { value: 'keep', label: 'As they come back' },
+              { value: 'faceUp', label: 'Face up' },
+              { value: 'faceDown', label: 'Face down' },
+            ]}
+            onChange={(orientation) => onChange({ ...step, orientation: orientation === 'keep' ? undefined : orientation })}
+          />
+          <CheckboxField
+            label="Shuffle after recalling"
+            checked={!!step.shuffle}
+            onChange={(shuffle) => onChange({ ...step, shuffle: shuffle || undefined })}
+          />
+        </>
+      );
     case 'shuffle':
     case 'roll':
       return picker;

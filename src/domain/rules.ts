@@ -127,9 +127,9 @@ export function isSpread(deck: DeckObject): boolean {
   return !deck.isPile && deck.layout === 'spread';
 }
 
-/** Degrees (clockwise, 0–359) a holder turns the cards it shows; piles never turn them. */
+/** Degrees (clockwise, 0–359) a holder turns the cards it shows (its set-up rotation plus any automation turn); piles never turn them. */
 export function cardRotationOf(deck: DeckObject): number {
-  return deck.isPile ? 0 : normalizeDegrees(deck.cardRotation ?? 0);
+  return deck.isPile ? 0 : normalizeDegrees((deck.cardRotation ?? 0) + (deck.cardTurn ?? 0));
 }
 
 function normalizeDegrees(d: number): number {
@@ -214,10 +214,9 @@ export function spreadInsertIndex(objects: TabletopObject[], deck: DeckObject, p
   return deck.cards.length - before;
 }
 
-/** Insert position for an object dropped into `target` with its centre at `center` (spread holders, in Play mode only). */
-function dropIndex(state: TableState, target: DeckObject, center: Vec2, mode: Mode): { index?: number } {
-  // Edit mode shows a holder's cards as one small preview, so a dropped card simply goes on top.
-  return mode === 'play' && isSpread(target) ? { index: spreadInsertIndex(state.objects, target, center) } : {};
+/** Insert position for an object dropped into `target` with its centre at `center` (spread holders only). */
+function dropIndex(state: TableState, target: DeckObject, center: Vec2): { index?: number } {
+  return isSpread(target) ? { index: spreadInsertIndex(state.objects, target, center) } : {};
 }
 
 /** Index of the card under world point `p` in a holder/pile (the visible top-most one), if any. */
@@ -257,7 +256,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         cardId: id,
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
-        ...dropIndex(state, target, center, mode),
+        ...dropIndex(state, target, center),
       };
     }
     if (target?.kind === 'card') {
@@ -274,7 +273,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         pileId: id,
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
-        ...dropIndex(state, target, center, mode),
+        ...dropIndex(state, target, center),
       };
     return move;
   }
@@ -497,17 +496,52 @@ export function hoverZoomInheritLabel(o: TabletopObject): string {
   return o.kind === 'card' ? 'Same as deck' : o.kind === 'deck' ? "Same as the cards' deck" : 'Off';
 }
 
+export type HoverRotateChoice = '' | 'upright' | 'turn';
+
+/** Choices of the "Zoomed view" picker; `''` is "no own setting" (inherit, or upright for objects that don't inherit). */
+export function hoverRotateChoices(o: TabletopObject): { value: HoverRotateChoice; label: string }[] {
+  const turn = { value: 'turn' as const, label: 'Turned like on the table' };
+  return inheritsHoverZoom(o)
+    ? [{ value: '', label: hoverZoomInheritLabel(o) }, { value: 'upright', label: 'Always upright' }, turn]
+    : [{ value: '', label: 'Always upright' }, turn];
+}
+
+export function hoverRotateChoiceOf(o: TabletopObject): HoverRotateChoice {
+  if (o.hoverRotate === undefined) return '';
+  return o.hoverRotate ? 'turn' : inheritsHoverZoom(o) ? 'upright' : '';
+}
+
+export function hoverRotateFromChoice(choice: HoverRotateChoice): boolean | undefined {
+  return choice === '' ? undefined : choice === 'turn';
+}
+
 /**
  * Hover-zoom size of an object. Cards without their own setting use their deck's; holders and piles use the deck
  * that owns the card shown (`cardId` in a spread, otherwise the top card).
  */
 export function effectiveHoverZoom(state: TableState, o: TabletopObject, cardId?: string | null): HoverZoom {
   if (o.hoverZoom) return o.hoverZoom;
-  if (o.kind === 'card') return homeDeckOf(state, o)?.hoverZoom ?? 'off';
+  const deck = hoverSettingsDeck(state, o, cardId);
+  return deck?.hoverZoom ?? 'off';
+}
+
+/** The deck whose hover settings an object without its own uses: a card's deck, or the deck owning a holder's / pile's shown card. */
+function hoverSettingsDeck(state: TableState, o: TabletopObject, cardId?: string | null): DeckObject | undefined {
+  if (o.kind === 'card') return homeDeckOf(state, o);
   if (o.kind === 'deck') {
     const card = cardId ? o.cards.find((c) => c.id === cardId) : o.cards[0];
     const owner = card && ownerDeckOf(state.objects, card.id);
-    return (owner && owner.id !== o.id && owner.hoverZoom) || 'off';
+    return owner && owner.id !== o.id ? owner : undefined;
   }
-  return 'off';
+  return undefined;
+}
+
+/** Whether the hover preview is turned like the object on the table; inherited like `effectiveHoverZoom`. */
+export function effectiveHoverRotate(state: TableState, o: TabletopObject, cardId?: string | null): boolean {
+  return o.hoverRotate ?? hoverSettingsDeck(state, o, cardId)?.hoverRotate ?? false;
+}
+
+/** Degrees the hover preview of `o` is turned when it follows the object: a holder adds the turn of its cards. */
+export function hoverRotationOf(o: TabletopObject): number {
+  return normalizeDegrees(o.rotation + (o.kind === 'deck' ? cardRotationOf(o) : 0));
 }

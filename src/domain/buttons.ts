@@ -5,6 +5,7 @@ import { bagAccepts, bagCount, bagItemWeight, displayName, drawnFaceUp, homeDeck
 import { secureRandomSource, type RandomSource } from './random';
 import {
   bagOf,
+  cardRotationOf,
   defaultBagDrawPosition,
   defaultDrawPosition,
   homeDeckOf,
@@ -20,6 +21,7 @@ import type {
   BagObject,
   ButtonObject,
   ButtonStep,
+  CardDef,
   CardObject,
   CheckboxObject,
   CheckStep,
@@ -29,6 +31,7 @@ import type {
   MoveStep,
   ObjectId,
   ObjectKind,
+  RecallStep,
   RotateStep,
   SortStep,
   StepOrientation,
@@ -407,17 +410,21 @@ function dealToMany(plan: Plan, step: MoveStep, targetIds: ObjectId[]): void {
   }
 }
 
-function planRecall(plan: Plan, objectIds: ObjectId[]): void {
+function planRecall(plan: Plan, step: RecallStep, random: RandomSource): void {
   const reset = new Set<ObjectId>();
+  // Holders and bags the step gathers into, in order: the recall options apply to them afterwards.
+  const gathered = new Set<ObjectId>();
   const resetOnce = (deckId: ObjectId) => {
+    gathered.add(deckId);
     if (reset.has(deckId) || plan.find(deckId)?.kind !== 'deck') return;
     reset.add(deckId);
-    plan.emit({ type: 'ResetDeck', deckId });
+    plan.emit({ type: 'ResetDeck', deckId, keepCardTurn: true });
   };
-  for (const listed of resolveTargets(plan.state, objectIds)) {
+  for (const listed of resolveTargets(plan.state, step.objectIds)) {
     const o = plan.find(listed.id);
     if (!o) continue;
     if (o.kind === 'bag') {
+      gathered.add(o.id);
       plan.emit({ type: 'RecallToBag', bagId: o.id });
     } else if (o.kind === 'token') {
       // A stack gathers the tokens taken off it; a loose token goes back to its bag or stack.
@@ -430,8 +437,12 @@ function planRecall(plan: Plan, objectIds: ObjectId[]): void {
       const bag = bagOf(plan.state, o);
       const home = homeDeckOf(plan.state, o);
       if (bag) plan.emit({ type: 'BagPut', bagId: bag.id, objectId: o.id });
-      else if (home && !home.isPile) plan.emit({ type: 'AddCardToDeck', cardId: o.id, deckId: home.id });
+      else if (home && !home.isPile) {
+        gathered.add(home.id);
+        plan.emit({ type: 'AddCardToDeck', cardId: o.id, deckId: home.id });
+      }
     } else if (o.kind === 'deck') {
+      if (!o.isPile) gathered.add(o.id);
       if (!o.isPile && o.initialCards.length > 0) resetOnce(o.id);
       // Cards from other holders lying in this one go back to theirs.
       const homes = homeDeckMap(plan.state.objects);
@@ -445,10 +456,34 @@ function planRecall(plan: Plan, objectIds: ObjectId[]): void {
       if (bag) plan.emit({ type: 'BagPut', bagId: bag.id, objectId: o.id });
     }
   }
+  for (const id of gathered) {
+    let o = plan.find(id);
+    if (o?.kind === 'deck' && !o.isPile) {
+      if ((step.rotation ?? 'reset') === 'reset' && o.cardTurn !== undefined)
+        plan.emit({ type: 'UpdateObject', id, patch: { cardTurn: undefined } });
+      const side = step.orientation ?? 'keep';
+      if (side !== 'keep') {
+        const before = o.cards;
+        const cards: CardDef[] = before.map(({ faceUp: _old, ...c }) => (side === 'faceUp' ? { ...c, faceUp: true } : c));
+        if (cards.some((c, i) => c.faceUp !== before[i].faceUp)) plan.emit({ type: 'UpdateObject', id, patch: { cards } });
+      }
+      o = plan.find(id);
+      if (step.shuffle && o?.kind === 'deck' && o.cards.length > 1) plan.emit(shuffleDeckCommand(o, random));
+    } else if (step.shuffle && o?.kind === 'bag' && o.items.length > 1) {
+      plan.emit(shuffleBagCommand(o, random));
+    }
+  }
 }
 
 function planRotate(plan: Plan, step: RotateStep): void {
   for (const o of resolveTargets(plan.state, step.objectIds)) {
+    if (isHolder(o)) {
+      // A holder stands for what is in it: its cards turn (`cardTurn`), the holder itself stays as it is.
+      const target = normalizeDegrees(step.mode === 'by' ? cardRotationOf(o) + step.degrees : step.degrees);
+      const turn = normalizeDegrees(target - (o.cardRotation ?? 0));
+      plan.emit({ type: 'UpdateObject', id: o.id, patch: { cardTurn: turn === 0 ? undefined : turn } });
+      continue;
+    }
     const rotation = step.mode === 'by' ? o.rotation + step.degrees : step.degrees;
     plan.emit({ type: 'MoveObject', id: o.id, position: o.position, rotation: normalizeDegrees(rotation) });
   }
@@ -507,7 +542,7 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource): void {
     case 'move':
       return planMove(plan, step);
     case 'recall':
-      return planRecall(plan, step.objectIds);
+      return planRecall(plan, step, random);
     case 'rotate':
       return planRotate(plan, step);
     case 'flip':
@@ -564,10 +599,20 @@ export function describeStep(state: TableState, step: ButtonStep): string {
       if (step.targetIds.length > 1) return n === undefined ? `Deal ${what} among ${to}` : `Deal ${subject} to each of ${to}`;
       return `Move ${subject} to ${to}`;
     }
-    case 'recall':
-      return `Recall ${what}`;
-    case 'rotate':
-      return step.mode === 'by' ? `Rotate ${what} by ${step.degrees}°` : `Rotate ${what} to ${step.degrees}°`;
+    case 'recall': {
+      const extras = [
+        step.orientation === 'faceUp' ? 'face up' : step.orientation === 'faceDown' ? 'face down' : '',
+        step.shuffle ? 'shuffled' : '',
+        step.rotation === 'keep' ? 'keeping card rotation' : '',
+      ].filter(Boolean);
+      return `Recall ${what}${extras.length ? ` (${extras.join(', ')})` : ''}`;
+    }
+    case 'rotate': {
+      // A holder stands for its cards, so a step on one holder reads "the cards in …".
+      const only = step.objectIds.length === 1 ? state.objects.find((x) => x.id === step.objectIds[0]) : undefined;
+      const subject = only && isHolder(only) ? `the cards in ${what}` : what;
+      return step.mode === 'by' ? `Rotate ${subject} by ${step.degrees}°` : `Rotate ${subject} to ${step.degrees}°`;
+    }
     case 'flip':
       return `Flip ${what}${step.mode === 'toggle' ? '' : step.mode === 'faceUp' ? ' face up' : ' face down'}`;
     case 'shuffle':

@@ -26,5 +26,6 @@ export function gameTable(g: Game): TableState {
 
 export function duplicateGame(g: Game): Game {
   const now = nowIso();
-  return { ...structuredClone(g), id: newId(), title: `${g.title} (copy)`, createdAt: now, updatedAt: now };
+  const { lastPlayedAt: _played, ...rest } = structuredClone(g);
+  return { ...rest, id: newId(), title: `${g.title} (copy)`, createdAt: now, updatedAt: now };
 }

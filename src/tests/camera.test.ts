@@ -12,12 +12,13 @@ describe('camera', () => {
   });
 
   it('clamps zoom to the configured range', () => {
+    expect(MIN_ZOOM).toBeLessThanOrEqual(0.05);
     expect(clampScale(100)).toBe(MAX_ZOOM);
     expect(clampScale(0.0001)).toBe(MIN_ZOOM);
     expect(clampScale(Number.NaN)).toBe(1);
   });
 
-  it('keeps the world point under the cursor stationary for any zoom in 0.25x–4x (AC3)', () => {
+  it('keeps the world point under the cursor stationary for any zoom in the allowed range (AC3)', () => {
     const rand = seededSource(7);
     const r = () => rand() / 2 ** 32;
     let cam = { x: 400, y: 300, scale: 1 };

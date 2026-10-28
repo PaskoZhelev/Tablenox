@@ -4,10 +4,19 @@ import { Icon } from '../components/Icon';
 import { worldToScreen } from '../domain/camera';
 import { objectBounds, unionRects } from '../domain/geometry';
 import { bagCount, dieFaceLabel, displayName, tokenCount } from '../domain/objects';
-import { HOVER_ZOOM_LABELS, hoverZoomInheritLabel, inheritsHoverZoom } from '../domain/rules';
+import {
+  effectiveHoverZoom,
+  HOVER_ZOOM_LABELS,
+  hoverRotateChoiceOf,
+  hoverRotateChoices,
+  hoverRotateFromChoice,
+  hoverZoomInheritLabel,
+  inheritsHoverZoom,
+  type HoverRotateChoice,
+} from '../domain/rules';
 import { HOVER_ZOOM_SIZES, type HoverZoom, type TabletopObject } from '../domain/types';
 import { MULTI_BAR, useTableStore } from '../state/tableStore';
-import { incrementCounter, pickDieFace, setCounterValue, setHoverZoom } from './actions';
+import { incrementCounter, pickDieFace, setCounterValue, setHoverRotate, setHoverZoom } from './actions';
 import { getGroupActions, getObjectActions } from './objectActions';
 
 /** Inline value controls for dice and counters (used in the selection bar and the context menu). */
@@ -103,6 +112,24 @@ export function HoverZoomSelect({ o, className }: { o: TabletopObject; className
       {HOVER_ZOOM_SIZES.filter((z) => z !== 'off' || inherits).map((z) => (
         <option key={z} value={z}>
           {HOVER_ZOOM_LABELS[z]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** "Zoomed view" picker: whether the hover preview turns with the object or stays upright (context menu). */
+export function HoverRotateSelect({ o, className }: { o: TabletopObject; className?: string }) {
+  return (
+    <select
+      className={className}
+      aria-label="Zoomed view"
+      value={hoverRotateChoiceOf(o)}
+      onChange={(e) => setHoverRotate(o.id, hoverRotateFromChoice(e.target.value as HoverRotateChoice))}
+    >
+      {hoverRotateChoices(o).map((c) => (
+        <option key={c.value} value={c.value}>
+          {c.label}
         </option>
       ))}
     </select>
@@ -254,6 +281,13 @@ export function ContextMenu() {
           <Icon name="cardZoom" size={15} />
           <span className="context-menu-label">Zoom on hover</span>
           <HoverZoomSelect o={o} />
+        </label>
+      )}
+      {!multi && mode === 'edit' && effectiveHoverZoom(table, o) !== 'off' && (
+        <label className="context-menu-row">
+          <Icon name="rotate" size={15} />
+          <span className="context-menu-label">Zoomed view</span>
+          <HoverRotateSelect o={o} />
         </label>
       )}
       {actions.map((a) => (

@@ -408,6 +408,11 @@ export function setHoverZoom(id: string, hoverZoom: HoverZoom | undefined): void
   useTableStore.getState().dispatch({ type: 'UpdateObject', id, patch: { hoverZoom } });
 }
 
+/** Whether the hover preview turns with the object (`undefined` = no own setting). */
+export function setHoverRotate(id: string, hoverRotate: boolean | undefined): void {
+  useTableStore.getState().dispatch({ type: 'UpdateObject', id, patch: { hoverRotate } });
+}
+
 export function duplicateObject(id: string): void {
   duplicateObjects([id]);
 }

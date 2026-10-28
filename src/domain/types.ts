@@ -22,6 +22,11 @@ export interface BaseObject {
   visible: boolean;
   /** Zoom on hover. Missing means off (cards: same as the deck they belong to). */
   hoverZoom?: HoverZoom;
+  /**
+   * The zoomed view is turned like the object on the table (true) or always upright (false). Missing means upright
+   * (cards, holders and piles: same as the deck their card belongs to).
+   */
+  hoverRotate?: boolean;
   /** Bag this object was last put into or drawn from; "recall" sends it back there. */
   bagId?: ObjectId;
 }
@@ -107,6 +112,11 @@ export interface DeckObject extends BaseObject {
   strokeStyle?: 'dashed' | 'solid';
   /** Holders only: degrees (clockwise, 0–359) the cards inside are turned; missing means upright. They come out upright. */
   cardRotation?: number;
+  /**
+   * Holders only: extra degrees (0–359) a Rotate automation step turned the cards by, on top of `cardRotation`.
+   * Gather & reset clears it (a Recall step can keep it). Missing means 0.
+   */
+  cardTurn?: number;
   /** Text shown next to the zone; empty means no text. */
   label?: string;
   /** Where the label sits relative to the zone; missing means above. */
@@ -246,6 +256,12 @@ export interface MoveStep extends StepBase {
 /** Sends cards back to their deck and gathers decks (like "Gather & reset"). */
 export interface RecallStep extends StepBase {
   type: 'recall';
+  /** Whether the gathered holders' cards turn back to their set-up rotation (missing = `reset`) or keep the turn a Rotate step gave them. */
+  rotation?: 'reset' | 'keep';
+  /** Side of the cards in the gathered holders afterwards; missing means as they come back (`keep`). */
+  orientation?: StepOrientation;
+  /** Shuffle the gathered holders and bags afterwards. */
+  shuffle?: boolean;
 }
 
 export interface RotateStep extends StepBase {
@@ -377,6 +393,8 @@ export interface Game {
   /** Table (background) colour; default grey when missing. */
   tableColor?: string;
   thumbnail?: string;
+  /** When the game was last opened in Play mode; missing means never. */
+  lastPlayedAt?: string;
 }
 
 export type Mode = 'edit' | 'play';

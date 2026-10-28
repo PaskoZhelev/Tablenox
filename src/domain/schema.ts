@@ -19,6 +19,7 @@ const base = {
   locked: z.boolean(),
   visible: z.boolean(),
   hoverZoom: z.enum(['off', 'small', 'medium', 'large', 'xlarge']).optional(),
+  hoverRotate: z.boolean().optional(),
   bagId: id.optional(),
 };
 
@@ -47,7 +48,14 @@ export const stepSchema = z.discriminatedUnion('type', [
     count: z.number().int().positive().max(5000).optional(),
     orientation: z.enum(['keep', 'faceUp', 'faceDown']),
   }),
-  z.object({ id, objectIds, type: z.literal('recall') }),
+  z.object({
+    id,
+    objectIds,
+    type: z.literal('recall'),
+    rotation: z.enum(['reset', 'keep']).optional(),
+    orientation: z.enum(['keep', 'faceUp', 'faceDown']).optional(),
+    shuffle: z.boolean().optional(),
+  }),
   z.object({ id, objectIds, type: z.literal('rotate'), mode: z.enum(['by', 'to']), degrees: finite }),
   z.object({ id, objectIds, type: z.literal('flip'), mode: z.enum(['toggle', 'faceUp', 'faceDown']) }),
   z.object({ id, objectIds, type: z.literal('shuffle') }),
@@ -89,6 +97,7 @@ const deckSchema = z.object({
   strokeOpacity: z.number().min(0).max(1).optional(),
   strokeStyle: z.enum(['dashed', 'solid']).optional(),
   cardRotation: z.number().min(0).lt(360).optional(),
+  cardTurn: z.number().min(0).lt(360).optional(),
   label: z.string().max(500).optional(),
   labelPosition: z.enum(['above', 'below']).optional(),
   alignRotation: z.boolean().optional(),
@@ -223,6 +232,7 @@ export const gameSchema = z.object({
   annotations: annotationsSchema,
   tableColor: color.optional(),
   thumbnail: z.string().max(2_000_000).optional(),
+  lastPlayedAt: z.string().max(64).optional(),
 });
 
 // Compile-time guarantees that schemas and TS types stay in sync.

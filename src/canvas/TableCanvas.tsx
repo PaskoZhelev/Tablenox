@@ -872,7 +872,7 @@ export function TableCanvas() {
           onContextMenu={onContextMenu}
         >
           {mode === 'edit' && showGrid && (
-            <Layer listening={false}>
+            <Layer name="grid-layer" listening={false}>
               <Grid camera={camera} width={viewport.width} height={viewport.height} />
             </Layer>
           )}

@@ -202,49 +202,8 @@ export function CardObjectVisual({ o }: { o: CardObject }) {
 /** Offset of the single edge drawn under a stack of cards, in world units. */
 const STACK_EDGE = 1.5;
 
-/** Edit mode: a small picture of a holder's top card face with the number of cards below it, centred in the zone. */
-function HolderPreview({ o, objects }: { o: DeckObject; objects: TabletopObject[] }) {
-  const top = o.cards[0];
-  const look = resolveCardLook(top, o, ownerDeckOf(objects, top.id));
-  const scale = Math.min((o.width * 0.5) / look.width, (o.height * 0.45) / look.height);
-  const w = look.width * scale;
-  const h = look.height * scale;
-  const pillH = Math.max(14, Math.min(26, Math.min(o.width, o.height) * 0.14));
-  const text = String(o.cards.length);
-  const pillW = Math.max(pillH * 1.6, pillH * (0.6 * text.length + 0.8));
-  const gap = pillH * 0.35;
-  const y = (o.height - (h + gap + pillH)) / 2;
-  return (
-    <Group name="holder-preview" listening={false}>
-      <Group x={(o.width - w) / 2} y={y}>
-        <CardVisual
-          w={w}
-          h={h}
-          faceUp
-          faceAssetId={top.faceAssetId}
-          faceText={top.faceText}
-          faceColor={top.faceColor}
-          backAssetId={look.backAssetId}
-          backColor={look.backColor}
-        />
-      </Group>
-      <Group name="holder-count" x={(o.width - pillW) / 2} y={y + h + gap}>
-        <Rect width={pillW} height={pillH} cornerRadius={pillH / 2} fill="#111827" stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
-        <Text
-          width={pillW}
-          height={pillH}
-          text={text}
-          align="center"
-          verticalAlign="middle"
-          fill="#fff"
-          fontFamily={FONT}
-          fontStyle="bold"
-          fontSize={pillH * 0.6}
-        />
-      </Group>
-    </Group>
-  );
-}
+/** Edit mode draws holder outlines at least this opaque, so faint (Play-mode) outlines stay visible over the grid. */
+const EDIT_MIN_STROKE_OPACITY = 0.85;
 
 export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   const count = o.cards.length;
@@ -253,12 +212,14 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   const objects = useTableStore((s) => s.history.present.objects);
   const gapAt = useTableStore((s) => (s.dropTargetId === o.id ? s.dropIndex : null));
   const holder = !o.isPile;
-  // Edit mode shows a holder's contents as a small preview instead of the cards themselves.
-  const preview = holder && mode === 'edit';
-  const showBadge = count > 1 && !preview;
+  const edit = mode === 'edit';
+  const showBadge = count > 1;
   const zone = o.color ?? DEFAULT_HOLDER_COLOR;
   const labelBelow = o.labelPosition === 'below';
-  const { slots, gap } = preview ? { slots: [], gap: undefined } : spreadLayout(objects, o, gapAt);
+  const strokeOpacity = o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY;
+  // Edit mode: a holder with its own card list (a deck) says so below the zone (under its label when that is below).
+  const deckSize = holder && edit ? o.initialCards.length : 0;
+  const { slots, gap } = spreadLayout(objects, o, gapAt);
   const turn = cardRotationOf(o);
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
@@ -275,7 +236,7 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
             stroke={o.strokeColor ?? zone}
             strokeWidth={2}
             dash={o.strokeStyle === 'solid' ? undefined : [10, 6]}
-            opacity={o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY}
+            opacity={edit ? Math.max(strokeOpacity, EDIT_MIN_STROKE_OPACITY) : strokeOpacity}
           />
           {o.label && (
             <Text
@@ -289,6 +250,22 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
               fontSize={14}
               fontStyle="bold"
               fill={zone}
+            />
+          )}
+          {deckSize > 0 && (
+            <Text
+              name="deck-info"
+              x={4}
+              y={h + 4 + (labelBelow && o.label ? 18 : 0)}
+              width={Math.max(0, w - 8)}
+              text={`Deck (${deckSize} ${deckSize === 1 ? 'card' : 'cards'})`}
+              ellipsis
+              wrap="none"
+              fontFamily={FONT}
+              fontSize={12}
+              fontStyle="italic"
+              fill={zone}
+              listening={false}
             />
           )}
         </>
@@ -354,7 +331,6 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
           </Group>
         );
       })}
-      {preview && count > 0 && <HolderPreview o={o} objects={objects} />}
       {showBadge && <CountBadge x={w - 34} y={-14} count={count} />}
     </>
   );

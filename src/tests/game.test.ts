@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { duplicateGame } from '../domain/game';
+import { createObject } from '../domain/objects';
 import { parseGame, SchemaError } from '../domain/schema';
 import { SCHEMA_VERSION } from '../domain/types';
 import { fixtureGame } from './fixtures';
@@ -43,11 +44,26 @@ describe('game schema', () => {
     expect(() => parseGame('hello')).toThrow(SchemaError);
   });
 
-  it('duplicates games with a new id', () => {
-    const g = fixtureGame();
+  it('duplicates games with a new id; the copy has never been played', () => {
+    const g = { ...fixtureGame(), lastPlayedAt: '2026-01-01T10:00:00.000Z' };
     const d = duplicateGame(g);
     expect(d.id).not.toBe(g.id);
     expect(d.objects).toEqual(g.objects);
     expect(d.objects).not.toBe(g.objects);
+    expect(d).not.toHaveProperty('lastPlayedAt');
+  });
+
+  it('keeps the last played date, hover rotation, a holder card turn and recall options', () => {
+    const g = fixtureGame('a1');
+    g.lastPlayedAt = '2026-01-01T10:00:00.000Z';
+    g.objects = g.objects.map((o) => (o.kind === 'deck' ? { ...o, hoverRotate: true, cardTurn: 90 } : o));
+    const button = {
+      ...createObject('button', { center: { x: 0, y: 0 }, zIndex: 50 }),
+      steps: [
+        { id: 's1', type: 'recall' as const, objectIds: [], rotation: 'keep' as const, orientation: 'faceUp' as const, shuffle: true },
+      ],
+    };
+    g.objects.push(button);
+    expect(parseGame(JSON.parse(JSON.stringify(g)))).toEqual(g);
   });
 });

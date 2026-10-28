@@ -91,7 +91,7 @@ export type Command =
   | { type: 'SplitTokens'; id: string; newId: string; count: number; position: Vec2 }
   /** Puts a token (stack) onto an identical one: their counts add up and the dropped one disappears. */
   | { type: 'MergeTokens'; id: string; targetId: string }
-  | { type: 'ResetDeck'; deckId: string }
+  | { type: 'ResetDeck'; deckId: string; keepCardTurn?: boolean }
   /** Sends every card of a pile back to the holder that owns it (cards without one stay); the pile disappears when empty. */
   | { type: 'ReturnPile'; id: string }
   /** Puts a token back onto the stack it was taken off (when that still exists and looks the same). */
@@ -290,7 +290,8 @@ function withoutCards(items: BagItem[], own: Set<string>): BagItem[] {
   return changed ? next : items;
 }
 
-function resetDeck(state: TableState, deckId: string): TableState {
+/** Gathers a deck back to its definition; the cards also turn back to the set-up rotation unless `keepCardTurn`. */
+function resetDeck(state: TableState, deckId: string, keepCardTurn = false): TableState {
   const deck = findObject(state, deckId);
   if (!deck || deck.kind !== 'deck' || deck.isPile) return state;
   const own = new Set(deck.initialCards.map((c) => c.id));
@@ -319,7 +320,8 @@ function resetDeck(state: TableState, deckId: string): TableState {
   for (const o of state.objects) {
     if (o.kind === 'card' && o.cardDefId && own.has(o.cardDefId)) continue;
     if (o.id === deck.id) {
-      objects.push({ ...deck, cards: deck.initialCards.map(stripFace) });
+      const { cardTurn: _turn, ...rest } = deck;
+      objects.push({ ...(keepCardTurn ? deck : rest), cards: deck.initialCards.map(stripFace) });
       continue;
     }
     if (o.kind === 'bag') {
@@ -647,7 +649,7 @@ export function applyCommand(state: TableState, cmd: Command): TableState {
     }
 
     case 'ResetDeck':
-      return resetDeck(state, cmd.deckId);
+      return resetDeck(state, cmd.deckId, !!cmd.keepCardTurn);
 
     case 'ReturnPile':
       return returnPile(state, cmd.id);

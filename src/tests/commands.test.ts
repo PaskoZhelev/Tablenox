@@ -9,10 +9,15 @@ import {
   drawCardCommand,
   drawCardsCommand,
   drawPickedCardCommand,
+  effectiveHoverRotate,
   effectiveHoverZoom,
   findDropTarget,
   findHoverTarget,
   homeDeckOf,
+  hoverRotateChoiceOf,
+  hoverRotateChoices,
+  hoverRotateFromChoice,
+  hoverRotationOf,
   resolveDrop,
   rollDieCommand,
   rotatedBox,
@@ -422,8 +427,7 @@ describe('deck rules', () => {
     const s4 = cardSlots(s.objects, spread());
     const center = at((s4[1].x + s4[1].width / 2 + s4[2].x + s4[2].width / 2) / 2);
     const dropAt = { x: center.x - card.width / 2, y: center.y - card.height / 2 };
-    // Edit mode only previews a holder's cards, so a card dropped there goes on top.
-    expect(resolveDrop(s, card.id, dropAt, 'edit')).not.toHaveProperty('index');
+    expect(resolveDrop(s, card.id, dropAt, 'edit')).toMatchObject({ index: 2, asDefinition: true });
     const drop = resolveDrop(s, card.id, dropAt, 'play');
     expect(drop).toMatchObject({ type: 'AddCardToDeck', deckId: id, index: 2 });
     s = applyCommand(s, drop);
@@ -712,6 +716,29 @@ describe('deck rules', () => {
     expect(effectiveHoverZoom(s, holderOf(s), 'missing')).toBe('off');
     s = applyCommand(s, { type: 'UpdateObject', id: holderOf(s).id, patch: { hoverZoom: 'off' } });
     expect(effectiveHoverZoom(s, holderOf(s), cardId)).toBe('off');
+  });
+
+  it('the zoomed view is upright unless set to turn with the object; cards and holders inherit it from the deck', () => {
+    let s = tableOf(fixtureGame());
+    const draw = drawCardCommand(deckOf(s))! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, draw);
+    const card = () => cardsOnTable(s).find((c) => c.id === draw.cardId)!;
+    expect(effectiveHoverRotate(s, deckOf(s))).toBe(false);
+    expect(effectiveHoverRotate(s, card())).toBe(false);
+    s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { hoverRotate: true } });
+    expect(effectiveHoverRotate(s, deckOf(s))).toBe(true);
+    expect(effectiveHoverRotate(s, card())).toBe(true);
+    s = applyCommand(s, { type: 'UpdateObject', id: draw.cardId, patch: { hoverRotate: false } });
+    expect(effectiveHoverRotate(s, card())).toBe(false);
+    expect(effectiveHoverRotate(s, byKind(s, 'token'))).toBe(false);
+    // A holder turns its preview by its own rotation plus the turn of its cards.
+    expect(hoverRotationOf({ ...deckOf(s), rotation: 30, cardRotation: 90, cardTurn: 270 })).toBe(30);
+    expect(hoverRotationOf({ ...card(), rotation: 45 })).toBe(45);
+    expect(hoverRotateChoices(card()).map((c) => c.value)).toEqual(['', 'upright', 'turn']);
+    expect(hoverRotateChoices(byKind(s, 'token')).map((c) => c.value)).toEqual(['', 'turn']);
+    expect(hoverRotateChoiceOf(card())).toBe('upright');
+    expect(hoverRotateFromChoice('')).toBeUndefined();
+    expect(hoverRotateFromChoice('turn')).toBe(true);
   });
 
   it('a pile dropped on a deck goes on top of it in order, keeping each card’s look; the pile disappears', () => {

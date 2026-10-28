@@ -1,6 +1,7 @@
 import type { CameraState, Vec2 } from './types';
 
-export const MIN_ZOOM = 0.25;
+/** Far enough out for big tables on small (phone) screens. */
+export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 4;
 export const ZOOM_STEP = 1.2;
 

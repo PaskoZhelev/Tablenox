@@ -13,7 +13,7 @@ import { paletteDropHandlers } from './paletteItems';
 import { Toolbar } from './Toolbar';
 import { SaveErrorBanner, TopBar } from './TopBar';
 import { clearMarks, exportCurrent, useTableShortcuts } from './tableCommands';
-import { flushActiveDocument, useGameDocument, useInitialCamera } from './useTableDocument';
+import { flushActiveDocument, markPlayed, useGameDocument, useInitialCamera } from './useTableDocument';
 
 export function TableScreen({ id, mode }: { id: string; mode: 'edit' | 'play' }) {
   const load = useGameDocument(id);
@@ -32,6 +32,10 @@ export function TableScreen({ id, mode }: { id: string; mode: 'edit' | 'play' })
   useEffect(() => {
     useTableStore.getState().setMode(mode);
   }, [mode]);
+
+  useEffect(() => {
+    if (ready && mode === 'play') markPlayed(id);
+  }, [ready, mode, id]);
 
   const onBack = async () => {
     try {

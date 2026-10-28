@@ -373,19 +373,41 @@ test('interface can be collapsed and hidden', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Back to library' })).toBeVisible();
 });
 
-test('duplicate game, modify duplicate, original unchanged', async ({ page }) => {
+test('duplicate game, modify duplicate, original unchanged; the library shows created and last played dates', async ({ page }) => {
   await page.getByRole('button', { name: 'Add sample game' }).click();
+  await expect(page.getByText('Solo Virtual Tabletop')).toBeVisible();
   await page.getByRole('button', { name: 'Duplicate' }).click();
   await expect(page.getByTestId('game-card')).toHaveCount(2);
+  const original = page.getByTestId('game-card').filter({ hasNotText: '(copy)' });
   const copy = page.getByTestId('game-card').filter({ hasText: '(copy)' });
+  await expect(copy).toContainText('Created');
+  await expect(copy).toContainText('Last played');
+  await expect(copy).toContainText('Never');
+  await expect(copy).not.toContainText('objects');
   await copy.getByRole('button', { name: 'Edit' }).click();
   await expect(page.getByTestId('table-canvas')).toBeVisible();
   await page.getByRole('button', { name: 'Add object' }).click();
   await page.getByRole('menuitem', { name: 'Token' }).click();
   await waitSaved(page);
   await page.getByRole('button', { name: 'Back to library' }).click();
-  await expect(page.getByTestId('game-card').filter({ hasNotText: '(copy)' })).toContainText('8 objects');
-  await expect(page.getByTestId('game-card').filter({ hasText: '(copy)' })).toContainText('9 objects');
+  const counts = await page.evaluate(async () => {
+    const req = indexedDB.open('tablenox');
+    const db: IDBDatabase = await new Promise((r) => (req.onsuccess = () => r(req.result)));
+    const games: { title: string; objects: unknown[] }[] = await new Promise((r) => {
+      const q = db.transaction('games').objectStore('games').getAll();
+      q.onsuccess = () => r(q.result);
+    });
+    db.close();
+    return Object.fromEntries(games.map((g) => [g.title.includes('(copy)') ? 'copy' : 'original', g.objects.length]));
+  });
+  expect(counts).toEqual({ original: 8, copy: 9 });
+  // Editing isn't playing; opening a game in Play mode is.
+  await expect(copy).toContainText('Never');
+  await original.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('table-canvas')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to library' }).click();
+  await expect(original).not.toContainText('Never');
+  await expect(copy).toContainText('Never');
 });
 
 test('export, clear data, import restores board and cards with images', async ({ page }) => {
@@ -550,7 +572,7 @@ test('holders fade under dragged objects; dragging never opens the action bar; f
   expect(await obj(page, 'Bonus deck', 'o.cards[0].faceUp')).toBe(true);
 });
 
-test('holder properties: card list and card settings first, then the holder zone; a pile shows no unused back options', async ({
+test('holder properties: card list, then the holder zone, then everything about its cards; a pile shows no unused back options', async ({
   page,
 }) => {
   await addSampleAndPlay(page);
@@ -559,12 +581,12 @@ test('holder properties: card list and card settings first, then the holder zone
   await storeState(page, `(s) => { s.setUi({ inspectorOpen: true }); s.select(${JSON.stringify(deckId)}); }`);
   const panel = page.getByRole('complementary', { name: 'Properties' });
   const headings = panel.locator('.inspector-section h3');
-  await expect(headings).toHaveText(['Card list (12 cards)', 'Cards (12 in the holder)', 'Holder', 'Object']);
-  const cards = panel.locator('.inspector-section').nth(1);
+  await expect(headings).toHaveText(['Card list (12 cards)', 'Holder', 'Cards (12 in the holder)', 'Object']);
+  const cards = panel.locator('.inspector-section').nth(2);
   for (const label of ['Card back colour', 'Card back image', 'Different back for every card', 'Card width', 'Cards come out']) {
     await expect(cards.getByText(label, { exact: true })).toBeVisible();
   }
-  await expect(panel.locator('.inspector-section').nth(2).getByText('Card back colour')).toHaveCount(0);
+  await expect(panel.locator('.inspector-section').nth(1).getByText('Card back colour')).toHaveCount(0);
 
   // Cards move up and down the list; the first can't move up, the last can't move down.
   const ids = await obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)');
@@ -1032,6 +1054,107 @@ test('zoom on hover is set per object, with a size', async ({ page }) => {
   await expect(preview).toHaveAttribute('data-zoom', 'large');
 });
 
+test('zoomed view can turn with the holder; zoom goes below 25%; library thumbnails are sharp', async ({ page }) => {
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  await storeState(page, `(s) => { s.setUi({ inspectorOpen: true }); s.select(${JSON.stringify(deckId)}); }`);
+  const panel = page.getByRole('complementary', { name: 'Properties' });
+  // The option only shows once the holder zooms on hover.
+  await expect(panel.getByLabel('Zoomed view')).toHaveCount(0);
+  await panel.getByLabel('Zoom on hover').selectOption('large');
+  await panel.getByLabel('Zoomed view').selectOption({ label: 'Turned like on the table' });
+  await expect.poll(() => obj<boolean>(page, 'Bonus deck', 'o.hoverRotate')).toBe(true);
+  await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(deckId)}, patch: { cardRotation: 90 } })`);
+  await switchMode(page, 'play');
+
+  const preview = page.getByTestId('card-preview');
+  const hoverDeck = async () => {
+    await page.mouse.move(5, 5);
+    await expect(preview).toHaveCount(0);
+    const p = await objectScreenPos(page, 'Bonus deck');
+    await page.mouse.move(p.x + 3, p.y + 3, { steps: 3 });
+  };
+  await hoverDeck();
+  await expect(preview).toHaveAttribute('data-rotation', '90');
+  const turned = (await preview.boundingBox())!;
+  expect(turned.width).toBeGreaterThan(turned.height);
+  await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(deckId)}, patch: { hoverRotate: false } })`);
+  await hoverDeck();
+  await expect(preview).toHaveAttribute('data-rotation', '0');
+  const upright = (await preview.boundingBox())!;
+  expect(upright.height).toBeGreaterThan(upright.width);
+
+  // Zooming out goes well below 25%.
+  await page.mouse.move(5, 5);
+  const empty = await worldToPage(page, -800, 0);
+  await page.mouse.move(empty.x, empty.y);
+  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 400);
+  await expect.poll(() => storeState<number>(page, '(s) => s.camera.scale')).toBeLessThan(0.2);
+  expect(await storeState<number>(page, '(s) => s.camera.scale')).toBeGreaterThanOrEqual(0.05);
+
+  // The saved thumbnail is large enough to stay sharp in the library.
+  await waitSaved(page);
+  const width = await page.evaluate(async () => {
+    const req = indexedDB.open('tablenox');
+    const db: IDBDatabase = await new Promise((r) => (req.onsuccess = () => r(req.result)));
+    const games: { thumbnail?: string }[] = await new Promise((r) => {
+      const q = db.transaction('games').objectStore('games').getAll();
+      q.onsuccess = () => r(q.result);
+    });
+    db.close();
+    const img = new Image();
+    img.src = games[0].thumbnail!;
+    await img.decode();
+    return img.naturalWidth;
+  });
+  expect(width).toBe(640);
+});
+
+test('automation: Rotate turns the cards in a holder (not the holder); Recall options keep the turn, face up, shuffle', async ({
+  page,
+}) => {
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  await page.getByRole('button', { name: 'Add object' }).click();
+  await page.getByRole('menuitem', { name: 'Automation button' }).click();
+  await page.getByRole('button', { name: 'Properties panel' }).click();
+  await page
+    .getByRole('complementary', { name: 'Properties' })
+    .getByRole('button', { name: /^Automations/ })
+    .click();
+  const panel = page.getByRole('complementary', { name: 'Automations' });
+  const addStep = async (type: string, pick: string) => {
+    await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: type, exact: true }).click();
+    await panel.getByLabel(/^Add to /).selectOption({ label: pick });
+  };
+  await addStep('Rotate', 'Bonus deck (Holder)');
+  await expect(panel.getByText('A holder stays as it is')).toBeVisible();
+  await addStep('Recall objects', 'Bonus deck (Holder)');
+  await expect(panel.getByLabel('Card rotation in the holders')).toHaveValue('reset');
+  await expect(panel.getByLabel('Face of recalled cards')).toHaveValue('keep');
+  await panel.getByLabel('Card rotation in the holders').selectOption('keep');
+  await panel.getByLabel('Face of recalled cards').selectOption('faceUp');
+  await panel.getByLabel('Shuffle after recalling').check();
+  await expect
+    .poll(() => obj(page, 'Button', 'o.steps[1]'))
+    .toMatchObject({ type: 'recall', rotation: 'keep', orientation: 'faceUp', shuffle: true });
+  await expect(panel.getByText('Rotate the cards in Bonus deck by 90°')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+
+  await switchMode(page, 'play');
+  const order = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
+  const btn = await objectScreenPos(page, 'Button');
+  await page.mouse.click(btn.x, btn.y);
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cardTurn')).toBe(90);
+  expect(await obj<number>(page, 'Bonus deck', 'o.rotation')).toBe(0);
+  expect(await obj<boolean>(page, 'Bonus deck', 'o.cards.every(c => c.faceUp === true)')).toBe(true);
+  const after = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
+  expect([...after].sort()).toEqual([...order].sort());
+  expect(after).not.toEqual(order);
+});
+
 test('edit mode: box-select with the camera locked, duplicate all, drag all as one undo step', async ({ page }) => {
   await addSampleAndPlay(page);
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -1146,36 +1269,39 @@ test('play mode: Shift+drag box-selects movable pieces, which then drag together
   await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([]);
 });
 
-test('edit mode shows a small preview of a holder with its card count; the corner badge needs 2+ cards', async ({ page }) => {
+test('edit mode: holders show their cards, a clear outline and "Deck (X cards)" when they have a deck; the corner badge needs 2+ cards', async ({
+  page,
+}) => {
   await addSampleAndPlay(page);
   const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
   const discardId = await obj<string>(page, 'Discard', 'o.id');
   const nodes = (id: string) =>
     page.evaluate((id) => {
-      type N = { findOne(s: string): N | undefined; find(s: string): N[]; text(): string };
+      type N = { findOne(s: string): N | undefined; find(s: string): N[]; text(): string; opacity(): number };
       const stage = (window as unknown as { Konva: { stages: N[] } }).Konva.stages[0];
       const o = stage.findOne(`#${id}`)!;
+      // The zone outline is the second rectangle of the holder (after the fill).
+      const outline = o.find('Rect')[1];
       return {
-        preview: o.find('.holder-preview').length,
-        count: o.findOne('.holder-count')?.findOne('Text')?.text() ?? null,
+        info: o.findOne('.deck-info')?.text() ?? null,
         cards: o.find('.deck-card').length,
         badge: o.find('.deck-handle').length > 0,
+        outline: Math.round(outline.opacity() * 100) / 100,
       };
     }, id);
 
-  // One card in a holder: no count badge in the corner (Play mode).
+  // One card in a holder: no count badge in the corner. Play mode keeps the faint default outline and no deck text.
   await storeState(
     page,
     `(s) => { s.dispatch({ type: 'DrawCard', deckId: ${JSON.stringify(deckId)}, cardId: 'c1', position: { x: 0, y: 0 }, faceUp: true }); s.dispatch({ type: 'AddCardToDeck', cardId: 'c1', deckId: ${JSON.stringify(discardId)} }); }`,
   );
-  await expect.poll(() => nodes(discardId)).toEqual({ preview: 0, count: null, cards: 1, badge: false });
-  expect(await nodes(deckId)).toEqual({ preview: 0, count: null, cards: 1, badge: true });
+  await expect.poll(() => nodes(discardId)).toEqual({ info: null, cards: 1, badge: false, outline: 0.2 });
+  expect(await nodes(deckId)).toEqual({ info: null, cards: 1, badge: true, outline: 0.2 });
 
+  // Edit mode shows the same cards, a clear outline, and the deck's size (all its cards, even those out of it).
   await switchMode(page, 'edit');
-  await expect.poll(() => nodes(deckId)).toEqual({ preview: 1, count: '11', cards: 0, badge: false });
-  expect(await nodes(discardId)).toEqual({ preview: 1, count: '1', cards: 0, badge: false });
-  await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(discardId)}, patch: { cards: [] } })`);
-  await expect.poll(() => nodes(discardId)).toEqual({ preview: 0, count: null, cards: 0, badge: false });
+  await expect.poll(() => nodes(deckId)).toEqual({ info: 'Deck (12 cards)', cards: 1, badge: true, outline: 0.85 });
+  expect(await nodes(discardId)).toEqual({ info: null, cards: 1, badge: false, outline: 0.85 });
 });
 
 test('a card moved into another deck keeps its own size and back', async ({ page }) => {

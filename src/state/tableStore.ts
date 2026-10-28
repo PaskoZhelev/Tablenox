@@ -14,6 +14,7 @@ export interface DocMeta {
   createdAt: string;
   thumbnail?: string;
   tableColor?: string;
+  lastPlayedAt?: string;
 }
 
 export interface TextEditing {

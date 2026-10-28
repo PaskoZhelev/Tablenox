@@ -11,9 +11,10 @@ import { describeStorageError, repo } from '../../persistence/repository';
 import { confirmDialog, errorMessage, promptDialog, toast } from '../../state/uiStore';
 import { createSampleGame } from './sampleGame';
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, withTime = true): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, withTime ? { dateStyle: 'medium', timeStyle: 'short' } : { dateStyle: 'medium' });
 }
 
 async function run(fn: () => Promise<void>) {
@@ -105,9 +106,16 @@ function GameCard({ g }: { g: Game }) {
         <h3 className="lib-title" title={g.title}>
           {g.title}
         </h3>
-        <p className="lib-meta">
-          {g.objects.length} {g.objects.length === 1 ? 'object' : 'objects'} · {formatDate(g.updatedAt)}
-        </p>
+        <dl className="lib-meta">
+          <div>
+            <dt>Created</dt>
+            <dd>{formatDate(g.createdAt, false)}</dd>
+          </div>
+          <div>
+            <dt>Last played</dt>
+            <dd>{g.lastPlayedAt ? formatDate(g.lastPlayedAt) : 'Never'}</dd>
+          </div>
+        </dl>
         <div className="lib-actions">
           <button type="button" className="btn btn-primary btn-small" onClick={() => navigate({ name: 'play', id: g.id })}>
             <Icon name="play" size={13} /> Play
@@ -222,7 +230,10 @@ export function LibraryPage() {
       <header className="library-header">
         <div className="brand">
           <img className="brand-logo" src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width={34} height={34} />
-          <h1>Tablenox</h1>
+          <div className="brand-text">
+            <h1>Tablenox</h1>
+            <p className="brand-tagline">Solo Virtual Tabletop</p>
+          </div>
         </div>
         <div className="library-actions">
           <button type="button" className="btn btn-primary" onClick={newGame}>

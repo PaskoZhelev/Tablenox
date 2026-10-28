@@ -102,11 +102,8 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     const center = centerOf(e.target);
     const table = currentTable();
     const target = free ? undefined : findHoverTarget(table, o.id, center);
-    // Cards and piles over a spread holder show the place they would take (Play mode: Edit mode only previews a holder's cards).
-    const index =
-      dragsCards && target?.kind === 'deck' && isSpread(target) && mode === 'play'
-        ? spreadInsertIndex(table.objects, target, center)
-        : null;
+    // Cards and piles over a spread holder show the place they would take.
+    const index = dragsCards && target?.kind === 'deck' && isSpread(target) ? spreadInsertIndex(table.objects, target, center) : null;
     useTableStore.getState().setDropTarget(target?.id ?? null, index);
   };
 
@@ -134,9 +131,8 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     if (o.kind === 'card' && !o.locked) flipCard(o.id);
     else if (o.kind === 'die') rollDie(o.id);
     else if (o.kind === 'checkbox' && mode === 'edit') toggleCheckbox(o.id);
-    else if (o.kind === 'deck' && !(mode === 'edit' && isHolder(o))) {
-      // A stack turns its top card over; a spread turns over the card that was double-clicked. (Edit mode only shows a
-      // holder's top card face as a preview, so there it does nothing.)
+    else if (o.kind === 'deck') {
+      // A stack turns its top card over; a spread turns over the card that was double-clicked.
       const world = e.target.getStage()?.getRelativePointerPosition();
       const index = isSpread(o) ? (world ? cardIndexAt(currentTable().objects, o, world) : null) : 0;
       if (index !== null) flipDeckCard(o.id, index);
@@ -201,14 +197,9 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   const hoverAt = (e: KonvaEventObject<MouseEvent>) => {
     let cardId: string | null = null;
     if (o.kind === 'deck') {
-      if (mode === 'edit' && isHolder(o)) {
-        // Edit mode shows a holder's top card as a small preview.
-        cardId = o.cards[0]?.id ?? null;
-      } else {
-        const world = e.target.getStage()?.getRelativePointerPosition();
-        const index = world ? cardIndexAt(currentTable().objects, o, world) : null;
-        cardId = index === null ? null : (o.cards[index]?.id ?? null);
-      }
+      const world = e.target.getStage()?.getRelativePointerPosition();
+      const index = world ? cardIndexAt(currentTable().objects, o, world) : null;
+      cardId = index === null ? null : (o.cards[index]?.id ?? null);
     }
     useTableStore.getState().setHover(o.id, cardId);
   };
@@ -223,7 +214,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       offsetY={o.height / 2}
       rotation={o.rotation}
       draggable={draggable}
-      opacity={dropTarget && !(o.kind === 'deck' && isSpread(o) && mode === 'play') ? 0.45 : o.visible ? 1 : 0.35}
+      opacity={dropTarget && !(o.kind === 'deck' && isSpread(o)) ? 0.45 : o.visible ? 1 : 0.35}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}

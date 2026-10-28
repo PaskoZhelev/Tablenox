@@ -13,6 +13,7 @@ import {
 } from '../domain/buttons';
 import { createObject } from '../domain/objects';
 import { seededSource } from '../domain/random';
+import { cardRotationOf } from '../domain/rules';
 import { parseGame, SchemaError } from '../domain/schema';
 import type {
   ButtonObject,
@@ -22,6 +23,7 @@ import type {
   DeckObject,
   DieObject,
   MoveStep,
+  RecallStep,
   TableState,
   TabletopObject,
 } from '../domain/types';
@@ -78,6 +80,49 @@ describe('automation buttons', () => {
     expect(get(run(state, by), card.id).rotation).toBe(180);
     const to = { ...button, steps: [step('rotate', [card.id], { mode: 'to', degrees: -90 })] };
     expect(get(run(state, to), card.id).rotation).toBe(270);
+  });
+
+  it('rotating a holder turns the cards in it and the pieces on it, never the holder itself', () => {
+    const { state, button, deck, holder, die } = setup();
+    const s0 = {
+      ...state,
+      objects: state.objects.map((o) =>
+        o.id === die.id ? onHolder(die, holder) : o.id === holder.id ? { ...holder, cardRotation: 90 } : o,
+      ),
+    };
+    const by = run(s0, { ...button, steps: [step('rotate', [deck.id, holder.id], { mode: 'by', degrees: 90 })] });
+    expect(get(by, deck.id).rotation).toBe(0);
+    expect(get(by, holder.id).rotation).toBe(0);
+    expect(get<DeckObject>(by, deck.id).cardTurn).toBe(90);
+    expect(cardRotationOf(get<DeckObject>(by, holder.id))).toBe(180);
+    expect(get(by, die.id).rotation).toBe(90);
+    // "Rotate to" sets the cards' final angle; back to the set-up angle stores no turn.
+    const to = run(by, { ...button, steps: [step('rotate', [holder.id], { mode: 'to', degrees: 90 })] });
+    expect(get<DeckObject>(to, holder.id).cardTurn).toBeUndefined();
+    expect(cardRotationOf(get<DeckObject>(to, holder.id))).toBe(90);
+    expect(describeStep(s0, step('rotate', [holder.id], { mode: 'by', degrees: 90 }))).toBe('Rotate the cards in Holder by 90°');
+    // Gather & reset turns the cards back as well.
+    const reset = applyCommand(by, { type: 'ResetDeck', deckId: deck.id });
+    expect(get<DeckObject>(reset, deck.id)).not.toHaveProperty('cardTurn');
+  });
+
+  it('recall options: card rotation (reset by default), side and shuffle', () => {
+    const { state, button, deck } = setup();
+    const turned = run(state, { ...button, steps: [step('rotate', [deck.id], { degrees: 90 })] });
+    const ids = deck.initialCards.map((c) => c.id);
+    const recall = (patch: Partial<RecallStep>) => run(turned, { ...button, steps: [step<RecallStep>('recall', [deck.id], patch)] }, 7);
+    const plain = get<DeckObject>(recall({}), deck.id);
+    expect(plain.cardTurn).toBeUndefined();
+    expect(plain.cards.map((c) => c.id)).toEqual(ids);
+    expect(plain.cards.every((c) => !c.faceUp)).toBe(true);
+    expect(get<DeckObject>(recall({ rotation: 'keep' }), deck.id).cardTurn).toBe(90);
+    expect(get<DeckObject>(recall({ orientation: 'faceUp' }), deck.id).cards.every((c) => c.faceUp === true)).toBe(true);
+    const shuffled = get<DeckObject>(recall({ shuffle: true }), deck.id).cards.map((c) => c.id);
+    expect([...shuffled].sort()).toEqual([...ids].sort());
+    expect(shuffled).not.toEqual(ids);
+    expect(describeStep(turned, step<RecallStep>('recall', [deck.id], { orientation: 'faceDown', shuffle: true, rotation: 'keep' }))).toBe(
+      'Recall Deck (face down, shuffled, keeping card rotation)',
+    );
   });
 
   it('flips cards (toggle / face up / face down) and the cards of a holder', () => {

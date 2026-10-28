@@ -60,6 +60,11 @@ export function createRepository(database: TablenoxDB = db) {
     await collectGarbage();
   }
 
+  /** Records that a game was opened in Play mode (doesn't count as a change to the game). */
+  async function markPlayed(id: string, at: string): Promise<void> {
+    await database.games.update(id, { lastPlayedAt: at });
+  }
+
   async function addAsset(file: Blob & { name?: string }): Promise<string> {
     const mimeType = await validateImageFile(file);
     const asset: StoredAsset = {
@@ -91,6 +96,7 @@ export function createRepository(database: TablenoxDB = db) {
     getGame,
     saveGame,
     deleteGame,
+    markPlayed,
     addAsset,
     getAsset,
     referencedAssetIds,

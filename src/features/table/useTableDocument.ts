@@ -33,14 +33,27 @@ export function snapshotToGame(snap: Snapshot, thumbnail?: string): Game {
     camera,
     ...(doc.tableColor ? { tableColor: doc.tableColor } : {}),
     thumbnail: thumbnail ?? doc.thumbnail,
+    ...(doc.lastPlayedAt ? { lastPlayedAt: doc.lastPlayedAt } : {}),
   };
 }
 
 async function persist(snap: Snapshot): Promise<void> {
-  const isCurrent = useTableStore.getState().doc?.id === snap.doc.id;
+  const current = useTableStore.getState().doc;
+  const isCurrent = current?.id === snap.doc.id;
   const thumb = isCurrent ? captureThumbnail() : undefined;
   if (thumb && isCurrent) useTableStore.getState().setDocMeta({ thumbnail: thumb });
-  await repo.saveGame(snapshotToGame(snap, thumb));
+  // The snapshot may predate the latest "played" mark (it isn't a table change), so take that from the store.
+  const doc = isCurrent && current.lastPlayedAt ? { ...snap.doc, lastPlayedAt: current.lastPlayedAt } : snap.doc;
+  await repo.saveGame(snapshotToGame({ ...snap, doc }, thumb));
+}
+
+/** Records that the open game is being played now (shown as "Last played" in the library). */
+export function markPlayed(id: string): void {
+  const s = useTableStore.getState();
+  if (s.doc?.id !== id) return;
+  const at = nowIso();
+  s.setDocMeta({ lastPlayedAt: at });
+  repo.markPlayed(id, at).catch(() => undefined);
 }
 
 let activeSaver: Autosaver | null = null;
@@ -80,13 +93,18 @@ export function useGameDocument(id: string): LoadState {
         const g = await repo.getGame(id);
         if (cancelled) return;
         if (!g) return setState({ status: 'missing' });
-        useTableStore
-          .getState()
-          .load(
-            { id: g.id, title: g.title, createdAt: g.createdAt, thumbnail: g.thumbnail, tableColor: g.tableColor },
-            gameTable(g),
-            g.camera,
-          );
+        useTableStore.getState().load(
+          {
+            id: g.id,
+            title: g.title,
+            createdAt: g.createdAt,
+            thumbnail: g.thumbnail,
+            tableColor: g.tableColor,
+            lastPlayedAt: g.lastPlayedAt,
+          },
+          gameTable(g),
+          g.camera,
+        );
         lastSnap.current = takeSnapshot();
         unsubscribe = useTableStore.subscribe((s, prev) => {
           if (s.doc?.id !== id) return;

@@ -15,6 +15,7 @@ import {
   resetDeck,
   returnPileToHolders,
   rollDie,
+  setHoverRotate,
   setHoverZoom,
   shuffleBag,
   shuffleDeck,
@@ -42,7 +43,18 @@ import {
   tokenCount,
   withFrontAsBack,
 } from '../domain/objects';
-import { HOVER_ZOOM_LABELS, homeDeckOf, hoverZoomInheritLabel, inheritsHoverZoom, pileHasHome, pileHolders } from '../domain/rules';
+import {
+  effectiveHoverZoom,
+  HOVER_ZOOM_LABELS,
+  homeDeckOf,
+  hoverRotateChoiceOf,
+  hoverRotateChoices,
+  hoverRotateFromChoice,
+  hoverZoomInheritLabel,
+  inheritsHoverZoom,
+  pileHasHome,
+  pileHolders,
+} from '../domain/rules';
 import {
   DIE_SIDES,
   HOVER_ZOOM_SIZES,
@@ -78,6 +90,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
   const dispatch = useTableStore((s) => s.dispatch);
+  const table = useTableStore((s) => s.history.present);
   const z = (direction: ZOrderDirection) => dispatch({ type: 'SetZIndex', id: o.id, direction });
   const transform = (patch: Partial<{ x: number; y: number; width: number; height: number; rotation: number }>) =>
     dispatch({
@@ -152,6 +165,14 @@ function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
           onChange={(v) => setHoverZoom(o.id, (v || undefined) as HoverZoom | undefined)}
         />
       }
+      {effectiveHoverZoom(table, o) !== 'off' && (
+        <SelectField
+          label="Zoomed view"
+          value={hoverRotateChoiceOf(o)}
+          options={hoverRotateChoices(o)}
+          onChange={(v) => setHoverRotate(o.id, hoverRotateFromChoice(v))}
+        />
+      )}
       <div className="button-row">
         <button type="button" className="btn btn-small" onClick={() => z('front')} title="Bring to front">
           <Icon name="front" size={14} /> Front
@@ -791,7 +812,6 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
       return (
         <>
           <DeckEditor o={o} update={update} part="list" />
-          <DeckEditor o={o} update={update} part="settings" />
           <Section title="Holder">
             <TextField label="Label" value={o.label ?? ''} placeholder="No label" onCommit={(label) => update({ label })} />
             <SelectField
@@ -869,6 +889,7 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               longer side: left to right when it is wider than tall, top to bottom otherwise.
             </p>
           </Section>
+          <DeckEditor o={o} update={update} part="settings" />
         </>
       );
     case 'bag':

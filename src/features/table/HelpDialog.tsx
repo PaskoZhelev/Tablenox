@@ -18,7 +18,7 @@ const ROWS: [string, string][] = [
     'Recall all tokens (stack) or return to stack · return a pile’s cards, or a card, to its holder · draw from, shuffle and recall to a bag (Play mode)',
   ],
   ['Drag from a bag', 'Draw a random piece out of it (Play mode); drop a card, pile, token, die… on a bag to put it in'],
-  ['Double-click', "Flip card · roll die · turn over a pile's or (Play mode) holder's top card (in a spread: the clicked card)"],
+  ['Double-click', "Flip card · roll die · turn over a holder's top card (in a spread: the clicked card)"],
   ['Click a button', 'Run an automation button (Play mode): it sinks while held; buttons don’t move or show an action bar there'],
   ['Click a checkbox', 'Check / uncheck it (Play mode); double-click in Edit mode sets how it starts'],
   ['A · drag a palette tile onto the table', 'Open the object palette (Edit mode) · add the object where you drop it'],
