@@ -1204,6 +1204,16 @@ input[type='color'] {
 .context-menu-item kbd {
   margin-left: auto;
 }
+.context-menu-chevron {
+  margin-left: auto;
+  opacity: 0.7;
+}
+/* Options of a menu entry (e.g. Sort), shown below it */
+.context-menu-sub {
+  margin: 0 0 4px 22px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
 
 /* Tool column */
 .hud-tools-wrap {

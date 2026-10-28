@@ -35,9 +35,13 @@ import type {
 } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import { tapsSuppressed } from '../canvas/touch';
-import { useAssetImage, useCrispImage } from './useAssetImage';
+import { loadAssetImage, useAssetImage, useCrispImage } from './useAssetImage';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+/** A card image that is still loading. */
+const LOADING_FILL = '#d5d9df';
+/** Edge of a stack whose cards have a back image (their back colour isn't what the player sees). */
+const IMAGE_STACK_EDGE_FILL = '#5d636c';
 
 function shade(hex: string, amount: number): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -101,6 +105,8 @@ function CardBack({ w, h, backAssetId, backColor }: Pick<CardFaceProps, 'w' | 'h
   if (img) {
     return <KImage image={img} width={w} height={h} cornerRadius={r} />;
   }
+  // A back image that is still loading: a plain card, not the default back design, so it never flashes up.
+  if (backAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
   const inset = Math.min(w, h) * 0.08;
   return (
     <>
@@ -123,6 +129,7 @@ function CardFront({ w, h, faceAssetId, faceText, faceColor }: Pick<CardFaceProp
   const img = useCrispImage(faceAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) return <KImage image={img} width={w} height={h} cornerRadius={r} />;
+  if (faceAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
   const color = cardTextColor(faceText);
   const short = faceText.length <= 4;
   return (
@@ -228,6 +235,21 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
   const lookOf = (i: number) => resolveCardLook(o.cards[i], o, ownerDeckOf(objects, o.cards[i].id));
+  // Decode the images that can come to the top (a shuffle, sort, draw or flip) before they are needed: the side every
+  // card lies on, plus the other side of the top and bottom cards. Otherwise a newly shown card is blank for a moment.
+  const preload = [
+    ...new Set(
+      o.cards.flatMap((c, i) => {
+        const back = lookOf(i).backAssetId;
+        const shown = c.faceUp === true ? c.faceAssetId : back;
+        const other = i === 0 || i === count - 1 ? (c.faceUp === true ? back : c.faceAssetId) : undefined;
+        return [shown, other].filter((id): id is string => !!id);
+      }),
+    ),
+  ].join('|');
+  useEffect(() => {
+    for (const id of preload ? preload.split('|') : []) loadAssetImage(id).catch(() => undefined);
+  }, [preload]);
   return (
     <>
       {holder && (
@@ -287,7 +309,7 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
             width={lookOf(0).width}
             height={lookOf(0).height}
             cornerRadius={Math.min(lookOf(0).width, lookOf(0).height) * 0.07}
-            fill={shade(lookOf(0).backColor, -30)}
+            fill={lookOf(0).backAssetId ? IMAGE_STACK_EDGE_FILL : shade(lookOf(0).backColor, -30)}
             stroke="rgba(0,0,0,0.3)"
             strokeWidth={1}
           />

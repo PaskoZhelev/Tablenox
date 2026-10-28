@@ -897,10 +897,20 @@ test('image thumbnails in the properties panel; pick a card from a deck by its f
   const deck = await obj<{ x: number; y: number; w: number }>(page, 'Bonus deck', '({ x: o.position.x, y: o.position.y, w: o.width })');
   expect(picked.cardDefId).toBe(moonId);
   expect(picked.position).toEqual({ x: deck.x + deck.w + 24, y: deck.y });
-  // Sort from the menu: reverse turns the order around.
+  // Sort from the menu: one Sort entry opens its options; reverse turns the order around.
   const order = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
   await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });
-  await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name: 'Reverse the order' }).click();
+  const deckMenu = page.getByRole('menu', { name: 'Bonus deck menu' });
+  await expect(deckMenu.getByRole('menuitem', { name: /^Sort/ })).toHaveCount(1);
+  await expect(deckMenu.getByRole('menuitem', { name: 'Reverse the order' })).toHaveCount(0);
+  await deckMenu.getByRole('menuitem', { name: 'Sort' }).click();
+  await expect(deckMenu.getByRole('group', { name: 'Sort' }).getByRole('menuitem')).toHaveText([
+    'Original deck order',
+    'By card name',
+    'Reverse the order',
+  ]);
+  await deckMenu.getByRole('menuitem', { name: 'Reverse the order' }).click();
+  await expect(deckMenu).toHaveCount(0);
   await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([...order].reverse());
   // Several picked cards come out as one pile.
   await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });

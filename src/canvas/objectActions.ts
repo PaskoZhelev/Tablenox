@@ -67,6 +67,8 @@ export interface ObjectAction {
   active?: boolean;
   danger?: boolean;
   shortcut?: string;
+  /** Menu only: a choice of options shown below the entry when it is clicked (its own `run` is not used). */
+  children?: ObjectAction[];
 }
 
 /** Objects whose menu title row has inline controls (die face, counter value, card / token count), so their menu is never empty. */
@@ -173,9 +175,17 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
         actions.push({ id: 'pick-card', label: 'Pick card(s)…', icon: 'card', run: () => void pickCardsFromDeck(o.id) });
       }
       if (o.cards.length > 1) {
-        actions.push({ id: 'sort-original', label: 'Sort in original deck order', icon: 'sort', run: () => sortDeck(o.id, 'original') });
-        actions.push({ id: 'sort-name', label: 'Sort by card name', icon: 'sort', run: () => sortDeck(o.id, 'name') });
-        actions.push({ id: 'sort-reverse', label: 'Reverse the order', icon: 'swap', run: () => sortDeck(o.id, 'reverse') });
+        actions.push({
+          id: 'sort',
+          label: 'Sort',
+          icon: 'sort',
+          run: () => undefined,
+          children: [
+            { id: 'sort-original', label: 'Original deck order', run: () => sortDeck(o.id, 'original') },
+            { id: 'sort-name', label: 'By card name', run: () => sortDeck(o.id, 'name') },
+            { id: 'sort-reverse', label: 'Reverse the order', run: () => sortDeck(o.id, 'reverse') },
+          ],
+        });
       }
       if (!o.isPile && o.initialCards.length > 0) {
         actions.push({ id: 'reset', label: 'Gather & reset deck', icon: 'reset', run: () => resetDeck(o.id) });

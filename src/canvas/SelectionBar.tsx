@@ -17,7 +17,7 @@ import {
 import { HOVER_ZOOM_SIZES, type HoverZoom, type TabletopObject } from '../domain/types';
 import { MULTI_BAR, useTableStore } from '../state/tableStore';
 import { incrementCounter, pickDieFace, setCounterValue, setHoverRotate, setHoverZoom } from './actions';
-import { getGroupActions, getObjectActions } from './objectActions';
+import { getGroupActions, getObjectActions, type ObjectAction } from './objectActions';
 
 /** Inline value controls for dice and counters (used in the selection bar and the context menu). */
 export function ObjectControls({ o }: { o: TabletopObject }) {
@@ -232,6 +232,10 @@ export function ContextMenu() {
   const viewport = useTableStore((s) => s.viewport);
   const ref = useRef<HTMLDivElement | null>(null);
   const [sizeRef, measured] = useElementSize<HTMLDivElement>();
+  const [open, setOpen] = useState<{ menu: unknown; id: string } | null>(null);
+  // An opened entry belongs to this menu only: a new menu starts with everything closed.
+  const openId = open && open.menu === menu ? open.id : null;
+  const setOpenId = (id: string | null) => setOpen(id ? { menu, id } : null);
   const size = measured.w ? measured : { w: 220, h: 300 };
   const setRefs = useCallback(
     (el: HTMLDivElement | null) => {
@@ -291,22 +295,45 @@ export function ContextMenu() {
         </label>
       )}
       {actions.map((a) => (
-        <button
-          key={a.id}
-          type="button"
-          role="menuitem"
-          className={`context-menu-item ${a.danger ? 'is-danger' : ''}`}
-          onClick={() => {
-            useTableStore.getState().setContextMenu(null);
-            a.run();
-          }}
-        >
-          {a.icon && <Icon name={a.icon} size={15} />}
-          <span className="context-menu-label">{a.label}</span>
-          {a.active !== undefined && <span className="context-menu-check">{a.active ? '✓' : ''}</span>}
-          {a.shortcut && <kbd>{a.shortcut}</kbd>}
-        </button>
+        <MenuAction key={a.id} a={a} open={openId === a.id} onToggle={() => setOpenId(openId === a.id ? null : a.id)} />
       ))}
     </div>
+  );
+}
+
+function runFromMenu(a: ObjectAction) {
+  useTableStore.getState().setContextMenu(null);
+  a.run();
+}
+
+/** One menu entry; an entry with `children` opens its options right below it instead of running. */
+function MenuAction({ a, open, onToggle }: { a: ObjectAction; open: boolean; onToggle: () => void }) {
+  const parent = !!a.children?.length;
+  return (
+    <>
+      <button
+        type="button"
+        role="menuitem"
+        className={`context-menu-item ${a.danger ? 'is-danger' : ''}`}
+        aria-haspopup={parent ? 'true' : undefined}
+        aria-expanded={parent ? open : undefined}
+        onClick={() => (parent ? onToggle() : runFromMenu(a))}
+      >
+        {a.icon && <Icon name={a.icon} size={15} />}
+        <span className="context-menu-label">{a.label}</span>
+        {a.active !== undefined && <span className="context-menu-check">{a.active ? '✓' : ''}</span>}
+        {a.shortcut && <kbd>{a.shortcut}</kbd>}
+        {parent && <Icon name={open ? 'chevronUp' : 'chevronDown'} size={14} className="context-menu-chevron" />}
+      </button>
+      {parent && open && (
+        <div role="group" aria-label={a.label} className="context-menu-sub">
+          {a.children!.map((c) => (
+            <button key={c.id} type="button" role="menuitem" className="context-menu-item" onClick={() => runFromMenu(c)}>
+              <span className="context-menu-label">{c.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
