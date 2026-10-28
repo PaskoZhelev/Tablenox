@@ -835,6 +835,16 @@ test('image thumbnails in the properties panel; pick a card from a deck by its f
     return d.some((v, i) => i % 4 === 3 && v > 0);
   });
   expect(drawn).toBe(true);
+  // Resting the mouse on a thumbnail shows an enlarged copy of the image; moving away hides it.
+  const faceThumb = panel.getByRole('img', { name: 'Face of card 14' });
+  await faceThumb.hover();
+  const zoom = page.getByTestId('asset-zoom');
+  await expect(zoom).toBeVisible();
+  const thumbBox = (await faceThumb.boundingBox())!;
+  const zoomBox = (await zoom.boundingBox())!;
+  expect(zoomBox.height).toBeGreaterThan(thumbBox.height * 4);
+  await page.mouse.move(5, 5);
+  await expect(zoom).toHaveCount(0);
 
   // Make the Marker a stack of 5 tokens.
   const markerId = await obj<string>(page, 'Marker', 'o.id');
@@ -2039,6 +2049,16 @@ test('phone: one-row top bar, tap shows the action bar, long-press opens the men
   await touch('touchEnd', []);
   await expect(page.getByTestId('card-preview')).toHaveCount(0);
   await expect(page.locator('.context-menu')).toHaveCount(0);
+  // Holding a card in the holder enlarges it too (the menu is still one tap away, in the action bar's ⋯).
+  const cardsInDeck = await obj<number>(page, 'Bonus deck', 'o.cards.length');
+  await touch('touchStart', [deck]);
+  await expect(page.getByTestId('card-preview')).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.context-menu')).toHaveCount(0);
+  await touch('touchEnd', []);
+  await expect(page.getByTestId('card-preview')).toHaveCount(0);
+  await expect(page.locator('.context-menu')).toHaveCount(0);
+  expect(await obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(cardsInDeck);
 
   // Two fingers pinch-zoom about their midpoint without drawing, selecting or opening a menu.
   const scale = await storeState<number>(page, '(s) => s.camera.scale');

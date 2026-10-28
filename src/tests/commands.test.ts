@@ -22,6 +22,7 @@ import {
   hoverRotationOf,
   inheritsRotations,
   nextRotation,
+  pressPreviewOf,
   resolveDrop,
   rollDieCommand,
   rotatedBox,
@@ -703,6 +704,33 @@ describe('deck rules', () => {
     // A stack only offers its top card.
     s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'stack' } });
     expect(cardSlots(s.objects, spread()).map((x) => x.index)).toEqual([0]);
+  });
+
+  it('a long-press enlarges a zoomable card: loose, the card under the finger in a holder, or a pile’s top card', () => {
+    let s = tableOf(fixtureGame());
+    const id = deckOf(s).id;
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 600 } });
+    const spread = () => s.objects.find((o) => o.id === id) as DeckObject;
+    const sl = cardSlots(s.objects, spread())[1];
+    const onSecond = { x: spread().position.x + sl.x + 5, y: spread().position.y + sl.y + sl.height / 2 };
+    const empty = { x: spread().position.x + 1, y: spread().position.y + 1 };
+    expect(pressPreviewOf(s, spread(), onSecond)).toBeNull(); // zoom off: the menu opens
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { hoverZoom: 'large' } });
+    expect(pressPreviewOf(s, spread(), onSecond)).toEqual({ id, cardId: spread().cards[3].id });
+    expect(pressPreviewOf(s, spread(), empty)).toBeNull();
+    expect(pressPreviewOf(s, byKind(s, 'token'), empty)).toBeNull();
+    // Loose cards and piles inherit the deck's setting.
+    const d1 = drawCardCommand(spread(), { x: 0, y: 1000 })! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, d1);
+    const loose = cardsOnTable(s).find((c) => c.id === d1.cardId)!;
+    expect(pressPreviewOf(s, loose, empty)).toEqual({ id: d1.cardId, cardId: null });
+    const d2 = drawCardCommand(spread(), { x: 0, y: 1000 })! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, d2);
+    s = applyCommand(s, { type: 'MergeCards', cardId: d2.cardId, targetCardId: d1.cardId, pileId: 'pile' });
+    const pile = s.objects.find((o) => o.id === 'pile') as DeckObject;
+    expect(pressPreviewOf(s, pile, empty)).toEqual({ id: 'pile', cardId: pile.cards[0].id });
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { hoverZoom: 'off' } });
+    expect(pressPreviewOf(s, pile, empty)).toBeNull();
   });
 
   it('a spread runs down a tall holder (top card bottom-most) and takes drops where they land', () => {

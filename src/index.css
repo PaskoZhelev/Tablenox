@@ -273,6 +273,17 @@ input[type='color'] {
 .asset-thumb.is-loading {
   opacity: 0.4;
 }
+/* Enlarged thumbnail shown while the mouse rests on it (above dialogs and toasts) */
+.asset-zoom {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  border-radius: 6px;
+  background: repeating-conic-gradient(#2a3039 0% 25%, #1c2129 0% 50%) 50% / 12px 12px;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 16px 48px rgba(0, 0, 0, 0.55);
+}
 .btn-small.btn-icon.has-thumb {
   padding: 2px;
   min-width: 32px;

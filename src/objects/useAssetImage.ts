@@ -97,6 +97,11 @@ function mipmap(img: HTMLImageElement, level: number): Bitmap {
   return chain[level];
 }
 
+/** `img` pre-shrunk (in halving steps) to the smallest copy that still covers `w` × `h` device pixels. */
+export function crispBitmap(img: HTMLImageElement, w: number, h: number): Bitmap {
+  return mipmap(img, mipLevel(img, w, h));
+}
+
 /**
  * An asset image to draw at `w` × `h` world units, pre-shrunk to about the size it covers on screen. Browsers
  * shrink a large image in one step by sampling only a few source pixels, which makes fine detail such as card

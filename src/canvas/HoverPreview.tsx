@@ -68,7 +68,7 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode, hoverCardId
 export function HoverPreview() {
   const pressId = useTableStore((s) => s.pressPreviewId);
   const hoverId = useTableStore((s) => s.pressPreviewId ?? (s.tool === 'select' && !s.draggingId && !s.contextMenu ? s.hoverId : null));
-  const hoverCardId = useTableStore((s) => (s.pressPreviewId ? null : s.hoverCardId));
+  const hoverCardId = useTableStore((s) => (s.pressPreviewId ? s.pressPreviewCardId : s.hoverCardId));
   const hovered = useTableStore((s) => s.history.present.objects.find((o) => o.id === hoverId));
   const table = useTableStore((s) => s.history.present);
   const mode = useTableStore((s) => s.mode);

@@ -55,7 +55,7 @@ const TOUCH_ROWS: [string, string][] = [
   ],
   [
     'Touch: long-press',
-    'Open the actions menu for an object (like right-click); on a card with Zoom on hover, show it enlarged while held',
+    'Open the actions menu for an object (like right-click); on a card with Zoom on hover (also in a holder or pile), show it enlarged while held',
   ],
   ['Touch: pinch · two-finger drag', 'Zoom · pan (one finger on the empty table pans too)'],
 ];

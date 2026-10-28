@@ -4,7 +4,7 @@ import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { simplifyPoints, strokeHit, textHit } from '../domain/annotations';
-import { panBy, pinchBy, zoomBy, type PinchPoint } from '../domain/camera';
+import { panBy, pinchBy, screenToWorld, zoomBy, type PinchPoint } from '../domain/camera';
 import { newId } from '../domain/ids';
 import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByZ, tokenCount } from '../domain/objects';
 import { objectBounds } from '../domain/geometry';
@@ -22,7 +22,7 @@ import {
   cardIndexAt,
   drawCardCommand,
   drawRandomFromBagCommand,
-  effectiveHoverZoom,
+  pressPreviewOf,
   splitTokensCommand,
   takeStackCommand,
 } from '../domain/rules';
@@ -561,14 +561,17 @@ export function TableCanvas() {
       if (!stage || touches.current.size !== 1 || s.draggingId || s.tool !== 'select' || s.editingText) return;
       const screen = local(start);
       const target = stage.getIntersection(screen) ?? stage;
-      // A held card with "Zoom on hover" (its own or its deck's) shows enlarged until the finger lifts, instead of the menu.
+      // A held card with "Zoom on hover" (its own or its deck's), loose or in a holder / pile, shows enlarged until the
+      // finger lifts, instead of the menu (the action bar's ⋯ still opens it).
       const node = findObjectNode(target);
-      const card = node ? currentTable().objects.find((o) => o.id === node.id()) : undefined;
-      if (!s.picking && card?.kind === 'card' && effectiveHoverZoom(currentTable(), card) !== 'off') {
+      const held = node ? currentTable().objects.find((o) => o.id === node.id()) : undefined;
+      const world = screenToWorld(s.camera, screen);
+      const preview = !s.picking && held ? pressPreviewOf(currentTable(), held, world) : null;
+      if (preview) {
         cancelGesture();
         suppressTaps();
         s.setContextMenu(null);
-        s.setPressPreview(card.id);
+        s.setPressPreview(preview.id, preview.cardId);
         return;
       }
       if (!openMenuAt(target, screen)) return;

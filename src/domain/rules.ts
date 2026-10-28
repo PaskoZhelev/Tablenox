@@ -541,6 +541,20 @@ export function effectiveHoverRotate(state: TableState, o: TabletopObject, cardI
   return o.hoverRotate ?? hoverSettingsDeck(state, o, cardId)?.hoverRotate ?? false;
 }
 
+/**
+ * Touch: what a long-press at world point `p` on `o` shows enlarged instead of opening the menu: a loose card, or the
+ * card held in a holder / pile (a pile's top card, the card under the finger in a holder), when its hover zoom is on.
+ * Null = no preview (the menu opens).
+ */
+export function pressPreviewOf(state: TableState, o: TabletopObject, p: Vec2): { id: string; cardId: string | null } | null {
+  if (o.kind === 'card') return effectiveHoverZoom(state, o) === 'off' ? null : { id: o.id, cardId: null };
+  if (o.kind !== 'deck') return null;
+  const index = o.isPile ? 0 : cardIndexAt(state.objects, o, p);
+  const card = index === null ? undefined : o.cards[index];
+  if (!card || effectiveHoverZoom(state, o, card.id) === 'off') return null;
+  return { id: o.id, cardId: card.id };
+}
+
 /** Degrees the hover preview of `o` is turned when it follows the object: a holder adds the turn of its cards. */
 export function hoverRotationOf(o: TabletopObject): number {
   return normalizeDegrees(o.rotation + (o.kind === 'deck' ? cardRotationOf(o) : 0));
