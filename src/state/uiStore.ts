@@ -33,6 +33,9 @@ export interface PickableItem {
   shape?: 'card' | 'die';
   /** Standard d6 faces: number of pips drawn instead of the text. */
   pips?: number;
+  /** Cards: their back, shown when the picker switches to backs. */
+  backColor?: string;
+  backAssetId?: string;
 }
 
 export interface PickRequest {
@@ -44,7 +47,10 @@ export interface PickRequest {
   items: PickableItem[];
   /** Item shown as the current choice (and focused first). */
   currentId?: string;
-  resolve: (id: string | null) => void;
+  /** Clicks select several items, confirmed with a button (`confirmLabel`, e.g. "Take"). */
+  multiple?: boolean;
+  confirmLabel?: string;
+  resolve: (ids: string[] | null) => void;
 }
 
 export interface Toast {
@@ -93,15 +99,21 @@ export function promptDialog(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Pro
 }
 
 /** Shows every item's face (cards, die faces) and resolves with the id of the one clicked (null when cancelled). */
-export function pickDialog(opts: Omit<PickRequest, 'kind' | 'resolve'>): Promise<string | null> {
+export function pickDialog(opts: Omit<PickRequest, 'kind' | 'resolve' | 'multiple'>): Promise<string | null> {
+  return pickManyDialog({ ...opts, multiple: false }).then((ids) => ids?.[0] ?? null);
+}
+
+/** Like `pickDialog`, but several items can be selected; resolves with their ids in list order (null when cancelled). */
+export function pickManyDialog(opts: Omit<PickRequest, 'kind' | 'resolve'>): Promise<string[] | null> {
   return new Promise((resolve) => {
     useUiStore.setState({
       dialog: {
         kind: 'pick',
+        multiple: true,
         ...opts,
-        resolve: (id) => {
+        resolve: (ids) => {
           useUiStore.setState({ dialog: null });
-          resolve(id);
+          resolve(ids);
         },
       },
     });

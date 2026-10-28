@@ -5,6 +5,7 @@ import type { DrawSide, Mode, TableState, TabletopObject } from '../domain/types
 import { useTableStore } from '../state/tableStore';
 import {
   cycleDrawSide,
+  cyclePutSide,
   deleteObject,
   deleteObjects,
   drawFromBag,
@@ -13,7 +14,7 @@ import {
   duplicateObjects,
   flipCard,
   flipDeck,
-  pickCardFromDeck,
+  pickCardsFromDeck,
   promptDrawCards,
   promptDrawFromBag,
   promptTakeTokens,
@@ -30,6 +31,7 @@ import {
   setHolderLayout,
   shuffleBag,
   shuffleDeck,
+  sortDeck,
   takeTokens,
   toggleLock,
   toggleLockMany,
@@ -45,6 +47,13 @@ export const DRAW_SIDE_LABELS: Record<DrawSide, string> = {
   keep: 'Draws as they lie',
   faceUp: 'Draws face up',
   faceDown: 'Draws face down',
+};
+
+/** Label of the put-side action (holders; it cycles through the three settings). */
+export const PUT_SIDE_LABELS: Record<DrawSide, string> = {
+  keep: 'Cards go in as they are',
+  faceUp: 'Cards go in face up',
+  faceDown: 'Cards go in face down',
 };
 
 export interface ObjectAction {
@@ -161,7 +170,12 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
           icon: 'draw',
           run: () => void promptDrawCards(o.id, 'bottom'),
         });
-        actions.push({ id: 'pick-card', label: 'Pick a card…', icon: 'card', run: () => void pickCardFromDeck(o.id) });
+        actions.push({ id: 'pick-card', label: 'Pick card(s)…', icon: 'card', run: () => void pickCardsFromDeck(o.id) });
+      }
+      if (o.cards.length > 1) {
+        actions.push({ id: 'sort-original', label: 'Sort in original deck order', icon: 'sort', run: () => sortDeck(o.id, 'original') });
+        actions.push({ id: 'sort-name', label: 'Sort by card name', icon: 'sort', run: () => sortDeck(o.id, 'name') });
+        actions.push({ id: 'sort-reverse', label: 'Reverse the order', icon: 'swap', run: () => sortDeck(o.id, 'reverse') });
       }
       if (!o.isPile && o.initialCards.length > 0) {
         actions.push({ id: 'reset', label: 'Gather & reset deck', icon: 'reset', run: () => resetDeck(o.id) });
@@ -178,6 +192,14 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
           active: o.drawSide !== 'keep',
         });
         if (!o.isPile) {
+          const putSide = o.putSide ?? 'keep';
+          actions.push({
+            id: 'putside',
+            label: PUT_SIDE_LABELS[putSide],
+            icon: putSide === 'faceDown' ? 'eyeOff' : 'eye',
+            run: () => cyclePutSide(o.id),
+            active: putSide !== 'keep',
+          });
           const spread = o.layout === 'spread';
           actions.push({
             id: 'layout',

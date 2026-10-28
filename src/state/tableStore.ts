@@ -127,6 +127,8 @@ export interface TableStoreState {
   automationButtonId: string | null;
   /** Object to highlight briefly on the table (e.g. picked from an automation step); `seq` restarts the pulse. */
   flash: { id: string; seq: number } | null;
+  /** Holders / piles / bags the last shuffle (by hand or automation) went through, for a short animation; `seq` restarts it. */
+  shuffled: { ids: string[]; seq: number } | null;
   /** Edit mode: the object palette is open (it also shows while pinned, see `ui.palettePinned`). */
   paletteOpen: boolean;
   /** Increments whenever persisted document content changes (table or title). */
@@ -181,6 +183,13 @@ export type TableStore = TableStoreState & TableStoreActions;
 
 const COALESCE_WINDOW_MS = 1200;
 
+/** Ids of the holders / piles / bags a command shuffles (also inside batches). */
+export function shuffledBy(cmd: Command): string[] {
+  if (cmd.type === 'ShuffleDeck' || cmd.type === 'ShuffleBag') return [cmd.id];
+  if (cmd.type === 'Batch') return [...new Set(cmd.commands.flatMap(shuffledBy))];
+  return [];
+}
+
 const transient = {
   doc: null,
   history: createHistory(emptyTable()),
@@ -202,6 +211,7 @@ const transient = {
   picking: null as PickingState | null,
   automationButtonId: null as string | null,
   flash: null as { id: string; seq: number } | null,
+  shuffled: null as { ids: string[]; seq: number } | null,
   paletteOpen: false,
   revision: 0,
   cameraRevision: 0,
@@ -266,11 +276,13 @@ export const useTableStore = create<TableStore>()((set, get) => ({
       now - s.lastCoalesce.at < COALESCE_WINDOW_MS &&
       s.history.past.length > 0;
     const history = canCoalesce ? { ...s.history, present: next, future: [] } : pushHistory(s.history, next);
+    const shuffledIds = shuffledBy(cmd);
     set({
       history,
       revision: s.revision + 1,
       ...validSelection(next, s),
       lastCoalesce: opts?.coalesceKey ? { key: opts.coalesceKey, at: now } : null,
+      ...(shuffledIds.length ? { shuffled: { ids: shuffledIds, seq: (s.shuffled?.seq ?? 0) + 1 } } : {}),
     });
     return true;
   },

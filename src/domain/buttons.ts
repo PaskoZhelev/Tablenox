@@ -32,6 +32,7 @@ import type {
   MoveStep,
   ObjectId,
   ObjectKind,
+  PickStep,
   RecallStep,
   RotateStep,
   SortStep,
@@ -43,10 +44,11 @@ import type {
 } from './types';
 import { timerFinished } from './timer';
 
-export const STEP_TYPES: StepType[] = ['move', 'recall', 'rotate', 'flip', 'shuffle', 'sort', 'roll', 'counter', 'check', 'timer'];
+export const STEP_TYPES: StepType[] = ['move', 'pick', 'recall', 'rotate', 'flip', 'shuffle', 'sort', 'roll', 'counter', 'check', 'timer'];
 
 export const STEP_LABELS: Record<StepType, string> = {
   move: 'Move objects',
+  pick: 'Pick cards',
   recall: 'Recall objects',
   rotate: 'Rotate',
   flip: 'Flip',
@@ -112,6 +114,8 @@ export function createStep(type: StepType): ButtonStep {
   switch (type) {
     case 'move':
       return { ...base, type, targetIds: [], deckMode: 'top', orientation: 'keep' };
+    case 'pick':
+      return { ...base, type, targetIds: [], orientation: 'keep' };
     case 'rotate':
       return { ...base, type, mode: 'by', degrees: 90 };
     case 'flip':
@@ -134,6 +138,7 @@ export function createStep(type: StepType): ButtonStep {
 /** Kinds a step type can act on (a holder also stands for what lies on it). Unlisted types accept any object. */
 const STEP_KINDS: Partial<Record<StepType, ObjectKind[]>> = {
   recall: ['card', 'deck', 'token', 'die', 'counter', 'label', 'image', 'bag'],
+  pick: ['deck'],
   flip: ['card', 'deck'],
   shuffle: ['deck', 'bag'],
   sort: ['deck'],
@@ -150,16 +155,19 @@ export function stepAcceptsObject(type: StepType, o: TabletopObject): boolean {
 
 export type PickField = 'objects' | 'target';
 
+/** Steps with destinations (`targetIds`). */
+const hasTargets = (step: ButtonStep): step is MoveStep | PickStep => step.type === 'move' || step.type === 'pick';
+
 /** Whether `o` can be chosen for a step's object list or destination (a button never targets itself). */
 export function canPick(step: ButtonStep, field: PickField, o: TabletopObject, buttonId: ObjectId): boolean {
   if (o.id === buttonId) return false;
-  return field === 'target' ? step.type === 'move' : stepAcceptsObject(step.type, o);
+  return field === 'target' ? hasTargets(step) : stepAcceptsObject(step.type, o);
 }
 
 /** Ids currently chosen in a step field. */
 export function pickedIds(step: ButtonStep, field: PickField): ObjectId[] {
   if (field === 'objects') return step.objectIds;
-  return step.type === 'move' ? step.targetIds : [];
+  return hasTargets(step) ? step.targetIds : [];
 }
 
 /** `ids` with a pick applied: `toggle` adds or removes one id, `add` adds every given id (box selection). */
@@ -176,7 +184,7 @@ function pickInto(list: ObjectId[], ids: ObjectId[], how: 'toggle' | 'add'): Obj
 export function applyPick(step: ButtonStep, field: PickField, ids: ObjectId[], how: 'toggle' | 'add'): ButtonStep {
   if (ids.length === 0) return step;
   if (field === 'target') {
-    if (step.type !== 'move') return step;
+    if (!hasTargets(step)) return step;
     const targetIds = pickInto(step.targetIds, ids, how);
     return targetIds === step.targetIds ? step : { ...step, targetIds };
   }
@@ -213,13 +221,37 @@ export function resolveTargets(state: TableState, ids: readonly ObjectId[]): Tab
   return out;
 }
 
+/** Cards the player chose for Pick steps while a button runs: `pickKey(stepId, holderId)` → card ids. */
+export type PickChoices = Readonly<Record<string, readonly string[]>>;
+
+export const pickKey = (stepId: string, holderId: ObjectId) => `${stepId}:${holderId}`;
+
+/** A Pick step waiting for the player: the holder / pile as it is at that point of the run. */
+export interface PendingPick {
+  key: string;
+  step: PickStep;
+  deck: DeckObject;
+}
+
+class PickNeeded {
+  readonly pick: PendingPick;
+  constructor(pick: PendingPick) {
+    this.pick = pick;
+  }
+}
+
 /** Applies commands to a working copy so that later steps see the effect of earlier ones. */
 class Plan {
   commands: Command[] = [];
   state: TableState;
+  readonly picks: PickChoices;
+  /** Stop at a Pick step without a choice (instead of skipping it). */
+  readonly interactive: boolean;
 
-  constructor(state: TableState) {
+  constructor(state: TableState, picks: PickChoices = {}, interactive = false) {
     this.state = state;
+    this.picks = picks;
+    this.interactive = interactive;
   }
 
   emit(cmd: Command): void {
@@ -417,6 +449,77 @@ function dealToMany(plan: Plan, step: MoveStep, targetIds: ObjectId[]): void {
   }
 }
 
+/** Draws the chosen cards of a holder / pile one by one (in holder order); returns the new card ids. */
+function drawChosen(plan: Plan, deckId: ObjectId, picked: CardDef[], orientation: StepOrientation): string[] {
+  const ids: string[] = [];
+  for (const c of picked) {
+    const now = plan.find(deckId);
+    if (now?.kind !== 'deck') break;
+    const index = now.cards.findIndex((x) => x.id === c.id);
+    if (index < 0) continue;
+    const cardId = newId();
+    ids.push(cardId);
+    plan.emit({
+      type: 'DrawCard',
+      deckId,
+      cardId,
+      position: defaultDrawPosition(now),
+      faceUp: orientation === 'keep' ? drawnFaceUp(now, c) : orientation === 'faceUp',
+      index,
+    });
+  }
+  return ids;
+}
+
+/**
+ * Pick step: for each listed holder / pile the player chooses cards (`plan.picks`; an interactive run stops
+ * here to ask). They go onto the destination (dealt in turn with several), or next to the holder (one pile).
+ */
+function planPick(plan: Plan, step: PickStep): void {
+  const targets = step.targetIds.map((id) => plan.find(id)).filter((t): t is TabletopObject => !!t);
+  let turn = 0;
+  for (const id of step.objectIds) {
+    const deck = plan.find(id);
+    if (deck?.kind !== 'deck' || deck.cards.length === 0) continue;
+    const key = pickKey(step.id, deck.id);
+    const chosen = plan.picks[key];
+    if (!chosen) {
+      if (plan.interactive) throw new PickNeeded({ key, step, deck });
+      continue;
+    }
+    const wanted = new Set(chosen);
+    const picked = deck.cards.filter((c) => wanted.has(c.id));
+    if (picked.length === 0) continue;
+    if (targets.length === 0) {
+      if (picked.length === 1) {
+        drawChosen(plan, deck.id, picked, step.orientation);
+        continue;
+      }
+      const pileId = newId();
+      const ids = picked.map((c) => c.id);
+      plan.emit({ type: 'DrawCards', deckId: deck.id, pileId, position: defaultDrawPosition(deck), count: ids.length, cardIds: ids });
+      const pile = plan.find(pileId);
+      if (pile?.kind === 'deck' && step.orientation !== 'keep') {
+        const faceUp = step.orientation === 'faceUp';
+        plan.emit({ type: 'UpdateObject', id: pileId, patch: { cards: pile.cards.map((c) => ({ ...c, faceUp })) } });
+      }
+      continue;
+    }
+    const ids = drawChosen(plan, deck.id, picked, step.orientation);
+    if (targets.length === 1) {
+      const target = targets[0];
+      // The last card put into a holder / bag ends on top, so add from the one that has to end up lowest.
+      const order = target.kind === 'deck' || target.kind === 'bag' ? [...ids].reverse() : ids;
+      for (const cardId of order) deliver(plan, target, cardId, alignedRotation(target));
+    } else {
+      for (const cardId of ids) {
+        const target = plan.find(targets[turn++ % targets.length].id);
+        if (target) deliver(plan, target, cardId, alignedRotation(target));
+      }
+    }
+  }
+}
+
 function planRecall(plan: Plan, step: RecallStep, random: RandomSource): void {
   const reset = new Set<ObjectId>();
   // Holders and bags the step gathers into, in order: the recall options apply to them afterwards.
@@ -602,6 +705,8 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: numbe
   switch (step.type) {
     case 'move':
       return planMove(plan, step);
+    case 'pick':
+      return planPick(plan, step);
     case 'recall':
       return planRecall(plan, step, random);
     case 'rotate':
@@ -631,17 +736,40 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: numbe
 /**
  * The command that runs a button's steps in order, or null when nothing would change. Randomness, the time
  * (`now`, for timers) and new object ids are decided here, so the returned command replays deterministically.
+ * Pick steps use the cards in `picks`; holders without a choice are skipped.
  */
 export function planButton(
   state: TableState,
   button: ButtonObject,
   random: RandomSource = secureRandomSource,
   now: number = Date.now(),
+  picks: PickChoices = {},
 ): Command | null {
-  const plan = new Plan(state);
+  const plan = new Plan(state, picks);
   for (const step of button.steps) planStep(plan, step, random, now);
+  return finishPlan(plan, state);
+}
+
+function finishPlan(plan: Plan, state: TableState): Command | null {
   if (plan.state === state || plan.commands.length === 0) return null;
   return { type: 'Batch', commands: plan.commands };
+}
+
+export type ButtonRun = { done: true; command: Command | null } | { done: false; pick: PendingPick };
+
+/**
+ * Like `planButton`, but stops at the first Pick step holder without a choice in `picks` and returns it, so the
+ * player can choose. Plan again with the choice added (and the same random source seed and `now`) to go on.
+ */
+export function planButtonRun(state: TableState, button: ButtonObject, random: RandomSource, now: number, picks: PickChoices): ButtonRun {
+  const plan = new Plan(state, picks, true);
+  try {
+    for (const step of button.steps) planStep(plan, step, random, now);
+  } catch (e) {
+    if (e instanceof PickNeeded) return { done: false, pick: e.pick };
+    throw e;
+  }
+  return { done: true, command: finishPlan(plan, state) };
 }
 
 function nameOf(state: TableState, id: ObjectId): string {
@@ -689,7 +817,12 @@ export function describeStep(state: TableState, step: ButtonStep): string {
     case 'shuffle':
       return `Shuffle ${what}`;
     case 'sort':
-      return `Sort ${what} by ${step.by === 'name' ? 'name' : 'original order'}`;
+      return step.by === 'reverse' ? `Reverse the order of ${what}` : `Sort ${what} by ${step.by === 'name' ? 'name' : 'original order'}`;
+    case 'pick': {
+      const to = step.targetIds.length ? describeObjects(state, step.targetIds) : 'next to the holder';
+      const side = { keep: '', faceUp: ' face up', faceDown: ' face down' }[step.orientation];
+      return `Pick cards from ${what} to ${to}${step.targetIds.length > 1 ? ' in turn' : ''}${side}`;
+    }
     case 'roll':
       return `Roll ${what}`;
     case 'counter':

@@ -141,6 +141,39 @@ function RotationAnglesField({ o, update }: { o: TabletopObject; update: Update 
   );
 }
 
+/** The look of a holder's zone: fill and outline. */
+function HolderLookFields({ o, update }: { o: DeckObject; update: Update }) {
+  return (
+    <>
+      <ColorField label="Holder colour" value={o.color ?? DEFAULT_HOLDER_COLOR} onChange={(color) => update({ color }, `color:${o.id}`)} />
+      <OpacityField
+        label="Holder opacity"
+        value={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY}
+        onChange={(fillOpacity) => update({ fillOpacity }, `fillOpacity:${o.id}`)}
+      />
+      <ColorField
+        label="Stroke colour"
+        value={o.strokeColor ?? o.color ?? DEFAULT_HOLDER_COLOR}
+        onChange={(strokeColor) => update({ strokeColor }, `strokeColor:${o.id}`)}
+      />
+      <OpacityField
+        label="Stroke opacity"
+        value={o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY}
+        onChange={(strokeOpacity) => update({ strokeOpacity }, `strokeOpacity:${o.id}`)}
+      />
+      <SelectField
+        label="Stroke style"
+        value={o.strokeStyle ?? 'dashed'}
+        options={[
+          { value: 'dashed', label: 'Dashed' },
+          { value: 'solid', label: 'Solid' },
+        ]}
+        onChange={(strokeStyle) => update({ strokeStyle })}
+      />
+    </>
+  );
+}
+
 function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
   const dispatch = useTableStore((s) => s.dispatch);
   const table = useTableStore((s) => s.history.present);
@@ -182,6 +215,7 @@ function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
         </button>
       </div>
       {o.kind !== 'die' && <RotationAnglesField o={o} update={update} />}
+      {o.kind === 'deck' && !o.isPile && <HolderLookFields o={o} update={update} />}
       <div className="button-row">
         <button
           type="button"
@@ -509,6 +543,16 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
           </button>
         </div>
         <DrawSideField o={o} update={update} />
+        <SelectField
+          label="Cards come in"
+          value={o.putSide ?? 'keep'}
+          options={[
+            { value: 'keep', label: 'As they are put in' },
+            { value: 'faceUp', label: 'Always face up' },
+            { value: 'faceDown', label: 'Always face down' },
+          ]}
+          onChange={(putSide) => update({ putSide: putSide === 'keep' ? undefined : putSide })}
+        />
         <div className="button-row">
           <button type="button" className="btn btn-small" disabled={o.cards.length < 2} onClick={() => shuffleDeck(o.id)}>
             <Icon name="shuffle" size={14} /> Shuffle
@@ -1012,35 +1056,6 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
                 { value: 'spread', label: 'Spread (cards side by side, drag any card)' },
               ]}
               onChange={(layout) => update({ layout })}
-            />
-            <ColorField
-              label="Holder colour"
-              value={o.color ?? DEFAULT_HOLDER_COLOR}
-              onChange={(color) => update({ color }, `color:${o.id}`)}
-            />
-            <OpacityField
-              label="Holder opacity"
-              value={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY}
-              onChange={(fillOpacity) => update({ fillOpacity }, `fillOpacity:${o.id}`)}
-            />
-            <ColorField
-              label="Stroke colour"
-              value={o.strokeColor ?? o.color ?? DEFAULT_HOLDER_COLOR}
-              onChange={(strokeColor) => update({ strokeColor }, `strokeColor:${o.id}`)}
-            />
-            <OpacityField
-              label="Stroke opacity"
-              value={o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY}
-              onChange={(strokeOpacity) => update({ strokeOpacity }, `strokeOpacity:${o.id}`)}
-            />
-            <SelectField
-              label="Stroke style"
-              value={o.strokeStyle ?? 'dashed'}
-              options={[
-                { value: 'dashed', label: 'Dashed' },
-                { value: 'solid', label: 'Solid' },
-              ]}
-              onChange={(strokeStyle) => update({ strokeStyle })}
             />
             <NumberField
               label="Card rotation in the holder (°)"

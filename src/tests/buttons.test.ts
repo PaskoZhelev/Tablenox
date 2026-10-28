@@ -8,7 +8,9 @@ import {
   describeStep,
   fitFontSize,
   pickedIds,
+  pickKey,
   planButton,
+  planButtonRun,
   resolveTargets,
 } from '../domain/buttons';
 import { createObject } from '../domain/objects';
@@ -24,6 +26,7 @@ import type {
   DieObject,
   FlipStep,
   MoveStep,
+  PickStep,
   RecallStep,
   TableState,
   TabletopObject,
@@ -206,6 +209,69 @@ describe('automation buttons', () => {
     expect(ids(sorted)).toEqual(ids(state));
     const byName = run(state, { ...button, steps: [step('shuffle', [deck.id]), step('sort', [deck.id], { by: 'name' })] });
     expect(names(byName, deck.id)).toEqual(['C1', 'C2', 'C3', 'C4', 'C5']);
+    const reversed = run(state, { ...button, steps: [step('sort', [deck.id], { by: 'reverse' })] });
+    expect(names(reversed, deck.id)).toEqual(['C5', 'C4', 'C3', 'C2', 'C1']);
+    expect(describeStep(state, step('sort', [deck.id], { by: 'reverse' }))).toBe(`Reverse the order of ${deck.name}`);
+  });
+
+  it('pick step: stops for the player’s choice, then puts the chosen cards onto the destination', () => {
+    const { state, button, deck, holder } = setup();
+    const pick = step<PickStep>('pick', [deck.id], { targetIds: [holder.id], orientation: 'faceUp' });
+    const b = { ...button, steps: [step('shuffle', [deck.id]), pick] };
+    // The run stops at the pick with the deck as the earlier shuffle left it; the same seed replays the same shuffle.
+    const first = planButtonRun(state, b, seededSource(7), 0, {});
+    expect(first.done).toBe(false);
+    if (first.done) return;
+    expect(first.pick.key).toBe(pickKey(pick.id, deck.id));
+    const shuffledOrder = first.pick.deck.cards.map((c) => c.id);
+    const chosen = [shuffledOrder[3], shuffledOrder[1]];
+    const second = planButtonRun(state, b, seededSource(7), 0, { [first.pick.key]: chosen });
+    expect(second.done).toBe(true);
+    if (!second.done) return;
+    const after = applyCommand(state, second.command!);
+    // In holder order (the one higher up stays on top), face up; the rest stay in the deck, still shuffled.
+    expect(get<DeckObject>(after, holder.id).cards.map((c) => [c.id, c.faceUp])).toEqual([
+      [shuffledOrder[1], true],
+      [shuffledOrder[3], true],
+    ]);
+    expect(get<DeckObject>(after, deck.id).cards.map((c) => c.id)).toEqual(shuffledOrder.filter((id) => !chosen.includes(id)));
+    // planButton skips a pick without a choice.
+    expect(planButton(state, { ...button, steps: [pick] })).toBeNull();
+    expect(describeStep(state, pick)).toBe(`Pick cards from ${deck.name} to ${holder.name} face up`);
+  });
+
+  it('pick step: deals the chosen cards to several destinations in turn, or puts them next to the holder as a pile', () => {
+    const { state, button, deck, holder, card } = setup();
+    const [c1, c2, c3] = deck.cards;
+    const dealt = planButton(
+      state,
+      { ...button, steps: [step<PickStep>('pick', [deck.id], { id: 'p', targetIds: [holder.id, card.id] })] },
+      seededSource(1),
+      0,
+      { [pickKey('p', deck.id)]: [c1.id, c2.id, c3.id] },
+    );
+    const s1 = applyCommand(state, dealt!);
+    expect(get<DeckObject>(s1, holder.id).cards.map((c) => c.id)).toEqual([c3.id, c1.id]);
+    expect(cardsOnTable(s1).find((c) => c.cardDefId === c2.id)?.position).toEqual(card.position);
+    // Without a destination: one pile next to the holder, in holder order, with the chosen side.
+    const loose = planButton(
+      state,
+      { ...button, steps: [step<PickStep>('pick', [deck.id], { id: 'p', orientation: 'faceDown' })] },
+      seededSource(1),
+      0,
+      { [pickKey('p', deck.id)]: [c3.id, c1.id] },
+    );
+    const s2 = applyCommand(state, loose!);
+    const pile = piles(s2)[0];
+    expect(pile.cards.map((c) => [c.id, c.faceUp])).toEqual([
+      [c1.id, false],
+      [c3.id, false],
+    ]);
+    expect(get<DeckObject>(s2, deck.id).cards).toHaveLength(3);
+    // Picks only use holders and piles; they take destinations like a move step.
+    expect(canPick(step('pick', []), 'objects', deck, button.id)).toBe(true);
+    expect(canPick(step('pick', []), 'objects', card, button.id)).toBe(false);
+    expect(canPick(step('pick', []), 'target', card, button.id)).toBe(true);
   });
 
   it('rolls dice (also the dice lying on a listed holder) using the supplied random source', () => {
@@ -419,6 +485,8 @@ describe('button persistence', () => {
       step('move', ['d'], { targetIds: ['h'], deckMode: 'bottom', count: 3, orientation: 'faceUp' }),
       step('rotate', ['d'], { mode: 'to', degrees: 90 }),
       step('sort', ['d'], { by: 'name' }),
+      step('sort', ['d'], { by: 'reverse' }),
+      step('pick', ['d'], { targetIds: ['h'], orientation: 'faceDown' }),
       step('counter', ['c'], { mode: 'set', amount: 3 }),
     );
     const sized = { ...button, fontSize: 30 };

@@ -5,6 +5,7 @@ import {
   cardObjectFromDef,
   cardSizeOf,
   dieFaceCount,
+  cardPutInto,
   drawnFaceUp,
   homeDeckMap,
   maxZ,
@@ -66,15 +67,16 @@ export type Command =
   | { type: 'ToggleLock'; id: string }
   | { type: 'FlipCard'; id: string }
   | { type: 'ShuffleDeck'; id: string; order: number[] }
-  /** Orders a deck/pile by the original deck order or by card name. */
+  /** Orders a deck/pile by the original deck order or by card name, or reverses its current order. */
   | { type: 'SortDeck'; id: string; by: SortBy }
   /** Takes a card out of a holder/pile: the top one, the bottom one, or the one at `index` (spread holders). */
   | { type: 'DrawCard'; deckId: string; cardId: string; position: Vec2; faceUp: boolean; fromBottom?: boolean; index?: number }
   /**
    * Takes `count` cards from the top or bottom of a holder/pile as one new pile at `position`, keeping their
-   * order; each card comes out with the side the holder's "cards come out" setting gives it.
+   * order; each card comes out with the side the holder's "cards come out" setting gives it. With `cardIds`,
+   * takes exactly those cards (picked from the list; `count` is ignored).
    */
-  | { type: 'DrawCards'; deckId: string; pileId: string; position: Vec2; count: number; fromBottom?: boolean }
+  | { type: 'DrawCards'; deckId: string; pileId: string; position: Vec2; count: number; fromBottom?: boolean; cardIds?: string[] }
   /** Lifts every card out of a holder as a new pile at `position`; the holder stays where it is. */
   | { type: 'TakeStack'; deckId: string; pileId: string; position: Vec2 }
   /** Flips the whole deck over: reverses the order and turns every card over. */
@@ -200,7 +202,7 @@ function addCardToDeck(state: TableState, cardId: string, deckId: string, asDefi
       if (o.id === deck.id) {
         return {
           ...deck,
-          cards: alreadyInDeck ? deck.cards : insertCards(deck.cards, [def], index),
+          cards: alreadyInDeck ? deck.cards : insertCards(deck.cards, [cardPutInto(deck, def)], index),
           initialCards: define ? [stripFace(def), ...deck.initialCards] : deck.initialCards,
         };
       }
@@ -247,7 +249,11 @@ function mergePileIntoDeck(state: TableState, pileId: string, deckId: string, as
       if (o.id === deck.id) {
         return {
           ...deck,
-          cards: insertCards(deck.cards, incoming, index),
+          cards: insertCards(
+            deck.cards,
+            incoming.map((c) => cardPutInto(deck, c)),
+            index,
+          ),
           initialCards: [...defined.map(stripFace), ...deck.initialCards],
         };
       }
@@ -265,7 +271,9 @@ function sortDeck(state: TableState, id: string, by: SortBy): TableState {
   const deck = findObject(state, id);
   if (!deck || deck.kind !== 'deck' || deck.cards.length < 2) return state;
   let order: CardDef[];
-  if (by === 'name') {
+  if (by === 'reverse') {
+    order = [...deck.cards].reverse();
+  } else if (by === 'name') {
     const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
     order = [...deck.cards].sort((a, b) => collator.compare(a.name, b.name));
   } else {
@@ -330,7 +338,7 @@ function resetDeck(state: TableState, deckId: string, keepCardTurn = false): Tab
     if (o.kind === 'card' && o.cardDefId && own.has(o.cardDefId)) continue;
     if (o.id === deck.id) {
       const { cardTurn: _turn, ...rest } = deck;
-      objects.push({ ...(keepCardTurn ? deck : rest), cards: deck.initialCards.map(stripFace) });
+      objects.push({ ...(keepCardTurn ? deck : rest), cards: deck.initialCards.map((c) => cardPutInto(deck, stripFace(c))) });
       continue;
     }
     if (o.kind === 'bag') {
@@ -339,7 +347,7 @@ function resetDeck(state: TableState, deckId: string, keepCardTurn = false): Tab
       continue;
     }
     if (o.kind === 'deck') {
-      const extra = toOtherDecks.get(o.id) ?? [];
+      const extra = (toOtherDecks.get(o.id) ?? []).map((c) => cardPutInto(o, c));
       const remaining = o.cards.filter((c) => !own.has(c.id));
       if (o.isPile && remaining.length === 0 && extra.length === 0) continue;
       if (remaining.length !== o.cards.length || extra.length) {
@@ -378,7 +386,7 @@ function returnPile(state: TableState, id: string): TableState {
         ...o,
         cards: insertCards(
           o.cards,
-          back.filter((c) => !inHolder.has(c.id)),
+          back.filter((c) => !inHolder.has(c.id)).map((c) => cardPutInto(o, c)),
           undefined,
         ),
       },
@@ -512,8 +520,18 @@ export function applyCommand(state: TableState, cmd: Command): TableState {
       const deck = findObject(state, cmd.deckId);
       if (!deck || deck.kind !== 'deck' || deck.cards.length === 0 || findObject(state, cmd.pileId)) return state;
       const n = Math.min(deck.cards.length, Math.max(1, Math.floor(cmd.count)));
-      const taken = cmd.fromBottom ? deck.cards.slice(deck.cards.length - n) : deck.cards.slice(0, n);
-      const rest = cmd.fromBottom ? deck.cards.slice(0, deck.cards.length - n) : deck.cards.slice(n);
+      const chosen = cmd.cardIds ? new Set(cmd.cardIds) : null;
+      const taken = chosen
+        ? deck.cards.filter((c) => chosen.has(c.id))
+        : cmd.fromBottom
+          ? deck.cards.slice(deck.cards.length - n)
+          : deck.cards.slice(0, n);
+      if (taken.length === 0) return state;
+      const rest = chosen
+        ? deck.cards.filter((c) => !chosen.has(c.id))
+        : cmd.fromBottom
+          ? deck.cards.slice(0, deck.cards.length - n)
+          : deck.cards.slice(n);
       const cards = taken.map((c): CardDef => {
         const owner = ownerDeckOf(state.objects, c.id);
         const faceUp = drawnFaceUp(deck, c);

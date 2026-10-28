@@ -5,13 +5,14 @@ import { focusObject, runButton } from '../canvas/actions';
 import type { ObjectPatch } from '../domain/commands';
 import { buttonMaxFontSize, createStep, describeStep, MAX_STEPS, STEP_LABELS, STEP_TYPES, type PickField } from '../domain/buttons';
 import { displayName, kindLabel } from '../domain/objects';
-import type { ButtonObject, ButtonStep, MoveStep, ObjectId, StepType, TabletopObject } from '../domain/types';
+import type { ButtonObject, ButtonStep, MoveStep, ObjectId, PickStep, StepType, TabletopObject } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 
 type Update = (patch: ObjectPatch, coalesceKey?: string) => void;
 
 const STEP_ICONS: Record<StepType, IconName> = {
   move: 'move',
+  pick: 'card',
   recall: 'reset',
   rotate: 'rotate',
   flip: 'flip',
@@ -25,12 +26,13 @@ const STEP_ICONS: Record<StepType, IconName> = {
 
 const STEP_HINTS: Record<StepType, string> = {
   move: 'Moves objects onto a destination. A holder, pile or bag gives up its cards or pieces (the container itself stays); pieces lying on a listed holder move too. A bag destination takes cards, piles, tokens, dice and the like in. A bag gives up its top or bottom pieces: add a Shuffle step first to draw at random.',
+  pick: 'Lets the player choose cards when the button runs: every listed holder or pile shows its cards (fronts or backs) in a dialog, and the chosen ones go to the destination (dealt in turn with several), or next to the holder without one. Cancel stops the whole button.',
   recall:
     'Sends things back where they came from: cards to their holder, tokens to the stack they were taken from, pieces to their bag. A holder with its own card list gathers all its cards back (like "Gather & reset"); a token stack gathers its tokens; a bag takes back everything that came out of it.',
   rotate: 'Rotates objects about their centre.',
   flip: 'Flips cards. A holder or pile turns its cards over as a whole; loose cards lying on a listed holder flip too. Random turns each card (or holder) over or not at random.',
   shuffle: 'Shuffles the cards in holders and piles, and the pieces in bags.',
-  sort: 'Orders the cards in holders and piles.',
+  sort: 'Orders the cards in holders and piles: in the original deck order, by card name, or turns their current order around.',
   roll: 'Rolls dice (a holder stands for the dice lying on it).',
   counter: 'Changes counters, within their minimum and maximum (a holder stands for the counters lying on it).',
   check: 'Checks, unchecks or toggles checkboxes. A board or holder stands for every checkbox lying on it (e.g. to clear a sheet).',
@@ -121,26 +123,27 @@ function ObjectPicker({
   );
 }
 
-/** A move step's destinations: one or more objects, picked on the table. */
+/** A move or pick step's destinations: one or more objects, picked on the table. */
 function TargetPicker({
   step,
   allObjects,
   pick,
   onChange,
 }: {
-  step: MoveStep;
+  step: MoveStep | PickStep;
   allObjects: TabletopObject[];
   pick: { buttonId: ObjectId; stepId: string };
   onChange: (targetIds: ObjectId[]) => void;
 }) {
   const ids = step.targetIds;
+  const heading = step.type === 'pick' ? 'Where the picked cards go' : 'Where to move it';
   return (
     <div className="field pick-target">
       <span className="pick-heading">
-        <Icon name="move" size={14} /> Where to move it
+        <Icon name="move" size={14} /> {heading}
       </span>
       {ids.length > 0 && (
-        <ul className="pick-list" aria-label="Where to move it">
+        <ul className="pick-list" aria-label={heading}>
           {ids.map((id) => (
             <Chip key={id} id={id} objects={allObjects} onRemove={() => onChange(ids.filter((x) => x !== id))} />
           ))}
@@ -150,8 +153,13 @@ function TargetPicker({
         <PickToggle {...pick} field="target" />
       </div>
       {ids.length > 1 && (
-        <p className="hint">Cards are dealt to these destinations in turn (the number below is how many each one gets).</p>
+        <p className="hint">
+          {step.type === 'pick'
+            ? 'The picked cards are dealt to these destinations in turn.'
+            : 'Cards are dealt to these destinations in turn (the number below is how many each one gets).'}
+        </p>
       )}
+      {ids.length === 0 && step.type === 'pick' && <p className="hint">Without a destination the cards are put next to the holder.</p>}
     </div>
   );
 }
@@ -170,8 +178,8 @@ function StepFields({
   const pick = { buttonId, stepId: step.id };
   const picker = (
     <ObjectPicker
-      label={step.type === 'move' ? 'What to move' : 'Objects'}
-      source={step.type === 'move'}
+      label={step.type === 'move' ? 'What to move' : step.type === 'pick' ? 'Holders to pick from' : 'Objects'}
+      source={step.type === 'move' || step.type === 'pick'}
       ids={step.objectIds}
       allObjects={objects}
       pick={pick}
@@ -208,6 +216,23 @@ function StepFields({
           />
           <SelectField
             label="Face of moved cards"
+            value={step.orientation}
+            options={[
+              { value: 'keep', label: 'As the holder gives them' },
+              { value: 'faceUp', label: 'Face up' },
+              { value: 'faceDown', label: 'Face down' },
+            ]}
+            onChange={(orientation) => onChange({ ...step, orientation })}
+          />
+        </>
+      );
+    case 'pick':
+      return (
+        <>
+          {picker}
+          <TargetPicker step={step} allObjects={objects} pick={pick} onChange={(targetIds) => onChange({ ...step, targetIds })} />
+          <SelectField
+            label="Face of picked cards"
             value={step.orientation}
             options={[
               { value: 'keep', label: 'As the holder gives them' },
@@ -275,6 +300,7 @@ function StepFields({
             options={[
               { value: 'original', label: 'Original deck order' },
               { value: 'name', label: 'Card name' },
+              { value: 'reverse', label: 'Reverse the current order' },
             ]}
             onChange={(by) => onChange({ ...step, by })}
           />

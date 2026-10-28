@@ -118,6 +118,13 @@ export function drawnFaceUp(deck: Pick<DeckObject, 'drawSide'>, card: Pick<CardD
   return deck.drawSide === 'keep' ? card.faceUp === true : deck.drawSide === 'faceUp';
 }
 
+/** `card` as it lies once put into `deck`: turned by the holder's "Cards come in" setting, or as it was (same object when unchanged). */
+export function cardPutInto(deck: Pick<DeckObject, 'putSide'>, card: CardDef): CardDef {
+  const side = deck.putSide ?? 'keep';
+  if (side === 'keep' || (card.faceUp === true) === (side === 'faceUp')) return card;
+  return { ...card, faceUp: side === 'faceUp' };
+}
+
 export const PALETTE_COLORS = ['#e05252', '#e0913a', '#e8c547', '#4caf6a', '#3f8fd8', '#7b5bd6', '#d65bb3', '#2b2b2b', '#f5f5f5'];
 
 interface FactoryOptions {

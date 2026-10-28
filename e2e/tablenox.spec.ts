@@ -639,11 +639,25 @@ test('holder properties: card list with fronts then backs, the holder zone, then
   }
   await expect(backs.getByRole('button', { name: 'Use fronts as backs' })).toBeVisible();
   const cards = panel.locator('.inspector-section').nth(2);
-  for (const label of ['Card width', 'Cards come out']) {
+  for (const label of ['Card width', 'Cards come out', 'Cards come in']) {
     await expect(cards.getByText(label, { exact: true })).toBeVisible();
   }
   await expect(cards.getByText('Card back colour')).toHaveCount(0);
   await expect(panel.locator('.inspector-section').nth(1).getByText('Card back colour')).toHaveCount(0);
+  // The zone's colours and outline are in the Object section, below the rotation angles.
+  const object = panel.locator('.inspector-section').nth(3);
+  for (const label of ['Holder colour', 'Holder opacity', 'Stroke colour', 'Stroke opacity', 'Stroke style']) {
+    await expect(panel.locator('.inspector-section').nth(1).getByLabel(label)).toHaveCount(0);
+    await expect(object.getByLabel(label)).toBeVisible();
+  }
+  const below = await object.evaluate((el) => {
+    const texts = [...el.querySelectorAll('span, label')].map((n) => n.textContent ?? '');
+    return texts.findIndex((t) => t.startsWith('Rotation angles')) < texts.findIndex((t) => t.startsWith('Holder colour'));
+  });
+  expect(below).toBe(true);
+  // "Cards come in" face up: a card put into the holder lies face up.
+  await cards.getByLabel('Cards come in').selectOption('faceUp');
+  await expect.poll(() => obj<string>(page, 'Bonus deck', 'o.putSide')).toBe('faceUp');
 
   // Cards move up and down the list; the first can't move up, the last can't move down.
   const ids = await obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)');
@@ -677,6 +691,8 @@ test('holder properties: card list with fronts then backs, the holder zone, then
   await expect(panel.getByText('Card back colour')).toHaveCount(0);
   await expect(panel.getByText('Card back image')).toHaveCount(0);
   await expect(panel.getByLabel('Cards come out')).toBeVisible();
+  await expect(panel.getByLabel('Cards come in')).toHaveCount(0);
+  await expect(panel.getByText('Holder colour')).toHaveCount(0);
   // The pile follows its deck's rotation angles: R turns it to 180°, then back to 0°.
   await expect(angles.getByRole('button', { pressed: true })).toHaveText(['0°', '180°']);
   await expect(panel.getByText('Same as its deck.')).toBeVisible();
@@ -855,17 +871,23 @@ test('image thumbnails in the properties panel; pick a card from a deck by its f
   await expect.poll(() => obj<number>(page, 'Marker', 'o.count')).toBe(5);
   await switchMode(page, 'play');
 
-  // Pick a card: every face is shown, and the picked card is drawn next to the deck.
+  // Pick card(s): every face is shown (or every back), and the picked card is drawn next to the deck.
   const deckPos = await objectScreenPos(page, 'Bonus deck');
   await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });
-  await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name: 'Pick a card…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Pick a card from Bonus deck' });
+  await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name: 'Pick card(s)…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pick card(s) from Bonus deck' });
   await expect(dialog.getByRole('list', { name: 'Cards' }).getByRole('button')).toHaveCount(14);
   const moonButton = dialog.getByRole('button', { name: '14. moon' });
   await expect(moonButton.getByTestId('asset-thumb')).toBeVisible();
   await expect(dialog.getByRole('button', { name: '1. Card 1' }).getByTestId('asset-thumb')).toHaveCount(0);
+  // Backs: the card back image uploaded above shows on every card.
+  await dialog.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Backs' }).click();
+  await expect(dialog.getByRole('button', { name: '1. Card 1', exact: true }).getByRole('img', { name: 'Back of Card 1' })).toBeVisible();
+  await dialog.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Fronts' }).click();
   const moonId = await obj<string>(page, 'Bonus deck', "o.cards.find(c => c.name === 'moon').id");
   await moonButton.click();
+  await expect(moonButton).toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByRole('button', { name: 'Take 1 card' }).click();
   await expect(dialog).toHaveCount(0);
   await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(13);
   const picked = await storeState<{ cardDefId: string; position: { x: number; y: number } }>(
@@ -875,6 +897,21 @@ test('image thumbnails in the properties panel; pick a card from a deck by its f
   const deck = await obj<{ x: number; y: number; w: number }>(page, 'Bonus deck', '({ x: o.position.x, y: o.position.y, w: o.width })');
   expect(picked.cardDefId).toBe(moonId);
   expect(picked.position).toEqual({ x: deck.x + deck.w + 24, y: deck.y });
+  // Sort from the menu: reverse turns the order around.
+  const order = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
+  await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });
+  await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name: 'Reverse the order' }).click();
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([...order].reverse());
+  // Several picked cards come out as one pile.
+  await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });
+  await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name: 'Pick card(s)…' }).click();
+  await dialog.getByRole('button', { name: /^1\. / }).click();
+  await dialog.getByRole('button', { name: /^3\. / }).click();
+  await dialog.getByRole('button', { name: 'Take 2 cards' }).click();
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(11);
+  expect(
+    await storeState<string[]>(page, "(s) => s.history.present.objects.find(o => o.kind === 'deck' && o.isPile).cards.map(c => c.id)"),
+  ).toEqual([order[order.length - 1], order[order.length - 3]]);
 
   // Token stack: dragging takes one token off; dropping it back stacks it again; the badge moves the whole stack.
   const tokens = () =>
@@ -1758,8 +1795,8 @@ test('pick a card shows red suits in red; unnamed objects show their kind in aut
   await storeState(page, '(s) => s.select(null)');
   const deckPos = await objectScreenPos(page, 'Deck');
   await page.mouse.click(deckPos.x, deckPos.y, { button: 'right' });
-  await page.getByRole('menu', { name: 'Deck menu' }).getByRole('menuitem', { name: 'Pick a card…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Pick a card from Deck' });
+  await page.getByRole('menu', { name: 'Deck menu' }).getByRole('menuitem', { name: 'Pick card(s)…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pick card(s) from Deck' });
   await expect(dialog.getByRole('button', { name: '14. A of Hearts' }).locator('.card-picker-text')).toHaveCSS('color', 'rgb(198, 40, 40)');
   await expect(dialog.getByRole('button', { name: '1. A of Spades' }).locator('.card-picker-text')).toHaveCSS('color', 'rgb(31, 35, 40)');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
@@ -1869,6 +1906,66 @@ test('automation button: configure, reorder and edit steps; run in Play mode as 
   await expect.poll(() => obj<number>(page, 'White die 1', 'o.rollCount')).toBe(0);
   expect(await obj<number>(page, 'Round', 'o.value')).toBe(before);
   expect(errors).toEqual([]);
+});
+
+test('automation: a Pick cards step lets the player choose cards when the button runs; one undo step; Cancel stops it', async ({
+  page,
+}) => {
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  await storeState(
+    page,
+    `(s) => {
+      s.dispatch({ type: 'AddObject', object: { id: 'btn-pick', kind: 'button', name: 'Choose', position: { x: 900, y: 500 }, width: 150, height: 52,
+        rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Choose', color: '#3f8fd8', textColor: '#ffffff', steps: [] } });
+      s.setUi({ inspectorOpen: true });
+      s.select('btn-pick');
+    }`,
+  );
+  // The step is offered in the automations panel, with the holders to pick from, a destination and the side.
+  await page
+    .getByRole('complementary', { name: 'Properties' })
+    .getByRole('button', { name: /^Automations/ })
+    .click();
+  const panel = page.getByRole('complementary', { name: 'Automations' });
+  await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: 'Pick cards', exact: true }).click();
+  await expect(panel.getByText('Holders to pick from')).toBeVisible();
+  await expect(panel.getByText('Where the picked cards go')).toBeVisible();
+  await expect(panel.getByLabel('Face of picked cards')).toBeVisible();
+
+  await storeState(
+    page,
+    `(s) => {
+      const objs = s.history.present.objects;
+      const deck = objs.find(o => o.name === 'Bonus deck');
+      const discard = objs.find(o => o.name === 'Discard');
+      s.dispatch({ type: 'UpdateObject', id: 'btn-pick', patch: { steps: [
+        { id: 'st-shuffle', type: 'shuffle', objectIds: [deck.id] },
+        { id: 'st-pick', type: 'pick', objectIds: [deck.id], targetIds: [discard.id], orientation: 'faceUp' },
+      ] } });
+    }`,
+  );
+  await switchMode(page, 'play');
+  const past = await storeState<number>(page, '(s) => s.history.past.length');
+  const button = await clickObject(page, 'Choose');
+  const dialog = page.getByRole('dialog', { name: 'Choose: pick card(s) from Bonus deck' });
+  await expect(dialog.getByRole('list', { name: 'Cards' }).getByRole('button')).toHaveCount(12);
+  await dialog.getByRole('button', { name: /^2\. / }).click();
+  await dialog.getByRole('button', { name: /^1\. / }).click();
+  await dialog.getByRole('button', { name: 'Take 2 cards' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(10);
+  expect(await obj<boolean[]>(page, 'Discard', 'o.cards.map(c => c.faceUp)')).toEqual([true, true]);
+  // The shuffle and the pick are one undo step, and the shuffled deck is animated.
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past + 1);
+  expect(await storeState<string[]>(page, '(s) => s.shuffled.ids')).toEqual([await obj<string>(page, 'Bonus deck', 'o.id')]);
+  await storeState(page, '(s) => s.undo()');
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(12);
+  // Cancel stops the whole run: nothing changes.
+  await page.mouse.click(button.x, button.y);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past);
 });
 
 test('automation button: pick step objects on the table by clicking and Shift+drag; flip a holder', async ({ page }) => {

@@ -8,7 +8,7 @@ const ROWS: [string, string][] = [
   ['Drag from a holder', 'Take its top card (stacked) or the card you grab (spread out) (Play mode)'],
   [
     'Right-click a holder',
-    'Draw several cards from the top or bottom (as one pile) · pick a card by its face · flip all cards · gather & reset; in Edit mode also stack / spread out and how cards come out (as they lie / face up / face down)',
+    'Draw several cards from the top or bottom (as one pile) · pick card(s) by their front or back · sort (original order, by name, reverse) · flip all cards · gather & reset; in Edit mode also stack / spread out and how cards come out (as they lie / face up / face down)',
   ],
   ['Drag the holder’s count badge', 'Lift its whole stack out as a pile; the holder stays put (Play mode)'],
   ['Drag a token stack', 'Take one token off it; drag its badge (or Shift + drag) to move the whole stack (Play mode)'],

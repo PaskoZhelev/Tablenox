@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { duplicateObjects } from '../canvas/actions';
-import { useTableStore } from '../state/tableStore';
+import { shuffledBy, useTableStore } from '../state/tableStore';
 import { fixtureGame, tableOf } from './fixtures';
 
 function load() {
@@ -23,6 +23,18 @@ describe('table store', () => {
     expect(useTableStore.getState().revision).toBe(1);
     useTableStore.getState().undo();
     expect(useTableStore.getState().history.future).toHaveLength(1);
+  });
+
+  it('notes which holders a shuffle went through (also inside a batch), for the shuffle animation', () => {
+    const t = load();
+    const deck = t.objects.find((o) => o.kind === 'deck' && o.name === 'Deck')!;
+    const s = useTableStore.getState();
+    expect(s.shuffled).toBeNull();
+    s.dispatch({ type: 'Batch', commands: [{ type: 'ShuffleDeck', id: deck.id, order: [4, 3, 2, 1, 0] }] });
+    expect(useTableStore.getState().shuffled).toEqual({ ids: [deck.id], seq: 1 });
+    s.dispatch({ type: 'ShuffleDeck', id: deck.id, order: [1, 0, 2, 3, 4] });
+    expect(useTableStore.getState().shuffled?.seq).toBe(2);
+    expect(shuffledBy({ type: 'FlipDeck', id: deck.id })).toEqual([]);
   });
 
   it('coalesces rapid edits with the same key into one undo step', () => {

@@ -348,6 +348,13 @@ export function drawPickedCardCommand(deck: DeckObject, cardId: string): Command
   return index < 0 ? null : drawCardCommand(deck, defaultDrawPosition(deck), index);
 }
 
+/** Draws the picked cards next to the holder: one on its own, several as one pile (in the order they had in the holder). */
+export function drawPickedCardsCommand(deck: DeckObject, cardIds: readonly string[]): Command | null {
+  const ids = deck.cards.filter((c) => cardIds.includes(c.id)).map((c) => c.id);
+  if (ids.length <= 1) return ids.length ? drawPickedCardCommand(deck, ids[0]) : null;
+  return { type: 'DrawCards', deckId: deck.id, pileId: newId(), position: defaultDrawPosition(deck), count: ids.length, cardIds: ids };
+}
+
 /**
  * Takes `count` tokens off a stack: centred at `center`, or next to the stack. Taking every token (or a single
  * token's only one) is not possible: the stack keeps at least one.

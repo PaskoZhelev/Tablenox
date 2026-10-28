@@ -99,6 +99,11 @@ export interface DeckObject extends BaseObject {
   backColor: string;
   /** Side a card comes out with when taken from the holder: as it lies (default), or always face up / face down. */
   drawSide: DrawSide;
+  /**
+   * Holders only: side a card lies when it is put in (dropped, moved by an automation, returned, gathered by Gather &
+   * reset): as it was (`keep`, also when missing), or always face up / face down.
+   */
+  putSide?: DrawSide;
   /** When true, every card may carry its own back (image/colour) instead of the shared deck back. */
   individualBacks?: boolean;
   /** Piles are created by dropping a card on a card and disappear when empty. */
@@ -273,7 +278,7 @@ export type StepOrientation = 'keep' | 'faceUp' | 'faceDown';
 export type DeckMoveMode = 'top' | 'bottom';
 export type RotateMode = 'by' | 'to';
 export type FlipMode = 'toggle' | 'faceUp' | 'faceDown' | 'random';
-export type SortBy = 'original' | 'name';
+export type SortBy = 'original' | 'name' | 'reverse';
 export type CounterMode = 'add' | 'set';
 
 interface StepBase {
@@ -331,7 +336,19 @@ export interface ShuffleStep extends StepBase {
 
 export interface SortStep extends StepBase {
   type: 'sort';
+  /** `reverse` turns the current order around. */
   by: SortBy;
+}
+
+/**
+ * Lets the player choose cards from holders / piles (`objectIds`) while the button runs, in the same dialog as
+ * *Pick card(s)…*, then puts them onto the destinations (dealt in turn with several), or next to the holder
+ * without one.
+ */
+export interface PickStep extends StepBase {
+  type: 'pick';
+  targetIds: ObjectId[];
+  orientation: StepOrientation;
 }
 
 export interface RollStep extends StepBase {
@@ -362,7 +379,7 @@ export interface TimerStep extends StepBase {
 }
 
 export type ButtonStep =
-  MoveStep | RecallStep | RotateStep | FlipStep | ShuffleStep | SortStep | RollStep | CounterStep | CheckStep | TimerStep;
+  MoveStep | PickStep | RecallStep | RotateStep | FlipStep | ShuffleStep | SortStep | RollStep | CounterStep | CheckStep | TimerStep;
 export type StepType = ButtonStep['type'];
 
 /** An automation button: clicking it in Play mode runs its steps in order, as one undo step. */

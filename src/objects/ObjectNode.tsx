@@ -50,6 +50,9 @@ function inGroupSelection(id: string): boolean {
 let groupDragKey = '';
 let groupDragSeq = 0;
 
+/** Shuffle animation: quick, a few side-to-side swings that die out. */
+const SHUFFLE = { ms: 450, halfWaves: 4, maxShift: 18, tilt: 4 };
+
 /** "Picked up" look while dragging in Play mode: a slight clockwise tilt, a little larger, with a soft drop shadow. */
 const LIFT = {
   rotation: 3,
@@ -67,6 +70,40 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   const liftRef = useRef<Konva.Group>(null);
   const shadowRef = useRef<Konva.Group>(null);
   const [lifted, setLifted] = useState(false);
+  const latest = useRef(o);
+  useEffect(() => {
+    latest.current = o;
+  });
+  const shuffleSeq = useTableStore((s) => (s.shuffled?.ids.includes(o.id) ? s.shuffled.seq : 0));
+
+  // Shuffled: a holder's / pile's cards riffle (alternate cards slide left and right); a bag wobbles.
+  useEffect(() => {
+    const root = liftRef.current;
+    const layer = root?.getLayer();
+    if (!shuffleSeq || !root || !layer || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const obj = latest.current;
+    const cards = obj.kind === 'deck' ? root.find('.deck-card') : [];
+    const base = (cards.length ? cards : [root]).map((n) => ({ n, x: n.x(), r: n.rotation() }));
+    const amp = Math.max(6, Math.min(SHUFFLE.maxShift, obj.width * 0.15));
+    const reset = () => base.forEach(({ n, x, r }) => n.setAttrs({ x, rotation: r }));
+    const anim = new Konva.Animation((frame) => {
+      const p = Math.min(1, (frame?.time ?? 0) / SHUFFLE.ms);
+      const wave = Math.sin(p * Math.PI * SHUFFLE.halfWaves) * (1 - p);
+      base.forEach(({ n, x, r }, i) => {
+        const dir = i % 2 === 0 ? 1 : -1;
+        n.setAttrs({ x: x + dir * amp * wave, rotation: r + dir * SHUFFLE.tilt * wave });
+      });
+      if (p >= 1) {
+        anim.stop();
+        reset();
+      }
+    }, layer);
+    anim.start();
+    return () => {
+      anim.stop();
+      reset();
+    };
+  }, [shuffleSeq]);
 
   // The shadow is a blurred, blackened copy of the object, so it follows its real silhouette (cards, round tokens…).
   useEffect(() => {

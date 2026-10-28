@@ -10,6 +10,7 @@ import {
   drawCardCommand,
   drawCardsCommand,
   drawPickedCardCommand,
+  drawPickedCardsCommand,
   effectiveHoverRotate,
   effectiveHoverZoom,
   effectiveRotations,
@@ -393,6 +394,25 @@ describe('deck rules', () => {
     expect(drawPickedCardCommand(deckOf(s), target.id)).toBeNull();
   });
 
+  it('several picked cards come out as one pile next to the holder, in holder order; one picked card on its own', () => {
+    let s = tableOf(fixtureGame());
+    const deck = deckOf(s);
+    const [c1, , c3, , c5] = deck.cards;
+    expect(drawPickedCardsCommand(deck, [c3.id])).toMatchObject({ type: 'DrawCard', index: 2 });
+    expect(drawPickedCardsCommand(deck, ['missing'])).toBeNull();
+    const cmd = drawPickedCardsCommand(deck, [c5.id, c1.id, c3.id])! as Extract<Command, { type: 'DrawCards' }>;
+    expect(cmd).toMatchObject({ type: 'DrawCards', count: 3, cardIds: [c1.id, c3.id, c5.id] });
+    s = applyCommand(s, cmd);
+    const pile = s.objects.find((o) => o.id === cmd.pileId) as DeckObject;
+    expect(pile.cards.map((c) => c.id)).toEqual([c1.id, c3.id, c5.id]);
+    // The deck draws face up.
+    expect(pile.cards.every((c) => c.faceUp === true)).toBe(true);
+    expect(deckOf(s).cards).toHaveLength(2);
+    // Sorting: reverse turns the current order around.
+    s = applyCommand(s, { type: 'SortDeck', id: deckOf(s).id, by: 'reverse' });
+    expect(deckOf(s).cards.map((c) => c.name)).toEqual(['C4', 'C2']);
+  });
+
   it('flips one card inside a holder in place; drawing all of a pile removes it', () => {
     let s = tableOf(fixtureGame());
     const deck = deckOf(s);
@@ -579,6 +599,54 @@ describe('deck rules', () => {
     expect(drawCardCommand(deckOf(s))).toMatchObject({ faceUp: false });
     s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { drawSide: 'faceUp' } });
     expect(drawCardCommand(deckOf(s), undefined, 1)).toMatchObject({ faceUp: true });
+  });
+
+  it('"cards come in" turns every card put into a holder: dropped, merged from a pile, returned or gathered', () => {
+    let s = tableOf(fixtureGame());
+    const card = byKind(s, 'card') as CardObject;
+    const holderId = holderOf(s).id;
+    expect(card.faceUp).toBe(true);
+    // Missing = as they are put in.
+    expect(holderOf(applyCommand(s, { type: 'AddCardToDeck', cardId: card.id, deckId: holderId })).cards[0].faceUp).toBe(true);
+    const down = applyCommand(s, { type: 'UpdateObject', id: holderId, patch: { putSide: 'faceDown' } });
+    expect(holderOf(applyCommand(down, { type: 'AddCardToDeck', cardId: card.id, deckId: holderId })).cards[0].faceUp).toBe(false);
+    const up = applyCommand(applyCommand(s, { type: 'FlipCard', id: card.id }), {
+      type: 'UpdateObject',
+      id: holderId,
+      patch: { putSide: 'faceUp' },
+    });
+    expect(holderOf(applyCommand(up, { type: 'AddCardToDeck', cardId: card.id, deckId: holderId, index: 0 })).cards[0].faceUp).toBe(true);
+
+    // A pile dropped on the holder: every card turns. The deck draws face up.
+    const d1 = drawCardCommand(deckOf(s), { x: 0, y: 1000 })! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, d1);
+    const d2 = drawCardCommand(deckOf(s), { x: 0, y: 1000 })! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, d2);
+    s = applyCommand(s, { type: 'MergeCards', cardId: d2.cardId, targetCardId: d1.cardId, pileId: 'pile' });
+    const merged = applyCommand(applyCommand(s, { type: 'UpdateObject', id: holderId, patch: { putSide: 'faceDown' } }), {
+      type: 'MergePileIntoDeck',
+      pileId: 'pile',
+      deckId: holderId,
+    });
+    expect(holderOf(merged).cards.map((c) => c.faceUp)).toEqual([false, false]);
+
+    // Returning a pile to its holder, and Gather & reset, put the cards in as the holder says.
+    s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { putSide: 'faceDown' } });
+    const returned = applyCommand(s, { type: 'ReturnPile', id: 'pile' });
+    expect(
+      deckOf(returned)
+        .cards.slice(0, 2)
+        .map((c) => c.faceUp),
+    ).toEqual([false, false]);
+    const plain = applyCommand(applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { putSide: undefined } }), {
+      type: 'ResetDeck',
+      deckId: deckOf(s).id,
+    });
+    expect(deckOf(plain).cards.every((c) => c.faceUp === undefined)).toBe(true);
+    s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { putSide: 'faceUp' } });
+    s = applyCommand(s, { type: 'ResetDeck', deckId: deckOf(s).id });
+    expect(deckOf(s).cards).toHaveLength(5);
+    expect(deckOf(s).cards.every((c) => c.faceUp === true)).toBe(true);
   });
 
   it('highlights the holder under any dragged piece, but holders and boards highlight nothing', () => {

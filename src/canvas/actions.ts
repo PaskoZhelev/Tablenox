@@ -9,10 +9,12 @@ import {
   hasPlayMovable,
   kindLabel,
   maxZ,
+  ownerDeckOf,
+  resolveCardLook,
   sortByZ,
   tokenCount,
 } from '../domain/objects';
-import { applyPick, canPick, planButton, STEP_LABELS } from '../domain/buttons';
+import { applyPick, canPick, describeObjects, planButtonRun, STEP_LABELS } from '../domain/buttons';
 import { cardTextColor, standardDeck } from '../domain/cards';
 import {
   bagDrawCommand,
@@ -20,7 +22,7 @@ import {
   drawCardCommand,
   drawCardsCommand,
   drawManyFromBagCommand,
-  drawPickedCardCommand,
+  drawPickedCardsCommand,
   flipDeckCardCommand,
   homeDeckOf,
   nextRotation,
@@ -34,10 +36,11 @@ import {
 import { newId } from '../domain/ids';
 import { timerToggleCommand } from '../domain/timer';
 import type { Command } from '../domain/commands';
-import type { DrawSide, HolderLayout, HoverZoom, ObjectKind, TabletopObject, TokenShape, Vec2 } from '../domain/types';
+import type { DeckObject, DrawSide, HolderLayout, HoverZoom, ObjectKind, SortBy, TabletopObject, TokenShape, Vec2 } from '../domain/types';
 import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
-import { pickDialog, promptDialog, toast, type PickableItem } from '../state/uiStore';
+import { pickDialog, pickManyDialog, promptDialog, toast, type PickableItem } from '../state/uiStore';
 import { screenToWorld } from '../domain/camera';
+import { secureRandomSource, seededSource } from '../domain/random';
 import { loadAssetImage } from '../objects/useAssetImage';
 
 /** Gameplay/editing actions shared by the canvas, inspector and keyboard shortcuts. */
@@ -114,6 +117,13 @@ export function cycleDrawSide(id: string): void {
   if (o?.kind === 'deck') useTableStore.getState().dispatch({ type: 'UpdateObject', id, patch: { drawSide: NEXT_DRAW_SIDE[o.drawSide] } });
 }
 
+/** Cycles how cards lie when put into a holder: as they were → face up → face down. */
+export function cyclePutSide(id: string): void {
+  const o = find(id);
+  if (o?.kind === 'deck')
+    useTableStore.getState().dispatch({ type: 'UpdateObject', id, patch: { putSide: NEXT_DRAW_SIDE[o.putSide ?? 'keep'] } });
+}
+
 export function flipCard(id: string): void {
   if (find(id)?.kind === 'card') useTableStore.getState().dispatch({ type: 'FlipCard', id });
 }
@@ -159,10 +169,35 @@ export function rollDie(id: string): void {
   if (o?.kind === 'die') useTableStore.getState().dispatch(rollDieCommand(o));
 }
 
-/** Runs a button's steps as one undo step. */
-export function runButton(id: string): void {
-  const o = find(id);
-  if (o?.kind === 'button') useTableStore.getState().dispatch(planButton(currentTable(), o));
+/**
+ * Runs a button's steps as one undo step. A Pick step asks the player to choose cards first: the plan stops
+ * there, the dialog shows the holder as it is at that point, and the run is planned again with the choice
+ * (same random seed and time, so earlier shuffles and rolls stay the same). Cancel stops the whole run.
+ */
+export async function runButton(id: string): Promise<void> {
+  const seed = secureRandomSource();
+  const now = Date.now();
+  const picks: Record<string, string[]> = {};
+  for (;;) {
+    const o = find(id);
+    if (o?.kind !== 'button') return;
+    const run = planButtonRun(currentTable(), o, seededSource(seed), now, picks);
+    if (run.done) {
+      useTableStore.getState().dispatch(run.command);
+      return;
+    }
+    const { deck, key, step } = run.pick;
+    const many = step.targetIds.length > 1;
+    const chosen = await pickManyDialog({
+      title: `${o.label.trim() || 'Button'}: pick card(s) from ${displayName(deck)}`,
+      message: `Top card first. Click the cards you want; they go ${step.targetIds.length ? `to ${describeObjects(currentTable(), step.targetIds)}${many ? ' in turn' : ''}` : 'next to the holder'}.`,
+      listLabel: 'Cards',
+      items: cardPickItems(deck),
+      confirmLabel: 'Take',
+    });
+    if (!chosen) return;
+    picks[key] = chosen;
+  }
 }
 
 /**
@@ -252,27 +287,43 @@ export function flipDeck(id: string): void {
   if (find(id)?.kind === 'deck') useTableStore.getState().dispatch({ type: 'FlipDeck', id });
 }
 
-/** Shows every card of a holder/pile (faces, top card first) and draws the chosen one next to it. */
-export async function pickCardFromDeck(id: string): Promise<void> {
-  const o = find(id);
-  if (o?.kind !== 'deck' || o.cards.length === 0) return;
-  const cardId = await pickDialog({
-    title: `Pick a card from ${displayName(o)}`,
-    message: 'Top card first. The card you pick is placed next to the holder.',
-    listLabel: 'Cards',
-    items: o.cards.map((c) => ({
+/** A holder's / pile's cards as picker items (fronts and backs). */
+export function cardPickItems(deck: DeckObject): PickableItem[] {
+  const objects = currentTable().objects;
+  return deck.cards.map((c) => {
+    const look = resolveCardLook(c, deck, ownerDeckOf(objects, c.id));
+    return {
       id: c.id,
       name: c.name,
       faceText: c.faceText,
       faceColor: c.faceColor,
       faceAssetId: c.faceAssetId,
       textColor: cardTextColor(c.faceText),
-    })),
+      backColor: look.backColor,
+      backAssetId: look.backAssetId,
+    };
+  });
+}
+
+/** Shows every card of a holder/pile (top card first) and draws the chosen ones next to it (several as one pile). */
+export async function pickCardsFromDeck(id: string): Promise<void> {
+  const o = find(id);
+  if (o?.kind !== 'deck' || o.cards.length === 0) return;
+  const cardIds = await pickManyDialog({
+    title: `Pick card(s) from ${displayName(o)}`,
+    message: 'Top card first. Click the cards you want; they are placed next to the holder (several as one pile).',
+    listLabel: 'Cards',
+    items: cardPickItems(o),
+    confirmLabel: 'Take',
   });
   // Look the holder up again: it may have changed while the dialog was open.
-  const now = cardId ? find(id) : undefined;
-  const cmd = now?.kind === 'deck' && cardId ? drawPickedCardCommand(now, cardId) : null;
+  const now = cardIds ? find(id) : undefined;
+  const cmd = now?.kind === 'deck' && cardIds ? drawPickedCardsCommand(now, cardIds) : null;
   if (cmd) useTableStore.getState().dispatch(cmd);
+}
+
+export function sortDeck(id: string, by: SortBy): void {
+  if (find(id)?.kind === 'deck') useTableStore.getState().dispatch({ type: 'SortDeck', id, by });
 }
 
 /** Takes `count` tokens off a token stack and puts them next to it. */
