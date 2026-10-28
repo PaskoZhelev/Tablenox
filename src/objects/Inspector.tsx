@@ -592,25 +592,6 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
           </button>
           <button
             type="button"
-            className="btn btn-small"
-            disabled={o.initialCards.length === 0}
-            title="Set the number of copies of every card at once"
-            onClick={async () => {
-              const v = await promptDialog({
-                title: 'Copies of every card',
-                label: `Number of copies of each of the ${rows.length} different cards (1–${MAX_CARD_COPIES})`,
-                defaultValue: String(rows[0]?.length ?? 1),
-              });
-              const n = v === null ? NaN : Math.round(Number(v));
-              if (!Number.isFinite(n) || n < 1) return;
-              const next = setAllCardCopies(o, Math.min(MAX_CARD_COPIES, n));
-              if (next) update(next);
-            }}
-          >
-            Copies of all…
-          </button>
-          <button
-            type="button"
             className="btn btn-small btn-danger"
             disabled={o.initialCards.length === 0}
             onClick={async () => {
@@ -649,9 +630,31 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
           </ol>
         )}
         {showList && rows.length > 0 && (
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn btn-small"
+              title="Give every card in the list the same number of copies"
+              onClick={async () => {
+                const v = await promptDialog({
+                  title: 'Same number of copies for every card',
+                  label: `How many copies of each of the ${rows.length} cards in the list? (1–${MAX_CARD_COPIES})`,
+                  defaultValue: String(rows[0]?.length ?? 1),
+                });
+                const n = v === null ? NaN : Math.round(Number(v));
+                if (!Number.isFinite(n) || n < 1) return;
+                const next = setAllCardCopies(o, Math.min(MAX_CARD_COPIES, n));
+                if (next) update(next);
+              }}
+            >
+              Set copies for all cards…
+            </button>
+          </div>
+        )}
+        {showList && rows.length > 0 && (
           <p className="hint">
             The number with − / + is how many copies of a card are in the deck (e.g. 12 of one image, 10 of another);{' '}
-            <em>Copies of all…</em> sets it for every card at once. Face text is only shown on cards without an image.
+            <em>Set copies for all cards…</em> applies one number to every card. Face text is only shown on cards without an image.
           </p>
         )}
       </div>

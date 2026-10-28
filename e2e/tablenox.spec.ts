@@ -1493,7 +1493,7 @@ test('deck copies: 3 images become a 30-card deck; image token stacks have no ou
   await panel.getByRole('button', { name: 'Remove card 3 (all 8 copies)' }).click();
   await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(22);
   // Every card at once: 3 copies each.
-  await panel.getByRole('button', { name: 'Copies of all…' }).click();
+  await panel.getByRole('button', { name: 'Set copies for all cards…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox').fill('3');
   await dialog.getByRole('button', { name: 'OK' }).click();

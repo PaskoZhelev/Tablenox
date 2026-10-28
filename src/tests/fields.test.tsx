@@ -31,6 +31,29 @@ describe('inspector fields', () => {
     expect(input.value).toBe('5');
   });
 
+  it('commits an uncommitted edit when the field unmounts without a blur', () => {
+    const onNumber = vi.fn();
+    const onText = vi.fn();
+    const { unmount } = render(
+      <>
+        <NumberField label="Tokens" value={1} min={1} onCommit={onNumber} />
+        <TextField label="Name" value="Deck" onCommit={onText} />
+      </>,
+    );
+    fireEvent.change(screen.getByLabelText('Tokens'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pile' } });
+    unmount();
+    expect(onNumber).toHaveBeenCalledWith(2);
+    expect(onText).toHaveBeenCalledWith('Pile');
+  });
+
+  it('does not commit on unmount when nothing was edited', () => {
+    const onCommit = vi.fn();
+    const { unmount } = render(<NumberField label="Tokens" value={1} onCommit={onCommit} />);
+    unmount();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
   it('NumberField allows clearing optional values', () => {
     const onCommit = vi.fn();
     render(<NumberField label="Maximum" value={3} allowEmpty onCommit={onCommit} />);

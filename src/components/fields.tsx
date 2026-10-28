@@ -11,6 +11,21 @@ export function Field({ label, children, inline }: { label: string; children: Re
   );
 }
 
+/**
+ * Runs `commit` when the field unmounts with an uncommitted edit. Clicking the canvas or Done can remove the field
+ * (or switch the selection) without a blur ever reaching it, which would silently drop the typed value.
+ */
+function useCommitOnUnmount(dirty: boolean, commit: () => void) {
+  const latest = useRef({ dirty, commit });
+  latest.current = { dirty, commit };
+  useEffect(
+    () => () => {
+      if (latest.current.dirty) latest.current.commit();
+    },
+    [],
+  );
+}
+
 /** Text input that commits on blur / Enter rather than on every keystroke (one undo entry per edit). */
 export function TextField({
   label,
@@ -36,6 +51,7 @@ export function TextField({
   const commit = () => {
     if (draft !== value) onCommit(draft);
   };
+  useCommitOnUnmount(draft !== value, commit);
   return (
     <Field label={label}>
       {multiline ? (
@@ -111,6 +127,7 @@ export function NumberField({
     setDraft(fmt(n));
     if (n !== value) onCommit(n);
   };
+  useCommitOnUnmount(draft !== fmt(value), commit);
   return (
     <Field label={label}>
       <input

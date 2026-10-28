@@ -1,4 +1,4 @@
-# Architecture Decision Records
+﻿# Architecture Decision Records
 
 Short records of choices that deviate from, or fill gaps in, `solo_tabletop_design_spec.md`.
 
@@ -220,7 +220,7 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 
 - **Timer object** (`kind: 'timer'`: `label`, `mode` `countdown | stopwatch`, `duration` seconds, `color`, `textColor`, `sound`, plus the run state `elapsedMs` and `startedAt?`). The run state is part of the saved game, so a running timer survives reloads, and **start / pause / reset are commands** (`StartTimer` / `PauseTimer` carry the time `at`, decided outside the reducer; `ResetTimer`), undoable like dice rolls. `domain/timer.ts` derives the shown time (`timerElapsed`, `timerText`: countdowns round up so 0:00 means done; stopwatches round down) and the toggle (`timerToggleCommand`: a finished countdown restarts). The visual ticks only while running, flashes red at 0:00 and beeps once per run (WebAudio, `objects/beep.ts`; deduplicated by `id:startedAt` so the drag shadow doesn't beep twice). On-canvas ▶ / ❚❚ and ↺ are `ui-button`s like the counter's −/+.
 - **Figure tokens.** `TOKEN_SHAPES` adds diamond, heart, pawn, meeple, cube and cylinder, drawn as SVG paths in a 100 × 100 box scaled to the token (`TOKEN_PATHS`; cube and cylinder add a shaded face). The palette gets *Pawn* and *Meeple* tiles (`PaletteItem.tokenShape`).
-- **Copies controls.** Each row has − / + buttons (and ↑ / ↓ keys) that apply at once; typed numbers still commit on Enter / blur. *Copies of all…* (`setAllCardCopies`) sets every row at once. The face-text field is hidden for cards with a face image (text is never drawn on them), and the row layout is compact enough for a narrow panel (wrapping only if it still overflows).
+- **Copies controls.** Each row has − / + buttons (and ↑ / ↓ keys) that apply at once; typed numbers still commit on Enter / blur. *Set copies for all cards…* (`setAllCardCopies`, a button below the card list) sets every row at once. The face-text field is hidden for cards with a face image (text is never drawn on them), and the row layout is compact enough for a narrow panel (wrapping only if it still overflows).
 - **Picking only on the table.** Step object lists and destinations are chosen with *Pick on table* (click / Shift+drag); the *Add from list…* menus are gone.
 - **Move steps always read *Move…*** in their summary (*Move top 1 card of Deck to each of A, B*; *Move Deck to A, B in turn*), matching the step's name.
 - **Quieter but visible holders:** `DEFAULT_HOLDER_STROKE_OPACITY` is 0.3. **Image token stacks** show only the top token and the count badge (no outline, no peeking copies).
