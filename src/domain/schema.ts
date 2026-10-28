@@ -111,6 +111,7 @@ const deckSchema = z.object({
   individualBacks: z.boolean().optional(),
   isPile: z.boolean(),
   layout: z.enum(['stack', 'spread']).optional(),
+  spreadAlign: z.enum(['start', 'center', 'end']).optional(),
   color: color.optional(),
   strokeColor: color.optional(),
   fillOpacity: z.number().min(0).max(1).optional(),

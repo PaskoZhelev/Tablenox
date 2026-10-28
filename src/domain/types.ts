@@ -81,6 +81,9 @@ export interface CardObject extends BaseObject {
 
 export type HolderLayout = 'stack' | 'spread';
 
+/** Where a spread's cards sit along the holder when they don't fill it: `start` = left (top when it runs down). */
+export type SpreadAlign = 'start' | 'center' | 'end';
+
 /** `keep`: a card comes out as it lies (cards without a stored side lie face down). */
 export type DrawSide = 'keep' | 'faceUp' | 'faceDown';
 
@@ -110,6 +113,8 @@ export interface DeckObject extends BaseObject {
   isPile: boolean;
   /** How the cards are shown. Missing means `stack`. */
   layout?: HolderLayout;
+  /** Spreads only: where the cards sit along the holder (left / centre / right, or top / centre / bottom). Missing means `center`. */
+  spreadAlign?: SpreadAlign;
   /** Zone fill colour; missing means grey. */
   color?: string;
   /** Zone outline colour; missing means the fill colour. */

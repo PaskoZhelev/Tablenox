@@ -1057,6 +1057,26 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               ]}
               onChange={(layout) => update({ layout })}
             />
+            {o.layout === 'spread' && (
+              <SelectField
+                label="Card alignment"
+                value={o.spreadAlign ?? 'center'}
+                options={
+                  o.height > o.width
+                    ? [
+                        { value: 'start', label: 'Top' },
+                        { value: 'center', label: 'Center' },
+                        { value: 'end', label: 'Bottom' },
+                      ]
+                    : [
+                        { value: 'start', label: 'Left' },
+                        { value: 'center', label: 'Center' },
+                        { value: 'end', label: 'Right' },
+                      ]
+                }
+                onChange={(spreadAlign) => update({ spreadAlign: spreadAlign === 'center' ? undefined : spreadAlign })}
+              />
+            )}
             <NumberField
               label="Card rotation in the holder (°)"
               value={o.cardRotation ?? 0}
@@ -1082,7 +1102,8 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
             />
             <p className="hint">
               Cards dropped on a holder go into it. A holder with its own card list (above) is a deck. A spread runs along the holder's
-              longer side: left to right when it is wider than tall, top to bottom otherwise.
+              longer side: left to right when it is wider than tall, top to bottom otherwise. Cards that don't fill it sit at the chosen
+              alignment.
             </p>
           </Section>
           <DeckEditor o={o} update={update} part="settings" />

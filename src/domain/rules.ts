@@ -184,7 +184,13 @@ export function spreadLayout(
   const avail = length - HOLDER_PADDING * 2;
   const step = places > 1 ? Math.min(cardMain + 8, Math.max(8, (avail - cardMain) / (places - 1))) : 0;
   const total = cardMain + step * (places - 1);
-  const start = Math.max(HOLDER_PADDING, (length - total) / 2);
+  const align = deck.spreadAlign ?? 'center';
+  const start =
+    align === 'start'
+      ? HOLDER_PADDING
+      : align === 'end'
+        ? Math.max(HOLDER_PADDING, length - HOLDER_PADDING - total)
+        : Math.max(HOLDER_PADDING, (length - total) / 2);
   const place = (along: number, size: { width: number; height: number }) => {
     const across = (cross(deck) - cross(size)) / 2;
     return vertical ? { x: across, y: along, ...size } : { x: along, y: across, ...size };

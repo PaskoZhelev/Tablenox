@@ -817,6 +817,29 @@ describe('deck rules', () => {
     expect(gapped.gap!.y).toBeLessThan(gapped.slots[0].y);
   });
 
+  it('a spread lines its cards up left, centred (default) or right in the holder', () => {
+    let s = tableOf(fixtureGame());
+    const id = deckOf(s).id;
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { layout: 'spread', width: 2000 } });
+    const holder = () => s.objects.find((o) => o.id === id) as DeckObject;
+    const span = () => {
+      const slots = cardSlots(s.objects, holder());
+      const left = Math.min(...slots.map((sl) => sl.x));
+      return { left, right: holder().width - Math.max(...slots.map((sl) => sl.x + sl.width)) };
+    };
+    const centred = span();
+    expect(centred.left).toBeCloseTo(centred.right);
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { spreadAlign: 'start' } });
+    expect(span().left).toBeLessThan(centred.left);
+    expect(span().left).toBeLessThan(span().right);
+    s = applyCommand(s, { type: 'UpdateObject', id, patch: { spreadAlign: 'end' } });
+    expect(span().right).toBeLessThan(centred.right);
+    expect(span().right).toBeLessThan(span().left);
+    // Drops still land by position.
+    const p = { x: holder().position.x + 1, y: holder().position.y + holder().height / 2 };
+    expect(spreadInsertIndex(s.objects, holder(), p)).toBe(holder().cards.length);
+  });
+
   it('a holder can turn the cards it shows by any angle; they still come out upright', () => {
     let s = tableOf(fixtureGame());
     const id = deckOf(s).id;
