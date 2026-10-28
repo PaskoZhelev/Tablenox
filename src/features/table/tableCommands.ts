@@ -87,8 +87,8 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (e.key === '0') return zoomReset();
       if (e.key === 'F' && e.shiftKey) return fitToScene();
 
-      const multi = s.mode === 'edit' && s.selectedIds.length > 1;
-      if (multi) {
+      const multi = s.selectedIds.length > 1;
+      if (multi && s.mode === 'edit') {
         if (key === 'l') return toggleLockMany(s.selectedIds);
         if (e.key.startsWith('Arrow')) {
           e.preventDefault();

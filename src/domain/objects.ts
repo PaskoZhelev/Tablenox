@@ -46,6 +46,11 @@ export function fixedInPlay(o: TabletopObject): boolean {
   return hasPlayMovable(o) && !o.playMovable;
 }
 
+/** Whether a player can move `o` in Play mode (and so box-select it there): not locked, fixed, or a click-only control. */
+export function movableInPlay(o: TabletopObject): boolean {
+  return o.visible && !o.locked && !fixedInPlay(o) && o.kind !== 'button' && o.kind !== 'checkbox';
+}
+
 /** Objects with a "Movable in Play mode" setting: surfaces and containers that other pieces are put on or into. */
 export function hasPlayMovable(o: TabletopObject): o is BoardObject | DeckObject | BagObject {
   return o.kind === 'board' || o.kind === 'bag' || isHolder(o);
@@ -82,6 +87,7 @@ export const DEFAULT_BAG_COLOR = '#8b6b43';
 
 export const DEFAULT_HOLDER_COLOR = '#8a8f98';
 export const DEFAULT_HOLDER_FILL_OPACITY = 0;
+export const DEFAULT_HOLDER_STROKE_OPACITY = 0.2;
 
 /** Number of tokens in a token stack. */
 export function tokenCount(t: TokenObject): number {
@@ -99,7 +105,7 @@ export function sameTokenLook(a: TokenObject, b: TokenObject): boolean {
   return a.shape === b.shape && a.color === b.color && a.assetId === b.assetId && a.width === b.width && a.height === b.height;
 }
 /** Space between a new holder's edge and its cards, so the zone shows around them. */
-export const HOLDER_MARGIN = 14;
+export const HOLDER_MARGIN = 6;
 
 /** Size of the cards a holder owns (piles: the pile's own size). */
 export function cardSizeOf(d: DeckObject): { width: number; height: number } {
@@ -136,6 +142,31 @@ function base<K extends ObjectKind>(kind: K, opts: FactoryOptions, width: number
 
 export function createCardDef(partial: Partial<CardDef> = {}): CardDef {
   return { id: newId(), name: 'Card', faceText: '', faceColor: '#ffffff', ...partial };
+}
+
+/**
+ * Moves card `id` one place up (`-1`, towards the top) or down (`1`) in a holder's card list. The cards currently in the
+ * holder swap places the same way when both are there. Returns null when it can't move.
+ */
+export function moveCardDef(deck: DeckObject, id: string, delta: -1 | 1): Pick<DeckObject, 'cards' | 'initialCards'> | null {
+  const from = deck.initialCards.findIndex((c) => c.id === id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= deck.initialCards.length) return null;
+  const otherId = deck.initialCards[to].id;
+  const swap = <T extends { id: string }>(list: T[], i: number, j: number): T[] => {
+    const next = [...list];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  };
+  const a = deck.cards.findIndex((c) => c.id === id);
+  const b = deck.cards.findIndex((c) => c.id === otherId);
+  return { initialCards: swap(deck.initialCards, from, to), cards: a >= 0 && b >= 0 ? swap(deck.cards, a, b) : deck.cards };
+}
+
+/** `card` with its front also used as its back: the face image and colour (backs never show text). */
+export function withFrontAsBack(card: CardDef): CardDef {
+  const { backAssetId: _old, ...rest } = card;
+  return { ...rest, backColor: card.faceColor, ...(card.faceAssetId ? { backAssetId: card.faceAssetId } : {}) };
 }
 
 export function createObject<K extends ObjectKind>(kind: K, opts: FactoryOptions): ObjectOfKind<K> {

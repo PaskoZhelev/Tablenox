@@ -101,7 +101,7 @@ export interface DeckObject extends BaseObject {
   strokeColor?: string;
   /** Opacity (0–1) of the zone fill; missing means `DEFAULT_HOLDER_FILL_OPACITY`. */
   fillOpacity?: number;
-  /** Opacity (0–1) of the zone outline; missing means fully opaque. */
+  /** Opacity (0–1) of the zone outline; missing means `DEFAULT_HOLDER_STROKE_OPACITY`. */
   strokeOpacity?: number;
   /** Zone outline style; missing means dashed. */
   strokeStyle?: 'dashed' | 'solid';
@@ -374,7 +374,7 @@ export interface Game {
   objects: TabletopObject[];
   camera: CameraState;
   annotations: Annotations;
-  /** Table (background) colour; default felt colour when missing. */
+  /** Table (background) colour; default grey when missing. */
   tableColor?: string;
   thumbnail?: string;
 }

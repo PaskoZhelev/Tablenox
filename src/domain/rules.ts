@@ -214,9 +214,10 @@ export function spreadInsertIndex(objects: TabletopObject[], deck: DeckObject, p
   return deck.cards.length - before;
 }
 
-/** Insert position for an object dropped into `target` with its centre at `center` (spread holders only). */
-function dropIndex(state: TableState, target: DeckObject, center: Vec2): { index?: number } {
-  return isSpread(target) ? { index: spreadInsertIndex(state.objects, target, center) } : {};
+/** Insert position for an object dropped into `target` with its centre at `center` (spread holders, in Play mode only). */
+function dropIndex(state: TableState, target: DeckObject, center: Vec2, mode: Mode): { index?: number } {
+  // Edit mode shows a holder's cards as one small preview, so a dropped card simply goes on top.
+  return mode === 'play' && isSpread(target) ? { index: spreadInsertIndex(state.objects, target, center) } : {};
 }
 
 /** Index of the card under world point `p` in a holder/pile (the visible top-most one), if any. */
@@ -256,7 +257,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         cardId: id,
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
-        ...dropIndex(state, target, center),
+        ...dropIndex(state, target, center, mode),
       };
     }
     if (target?.kind === 'card') {
@@ -273,7 +274,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         pileId: id,
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
-        ...dropIndex(state, target, center),
+        ...dropIndex(state, target, center, mode),
       };
     return move;
   }

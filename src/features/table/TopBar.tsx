@@ -87,7 +87,7 @@ function TitleEditor() {
   );
 }
 
-const TABLE_COLORS = ['#1f5c45', '#2f4f6f', '#6b4a2f', '#3b3f46', '#16181d', '#5a2430', '#c9b79c', '#4a3a6b'];
+const TABLE_COLORS = ['#3b3f46', '#1f5c45', '#2f4f6f', '#6b4a2f', '#16181d', '#5a2430', '#c9b79c', '#4a3a6b'];
 
 function TableColorPicker() {
   const color = useTableStore((s) => s.doc?.tableColor);
@@ -113,7 +113,7 @@ function TableColorPicker() {
           type="color"
           className="swatch-custom"
           aria-label="Custom table colour"
-          value={color ?? '#1f5c45'}
+          value={color ?? '#3b3f46'}
           onChange={(e) => setTableColor(e.target.value)}
         />
         <button type="button" className="chip" onClick={() => setTableColor(undefined)} disabled={!color}>

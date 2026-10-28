@@ -57,6 +57,8 @@ const paths: Record<string, string> = {
   menu: 'M4 6h16M4 12h16M4 18h16',
   chevronLeft: 'M15 18l-6-6 6-6',
   chevronRight: 'M9 18l6-6-6-6',
+  chevronUp: 'M18 15l-6-6-6 6',
+  chevronDown: 'M6 9l6 6 6-6',
   sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   close: 'M18 6L6 18M6 6l12 12',
   maximize: 'M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3',

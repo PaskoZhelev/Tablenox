@@ -6,7 +6,7 @@ import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { simplifyPoints, strokeHit, textHit } from '../domain/annotations';
 import { panBy, pinchBy, zoomBy, type PinchPoint } from '../domain/camera';
 import { newId } from '../domain/ids';
-import { fixedInPlay, ownerDeckOf, resolveCardLook, sortByZ, tokenCount } from '../domain/objects';
+import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByZ, tokenCount } from '../domain/objects';
 import { objectBounds } from '../domain/geometry';
 import type { TabletopObject, Vec2 } from '../domain/types';
 import { AnnotationLayer } from '../drawing/AnnotationLayer';
@@ -47,7 +47,9 @@ type Gesture =
   /** Play mode: a press on a token stack; dragging takes one token off it. */
   | { kind: 'token'; id: string; start: Vec2 }
   /** Edit-mode selection box; `clickSelect` is selected if the pointer never moves. In pick mode it picks objects instead. */
-  | { kind: 'marquee'; start: Vec2; startWorld: Vec2; moved: boolean; additive: boolean; clickSelect: string | null; pick?: boolean };
+  | { kind: 'marquee'; start: Vec2; startWorld: Vec2; moved: boolean; additive: boolean; clickSelect: string | null; pick?: boolean }
+  /** Play mode: a press on a member of a box selection that isn't draggable by itself (pile, stack…); dragging moves the selection. */
+  | { kind: 'group'; id: string; start: Vec2 };
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 const KEEP_RATIO_KINDS = new Set(['board', 'image', 'card', 'token', 'die']);
@@ -158,10 +160,12 @@ export function TableCanvas() {
 
   const sorted = useMemo(() => sortByZ(objects).filter((o) => o.visible || mode === 'edit'), [objects, mode]);
   const selected = useMemo(() => objects.find((o) => o.id === selectedId) ?? null, [objects, selectedId]);
-  const transformable = useMemo(
-    () => (mode === 'edit' && tool === 'select' && !picking ? objects.filter((o) => selectedIds.includes(o.id) && !o.locked) : []),
-    [objects, selectedIds, mode, tool, picking],
-  );
+  const transformable = useMemo(() => {
+    if (tool !== 'select' || picking) return [];
+    if (mode === 'edit') return objects.filter((o) => selectedIds.includes(o.id) && !o.locked);
+    // Play mode: the pieces of a box selection drag together (the Transformer has no resize / rotate handles there).
+    return selectedIds.length > 1 ? objects.filter((o) => selectedIds.includes(o.id) && movableInPlay(o)) : [];
+  }, [objects, selectedIds, mode, tool, picking]);
 
   // Play mode: holders, piles, token stacks and buttons react to presses themselves (see onPointerDown); boards/holders may be fixed.
   const isDraggable = useCallback(
@@ -213,12 +217,13 @@ export function TableCanvas() {
         rect?.visible(false);
         rect?.getLayer()?.batchDraw();
         if (!g.moved) {
-          if (!g.additive && !g.pick) s.select(g.clickSelect);
+          // Play mode has no Shift+click selection, so a click there always selects (or clears) as usual.
+          if ((!g.additive || s.mode === 'play') && !g.pick) s.select(g.clickSelect);
           break;
         }
         const box = { x: rect?.x() ?? 0, y: rect?.y() ?? 0, width: rect?.width() ?? 0, height: rect?.height() ?? 0 };
         const inside = sortByZ(currentTable().objects)
-          .filter((o) => o.visible || s.mode === 'edit')
+          .filter((o) => (s.mode === 'edit' ? true : g.pick ? o.visible : movableInPlay(o)))
           .filter((o) => {
             const b = objectBounds(o);
             return b.x >= box.x && b.y >= box.y && b.x + b.width <= box.x + box.width && b.y + b.height <= box.y + box.height;
@@ -230,7 +235,8 @@ export function TableCanvas() {
         }
         const ids = g.additive ? [...s.selectedIds, ...inside.filter((id) => !s.selectedIds.includes(id))] : inside;
         s.setSelection(ids);
-        s.setSelectionBar(ids.length > 1 ? MULTI_BAR : (ids[0] ?? null));
+        // Play mode has no group actions, so a group gets no action bar there.
+        s.setSelectionBar(ids.length > 1 ? (s.mode === 'edit' ? MULTI_BAR : null) : (ids[0] ?? null));
         break;
       }
       case 'pen': {
@@ -394,14 +400,26 @@ export function TableCanvas() {
         const obj = node ? currentTable().objects.find((o) => o.id === node.id()) : undefined;
         // Edit mode: Ctrl/Cmd/Shift+click adds to / removes from the selection (applied on click, see onClick).
         const additive = s.mode === 'edit' && (evt.ctrlKey || evt.metaKey || evt.shiftKey);
-        // Edit mode: dragging the table draws a selection box when the camera is locked, or with Shift.
-        const marquee = s.mode === 'edit' && (s.ui.cameraLocked || evt.shiftKey);
+        // Dragging the table draws a selection box when the camera is locked, or with Shift (Shift adds to the selection).
+        const marquee = s.ui.cameraLocked || evt.shiftKey;
         const startMarquee = (clickSelect: string | null) => {
-          gesture.current = { kind: 'marquee', start: screen, startWorld: world, moved: false, additive, clickSelect };
+          gesture.current = {
+            kind: 'marquee',
+            start: screen,
+            startWorld: world,
+            moved: false,
+            additive: additive || evt.shiftKey,
+            clickSelect,
+          };
         };
         if (!obj) {
           if (marquee) startMarquee(null);
           else startPan(null);
+          return;
+        }
+        if (s.mode === 'play' && node && s.selectedIds.length > 1 && s.selectedIds.includes(obj.id) && movableInPlay(obj)) {
+          // A member of a Play-mode box selection: dragging it moves the whole selection (the Transformer moves the rest).
+          if (!node.draggable()) gesture.current = { kind: 'group', id: obj.id, start: screen };
           return;
         }
         if (s.mode === 'play' && obj.kind === 'deck') {
@@ -433,14 +451,15 @@ export function TableCanvas() {
             node.startDrag();
             return;
           }
-          // Otherwise the holder acts like the table surface (drag pans, click selects).
-          startPan(obj.id);
+          // Otherwise the holder acts like the table surface (drag pans or draws a selection box, click selects).
+          if (marquee) startMarquee(null);
+          else startPan(obj.id);
           return;
         }
         if (s.mode === 'play' && obj.kind === 'bag') {
           // A bag with something in it: a drag draws a random piece (Shift+drag moves a bag that may move in Play mode).
           const movable = !obj.locked && !fixedInPlay(obj) && !!node;
-          if (obj.items.length > 0 && !(evt.shiftKey && movable)) {
+          if (obj.items.length > 0 && !evt.shiftKey) {
             gesture.current = { kind: 'bag', id: obj.id, start: screen };
             return;
           }
@@ -449,12 +468,14 @@ export function TableCanvas() {
             node.startDrag();
             return;
           }
-          startPan(obj.id);
+          if (marquee) startMarquee(null);
+          else startPan(obj.id);
           return;
         }
         if (s.mode === 'play' && (obj.kind === 'button' || obj.kind === 'checkbox')) {
-          // Buttons and checkboxes don't move in Play mode: dragging pans, a click runs / toggles them.
-          startPan(null);
+          // Buttons and checkboxes don't move in Play mode: dragging pans (or draws a selection box), a click runs / toggles them.
+          if (marquee) startMarquee(null);
+          else startPan(null);
           return;
         }
         if (s.mode === 'play' && isTokenStack(obj) && !obj.locked && node) {
@@ -469,7 +490,7 @@ export function TableCanvas() {
         }
         if (obj.locked || (s.mode === 'play' && fixedInPlay(obj))) {
           // Locked objects (and boards in Play mode) act like the table surface: drag pans (or draws a selection box), click selects (edit mode only).
-          if (marquee) startMarquee(obj.id);
+          if (marquee) startMarquee(s.mode === 'edit' ? obj.id : null);
           else {
             startPan(s.mode === 'edit' ? obj.id : null);
             if (gesture.current?.kind === 'pan') gesture.current.additive = additive;
@@ -658,6 +679,12 @@ export function TableCanvas() {
           visible: true,
         });
         r.getLayer()?.batchDraw();
+        break;
+      }
+      case 'group': {
+        if (Math.hypot(screen.x - g.start.x, screen.y - g.start.y) < DECK_DRAG_SLOP) return;
+        gesture.current = null;
+        stageRef.current?.findOne((n: Konva.Node) => n.id() === g.id && n.hasName('object'))?.startDrag();
         break;
       }
       case 'deck': {
@@ -864,6 +891,8 @@ export function TableCanvas() {
             <Transformer
               ref={trRef}
               visible={showTransformer}
+              resizeEnabled={mode === 'edit'}
+              rotateEnabled={mode === 'edit'}
               rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
               rotationSnapTolerance={6}
               keepRatio={transformable.length > 1 || (!!selected && KEEP_RATIO_KINDS.has(selected.kind))}

@@ -29,7 +29,7 @@ export function captureThumbnail(maxWidth = 320): string | undefined {
     const ctx = out.getContext('2d');
     if (!ctx) return undefined;
     const bg = getComputedStyle(stage.container().parentElement ?? stage.container()).backgroundColor;
-    ctx.fillStyle = bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#1f5c45';
+    ctx.fillStyle = bg && bg !== 'rgba(0, 0, 0, 0)' ? bg : '#3b3f46';
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(layers, 0, 0);
     return out.toDataURL('image/jpeg', 0.7);

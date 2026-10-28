@@ -9,7 +9,7 @@
   --accent-strong: #2e9c74;
   --danger: #e05252;
   --focus: #6cb6ff;
-  --felt: #1f5c45;
+  --felt: #3b3f46;
   --felt-edit: #26313d;
   --radius: 8px;
   font-family:
@@ -1334,6 +1334,20 @@ input[type='color'] {
   font-size: 11px;
   color: var(--text-dim);
   text-align: right;
+}
+.card-def-move {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: 1px;
+}
+.card-def-move .btn {
+  width: 20px;
+  height: 12px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }
 .card-def-row input {
   padding: 3px 6px;

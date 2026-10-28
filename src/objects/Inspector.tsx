@@ -31,13 +31,16 @@ import {
   createDieFace,
   DEFAULT_HOLDER_COLOR,
   DEFAULT_HOLDER_FILL_OPACITY,
+  DEFAULT_HOLDER_STROKE_OPACITY,
   dieFaceLabel,
   displayName,
   fixedInPlay,
   hasPlayMovable,
   kindLabel,
+  moveCardDef,
   sortByZ,
   tokenCount,
+  withFrontAsBack,
 } from '../domain/objects';
 import { HOVER_ZOOM_LABELS, homeDeckOf, hoverZoomInheritLabel, inheritsHoverZoom, pileHasHome, pileHolders } from '../domain/rules';
 import {
@@ -189,21 +192,48 @@ async function fitToImage(o: TabletopObject, assetId: string | undefined, update
 const CardDefRow = memo(function CardDefRow({
   def,
   index,
+  count,
   individualBacks,
   deckBackColor,
   onChange,
+  onMove,
   onRemove,
 }: {
   def: CardDef;
   index: number;
+  /** Number of cards in the list. */
+  count: number;
   individualBacks: boolean;
   deckBackColor: string;
   onChange: (patch: Partial<CardDef>) => void;
+  onMove: (delta: -1 | 1) => void;
   onRemove: () => void;
 }) {
   return (
     <li className="card-def-row">
       <span className="card-def-index">{index + 1}</span>
+      <span className="card-def-move">
+        <button
+          type="button"
+          className="btn btn-small btn-icon"
+          aria-label={`Move card ${index + 1} up`}
+          title="Move up (towards the top)"
+          disabled={index === 0}
+          onClick={() => onMove(-1)}
+        >
+          <Icon name="chevronUp" size={12} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-small btn-icon"
+          aria-label={`Move card ${index + 1} down`}
+          title="Move down"
+          disabled={index === count - 1}
+          onClick={() => onMove(1)}
+        >
+          <Icon name="chevronDown" size={12} />
+        </button>
+      </span>
       <input aria-label={`Card ${index + 1} name`} value={def.name} onChange={(e) => onChange({ name: e.target.value })} />
       <input
         aria-label={`Card ${index + 1} face text`}
@@ -293,6 +323,19 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
         <ColorField label="Card back colour" value={o.backColor} onChange={(backColor) => update({ backColor }, `back:${o.id}`)} />
         <ImageField label="Card back image" assetId={o.backAssetId} onChange={(backAssetId) => update({ backAssetId })} />
         <CheckboxField label="Different back for every card" checked={individual} onChange={(on) => void setIndividualBacks(on)} />
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn btn-small"
+            disabled={o.initialCards.length === 0 && o.cards.length === 0}
+            title="Every card gets its front (image and colour) as its back too"
+            onClick={() =>
+              update({ individualBacks: true, cards: o.cards.map(withFrontAsBack), initialCards: o.initialCards.map(withFrontAsBack) })
+            }
+          >
+            <Icon name="flip" size={14} /> Use fronts as backs
+          </button>
+        </div>
         {individual && (
           <>
             <div className="button-row">
@@ -447,9 +490,14 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
               key={c.id}
               def={c}
               index={i}
+              count={o.initialCards.length}
               individualBacks={individual}
               deckBackColor={o.backColor}
               onChange={(p) => editCard(c.id, p)}
+              onMove={(delta) => {
+                const moved = moveCardDef(o, c.id, delta);
+                if (moved) update(moved);
+              }}
               onRemove={() => removeCard(c.id)}
             />
           ))}
@@ -743,6 +791,7 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
       return (
         <>
           <DeckEditor o={o} update={update} part="list" />
+          <DeckEditor o={o} update={update} part="settings" />
           <Section title="Holder">
             <TextField label="Label" value={o.label ?? ''} placeholder="No label" onCommit={(label) => update({ label })} />
             <SelectField
@@ -780,7 +829,7 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
             />
             <OpacityField
               label="Stroke opacity"
-              value={o.strokeOpacity ?? 1}
+              value={o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY}
               onChange={(strokeOpacity) => update({ strokeOpacity }, `strokeOpacity:${o.id}`)}
             />
             <SelectField
@@ -820,7 +869,6 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               longer side: left to right when it is wider than tall, top to bottom otherwise.
             </p>
           </Section>
-          <DeckEditor o={o} update={update} part="settings" />
         </>
       );
     case 'bag':

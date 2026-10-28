@@ -34,10 +34,13 @@ import {
   dieFaceLabel,
   fixedInPlay,
   HOLDER_MARGIN,
+  moveCardDef,
+  movableInPlay,
   ownerDeckOf,
   remapAssetIds,
   resolveCardLook,
   tokenCount,
+  withFrontAsBack,
 } from '../domain/objects';
 import { fixtureGame, tableOf } from './fixtures';
 
@@ -418,7 +421,10 @@ describe('deck rules', () => {
     // Four cards left; between the 2nd and 3rd from the left of the new layout = index 2.
     const s4 = cardSlots(s.objects, spread());
     const center = at((s4[1].x + s4[1].width / 2 + s4[2].x + s4[2].width / 2) / 2);
-    const drop = resolveDrop(s, card.id, { x: center.x - card.width / 2, y: center.y - card.height / 2 }, 'play');
+    const dropAt = { x: center.x - card.width / 2, y: center.y - card.height / 2 };
+    // Edit mode only previews a holder's cards, so a card dropped there goes on top.
+    expect(resolveDrop(s, card.id, dropAt, 'edit')).not.toHaveProperty('index');
+    const drop = resolveDrop(s, card.id, dropAt, 'play');
     expect(drop).toMatchObject({ type: 'AddCardToDeck', deckId: id, index: 2 });
     s = applyCommand(s, drop);
     expect(spread().cards.map((c) => c.id)).toEqual([ids[1], ids[2], ids[0], ids[3], ids[4]]);
@@ -433,6 +439,47 @@ describe('deck rules', () => {
     s = applyCommand(s, d2);
     const c2 = cardsOnTable(s).find((c) => c.id === d2.cardId)!;
     expect(resolveDrop(s, c2.id, { ...spread().position }, 'play')).not.toHaveProperty('index');
+  });
+
+  it('moves a card up or down the card list; the cards in the holder swap the same way', () => {
+    const s = tableOf(fixtureGame());
+    const deck = deckOf(s);
+    const ids = deck.initialCards.map((c) => c.id);
+    const down = moveCardDef(deck, ids[0], 1)!;
+    expect(down.initialCards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
+    expect(down.cards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
+    expect(moveCardDef(deck, ids[0], -1)).toBeNull();
+    expect(moveCardDef(deck, ids[ids.length - 1], 1)).toBeNull();
+    expect(moveCardDef(deck, 'missing', 1)).toBeNull();
+    // A card that is out of the holder only moves in the list.
+    const out: DeckObject = { ...deck, cards: deck.cards.filter((c) => c.id !== ids[1]) };
+    const up = moveCardDef(out, ids[1], -1)!;
+    expect(up.initialCards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
+    expect(up.cards).toBe(out.cards);
+  });
+
+  it('uses a card front as its back: face image and colour', () => {
+    const withImage = withFrontAsBack(
+      createCardDef({ faceAssetId: 'face', faceColor: '#123456', backAssetId: 'old', backColor: '#000000' }),
+    );
+    expect(withImage).toMatchObject({ backAssetId: 'face', backColor: '#123456', faceAssetId: 'face' });
+    const plain = withFrontAsBack(createCardDef({ faceColor: '#abcdef', backAssetId: 'old' }));
+    expect(plain.backColor).toBe('#abcdef');
+    expect(plain).not.toHaveProperty('backAssetId');
+  });
+
+  it('only pieces a player can move are box-selectable in Play mode', () => {
+    const s = tableOf(fixtureGame());
+    const kinds = (pred: (o: TableState['objects'][number]) => boolean) =>
+      s.objects.filter(pred).map((o) => (o.kind === 'deck' && o.isPile ? 'pile' : o.kind));
+    const movable = kinds(movableInPlay);
+    expect(movable).toEqual(expect.arrayContaining(['card', 'token', 'die', 'counter', 'label']));
+    expect(movable).not.toContain('board');
+    expect(movable).not.toContain('button');
+    expect(movable).not.toContain('checkbox');
+    const card = byKind(s, 'card');
+    expect(movableInPlay({ ...card, locked: true })).toBe(false);
+    expect(movableInPlay({ ...holderOf(s), playMovable: true })).toBe(true);
   });
 
   it('flips the whole deck: reverses the order and turns every card over', () => {

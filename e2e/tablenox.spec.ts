@@ -550,19 +550,37 @@ test('holders fade under dragged objects; dragging never opens the action bar; f
   expect(await obj(page, 'Bonus deck', 'o.cards[0].faceUp')).toBe(true);
 });
 
-test('holder properties: holder zone first, then everything about its cards; a pile shows no unused back options', async ({ page }) => {
+test('holder properties: card list and card settings first, then the holder zone; a pile shows no unused back options', async ({
+  page,
+}) => {
   await addSampleAndPlay(page);
   await switchMode(page, 'edit');
   const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
   await storeState(page, `(s) => { s.setUi({ inspectorOpen: true }); s.select(${JSON.stringify(deckId)}); }`);
   const panel = page.getByRole('complementary', { name: 'Properties' });
   const headings = panel.locator('.inspector-section h3');
-  await expect(headings).toHaveText(['Card list (12 cards)', 'Holder', 'Cards (12 in the holder)', 'Object']);
-  const cards = panel.locator('.inspector-section').nth(2);
+  await expect(headings).toHaveText(['Card list (12 cards)', 'Cards (12 in the holder)', 'Holder', 'Object']);
+  const cards = panel.locator('.inspector-section').nth(1);
   for (const label of ['Card back colour', 'Card back image', 'Different back for every card', 'Card width', 'Cards come out']) {
     await expect(cards.getByText(label, { exact: true })).toBeVisible();
   }
-  await expect(panel.locator('.inspector-section').nth(1).getByText('Card back colour')).toHaveCount(0);
+  await expect(panel.locator('.inspector-section').nth(2).getByText('Card back colour')).toHaveCount(0);
+
+  // Cards move up and down the list; the first can't move up, the last can't move down.
+  const ids = await obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)');
+  await expect(panel.getByRole('button', { name: 'Move card 1 up' })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Move card 12 down' })).toBeDisabled();
+  await panel.getByRole('button', { name: 'Move card 1 down' }).click();
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual([ids[1], ids[0], ...ids.slice(2)]);
+  expect(await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([ids[1], ids[0], ...ids.slice(2)]);
+  await panel.getByRole('button', { name: 'Move card 2 up' }).click();
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual(ids);
+
+  // Every card gets its front as its back.
+  await cards.getByRole('button', { name: 'Use fronts as backs' }).click();
+  await expect.poll(() => obj<boolean>(page, 'Bonus deck', 'o.individualBacks')).toBe(true);
+  expect(await obj<boolean>(page, 'Bonus deck', 'o.initialCards.every(c => c.backColor === c.faceColor)')).toBe(true);
+  await expect(cards.getByText('Different back for every card', { exact: true })).toBeVisible();
 
   await storeState(
     page,
@@ -1079,6 +1097,85 @@ test('edit mode: box-select with the camera locked, duplicate all, drag all as o
   await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([copies[0]]);
   await page.keyboard.press('Control+z');
   await expect.poll(() => Promise.all(copies.map(pos))).toEqual(before);
+});
+
+test('play mode: Shift+drag box-selects movable pieces, which then drag together as one undo step', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  // A pile on the sheet next to the dice.
+  await storeState(
+    page,
+    `(s) => s.dispatch({ type: 'DrawCards', deckId: ${JSON.stringify(deckId)}, pileId: 'pile-1', position: { x: 300, y: -560 }, count: 3 })`,
+  );
+  // The box starts on the (fixed) score sheet and covers both dice and the pile; the sheet itself isn't selected.
+  const from = await worldToPage(page, 280, -580);
+  const to = await worldToPage(page, 750, -370);
+  await page.keyboard.down('Shift');
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  const dieIds = await storeState<string[]>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'die').map(o => o.id)");
+  const ids = [...dieIds, 'pile-1'].sort();
+  await expect.poll(() => storeState<string[]>(page, '(s) => [...s.selectedIds].sort()')).toEqual(ids);
+  await expect(page.locator('.selection-bar')).toHaveCount(0);
+
+  // Dragging the pile (which normally deals its top card) moves the whole selection instead.
+  const pos = (id: string) =>
+    storeState<{ x: number; y: number }>(page, `(s) => s.history.present.objects.find(o => o.id === ${JSON.stringify(id)}).position`);
+  const before = await Promise.all(ids.map(pos));
+  const past = await storeState<number>(page, '(s) => s.history.past.length');
+  const grab = await worldToPage(page, 300 + 63, -560 + 88);
+  await drag(page, grab, 0, 120);
+  const after = await Promise.all(ids.map(pos));
+  const dy = after[0].y - before[0].y;
+  for (let i = 0; i < ids.length; i++) {
+    // The Transformer moves the other members with sub-pixel steps, so allow a unit of rounding.
+    expect(Math.abs(after[i].x - before[i].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after[i].y - before[i].y - dy)).toBeLessThanOrEqual(1);
+  }
+  expect(dy).toBeGreaterThan(30);
+  expect(await obj<number>(page, 'Pile', 'o.cards.length')).toBe(3);
+  expect(await storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'card').length")).toBe(0);
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past + 1);
+
+  // A plain click on the empty table clears the selection.
+  const empty = await worldToPage(page, -800, 0);
+  await page.mouse.click(empty.x, empty.y);
+  await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([]);
+});
+
+test('edit mode shows a small preview of a holder with its card count; the corner badge needs 2+ cards', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  const discardId = await obj<string>(page, 'Discard', 'o.id');
+  const nodes = (id: string) =>
+    page.evaluate((id) => {
+      type N = { findOne(s: string): N | undefined; find(s: string): N[]; text(): string };
+      const stage = (window as unknown as { Konva: { stages: N[] } }).Konva.stages[0];
+      const o = stage.findOne(`#${id}`)!;
+      return {
+        preview: o.find('.holder-preview').length,
+        count: o.findOne('.holder-count')?.findOne('Text')?.text() ?? null,
+        cards: o.find('.deck-card').length,
+        badge: o.find('.deck-handle').length > 0,
+      };
+    }, id);
+
+  // One card in a holder: no count badge in the corner (Play mode).
+  await storeState(
+    page,
+    `(s) => { s.dispatch({ type: 'DrawCard', deckId: ${JSON.stringify(deckId)}, cardId: 'c1', position: { x: 0, y: 0 }, faceUp: true }); s.dispatch({ type: 'AddCardToDeck', cardId: 'c1', deckId: ${JSON.stringify(discardId)} }); }`,
+  );
+  await expect.poll(() => nodes(discardId)).toEqual({ preview: 0, count: null, cards: 1, badge: false });
+  expect(await nodes(deckId)).toEqual({ preview: 0, count: null, cards: 1, badge: true });
+
+  await switchMode(page, 'edit');
+  await expect.poll(() => nodes(deckId)).toEqual({ preview: 1, count: '11', cards: 0, badge: false });
+  expect(await nodes(discardId)).toEqual({ preview: 1, count: '1', cards: 0, badge: false });
+  await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(discardId)}, patch: { cards: [] } })`);
+  await expect.poll(() => nodes(discardId)).toEqual({ preview: 0, count: null, cards: 0, badge: false });
 });
 
 test('a card moved into another deck keeps its own size and back', async ({ page }) => {
