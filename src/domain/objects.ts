@@ -144,23 +144,77 @@ export function createCardDef(partial: Partial<CardDef> = {}): CardDef {
   return { id: newId(), name: 'Card', faceText: '', faceColor: '#ffffff', ...partial };
 }
 
+/** Card definitions that are copies of each other: same name, face, back and size. */
+export function sameCardLook(a: CardDef, b: CardDef): boolean {
+  return (
+    a.name === b.name &&
+    a.faceText === b.faceText &&
+    a.faceColor === b.faceColor &&
+    a.faceAssetId === b.faceAssetId &&
+    a.backAssetId === b.backAssetId &&
+    a.backColor === b.backColor &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+}
+
+/** A card list as rows of copies: each row is a run of identical neighbouring definitions. */
+export function cardGroups(defs: readonly CardDef[]): CardDef[][] {
+  const groups: CardDef[][] = [];
+  for (const d of defs) {
+    const last = groups[groups.length - 1];
+    if (last && sameCardLook(last[0], d)) last.push(d);
+    else groups.push([d]);
+  }
+  return groups;
+}
+
+/** Most copies one row of a card list can have. */
+export const MAX_CARD_COPIES = 500;
+
+type CardLists = Pick<DeckObject, 'cards' | 'initialCards'>;
+
 /**
- * Moves card `id` one place up (`-1`, towards the top) or down (`1`) in a holder's card list. The cards currently in the
- * holder swap places the same way when both are there. Returns null when it can't move.
+ * Sets how many copies the card-list row holding card `id` has. New copies are separate cards (new ids) placed
+ * right after the row (and, in the holder, after its last copy there, or at the bottom); extra copies are removed
+ * from the end of the row. Returns null when nothing changes.
  */
-export function moveCardDef(deck: DeckObject, id: string, delta: -1 | 1): Pick<DeckObject, 'cards' | 'initialCards'> | null {
-  const from = deck.initialCards.findIndex((c) => c.id === id);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= deck.initialCards.length) return null;
-  const otherId = deck.initialCards[to].id;
-  const swap = <T extends { id: string }>(list: T[], i: number, j: number): T[] => {
-    const next = [...list];
-    [next[i], next[j]] = [next[j], next[i]];
-    return next;
+export function setCardCopies(deck: DeckObject, id: string, copies: number): CardLists | null {
+  const group = cardGroups(deck.initialCards).find((g) => g.some((c) => c.id === id));
+  const n = Math.max(1, Math.min(MAX_CARD_COPIES, Math.round(copies)));
+  if (!group || !Number.isFinite(n) || n === group.length) return null;
+  const ids = new Set(group.map((c) => c.id));
+  if (n < group.length) {
+    const drop = new Set(group.slice(n).map((c) => c.id));
+    return { initialCards: deck.initialCards.filter((c) => !drop.has(c.id)), cards: deck.cards.filter((c) => !drop.has(c.id)) };
+  }
+  const { faceUp: _side, ...template } = group[0];
+  const extra: CardDef[] = Array.from({ length: n - group.length }, () => ({ ...template, id: newId() }));
+  const insertAfter = <T extends CardDef>(list: T[], add: T[]): T[] => {
+    let at = -1;
+    list.forEach((c, i) => {
+      if (ids.has(c.id)) at = i;
+    });
+    return at < 0 ? [...list, ...add] : [...list.slice(0, at + 1), ...add, ...list.slice(at + 1)];
   };
-  const a = deck.cards.findIndex((c) => c.id === id);
-  const b = deck.cards.findIndex((c) => c.id === otherId);
-  return { initialCards: swap(deck.initialCards, from, to), cards: a >= 0 && b >= 0 ? swap(deck.cards, a, b) : deck.cards };
+  return { initialCards: insertAfter(deck.initialCards, extra), cards: insertAfter(deck.cards, extra) };
+}
+
+/**
+ * Moves the card-list row holding card `id` one row up (`-1`, towards the top) or down (`1`). While the holder still has
+ * every card in list order (not shuffled, none out), its cards follow the new order. Returns null when it can't move.
+ */
+export function moveCardGroup(deck: DeckObject, id: string, delta: -1 | 1): CardLists | null {
+  const groups = cardGroups(deck.initialCards);
+  const from = groups.findIndex((g) => g.some((c) => c.id === id));
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= groups.length) return null;
+  [groups[from], groups[to]] = [groups[to], groups[from]];
+  const initialCards = groups.flat();
+  const inListOrder = deck.cards.length === deck.initialCards.length && deck.cards.every((c, i) => c.id === deck.initialCards[i].id);
+  if (!inListOrder) return { initialCards, cards: deck.cards };
+  const byId = new Map(deck.cards.map((c) => [c.id, c]));
+  return { initialCards, cards: initialCards.map((c) => byId.get(c.id) ?? c) };
 }
 
 /** `card` with its front also used as its back: the face image and colour (backs never show text). */

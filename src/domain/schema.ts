@@ -20,6 +20,11 @@ const base = {
   visible: z.boolean(),
   hoverZoom: z.enum(['off', 'small', 'medium', 'large', 'xlarge']).optional(),
   hoverRotate: z.boolean().optional(),
+  rotations: z
+    .array(z.number().refine((n) => n >= 0 && n < 360 && n % 45 === 0, 'Must be a multiple of 45° below 360°'))
+    .min(1)
+    .max(8)
+    .optional(),
   bagId: id.optional(),
 };
 
@@ -57,7 +62,13 @@ export const stepSchema = z.discriminatedUnion('type', [
     shuffle: z.boolean().optional(),
   }),
   z.object({ id, objectIds, type: z.literal('rotate'), mode: z.enum(['by', 'to']), degrees: finite }),
-  z.object({ id, objectIds, type: z.literal('flip'), mode: z.enum(['toggle', 'faceUp', 'faceDown']) }),
+  z.object({
+    id,
+    objectIds,
+    type: z.literal('flip'),
+    mode: z.enum(['toggle', 'faceUp', 'faceDown', 'random']),
+    count: z.number().int().positive().max(5000).optional(),
+  }),
   z.object({ id, objectIds, type: z.literal('shuffle') }),
   z.object({ id, objectIds, type: z.literal('sort'), by: z.enum(['original', 'name']) }),
   z.object({ id, objectIds, type: z.literal('roll') }),

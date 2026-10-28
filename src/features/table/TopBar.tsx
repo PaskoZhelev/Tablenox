@@ -87,7 +87,24 @@ function TitleEditor() {
   );
 }
 
-const TABLE_COLORS = ['#3b3f46', '#1f5c45', '#2f4f6f', '#6b4a2f', '#16181d', '#5a2430', '#c9b79c', '#4a3a6b'];
+const TABLE_COLORS = [
+  '#3b3f46', // grey (default)
+  '#16181d', // near black
+  '#5f6670', // slate
+  '#1f5c45', // felt green
+  '#3d6b4f', // sage
+  '#2f4f6f', // navy
+  '#3f6f8f', // steel blue
+  '#4a3a6b', // purple
+  '#5a2430', // wine
+  '#6b4a2f', // walnut
+  '#a8865f', // oak
+  '#c9b79c', // sand
+  '#e8e2d4', // parchment
+  '#f4f1ea', // off-white
+  '#e6e9ee', // light grey
+  '#ffffff', // white
+];
 
 function TableColorPicker() {
   const color = useTableStore((s) => s.doc?.tableColor);
@@ -97,7 +114,7 @@ function TableColorPicker() {
       <span className="menu-section-title">
         <Icon name="palette" size={16} /> Table colour
       </span>
-      <div className="swatches">
+      <div className="swatches swatches-wide">
         {TABLE_COLORS.map((c) => (
           <button
             key={c}
@@ -163,9 +180,10 @@ export function TopBar({
 
   return (
     <header className="hud-top" ref={ref}>
-      <button type="button" className="hud-btn" onClick={onBack} aria-label="Back to library" title="Back to library">
-        <Icon name="back" size={18} />
+      <button type="button" className="hud-btn" onClick={onBack} aria-label="Back to library" title="Back to library (all games)">
+        <Icon name="home" size={18} />
       </button>
+      <span className="hud-sep" />
       <TitleEditor />
       <div className="mode-switch" role="group" aria-label="Mode">
         <button

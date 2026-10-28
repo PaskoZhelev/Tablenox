@@ -7,7 +7,7 @@ import {
   flipDeck,
   nudgeObjects,
   rollDie,
-  rotateBy,
+  rotateStep,
   selectAll,
   shuffleBag,
   shuffleDeck,
@@ -108,7 +108,7 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (key === 's' && selected?.kind === 'bag') return shuffleBag(selected.id);
       if (key === 'r' && selected) {
         if (selected.kind === 'die') return rollDie(selected.id);
-        if (!selected.locked && !(s.mode === 'play' && fixedInPlay(selected))) return rotateBy(selected.id, e.shiftKey ? -90 : 90);
+        if (!selected.locked && !(s.mode === 'play' && fixedInPlay(selected))) return rotateStep(selected.id, e.shiftKey ? -1 : 1);
         return;
       }
       if (key === 'l' && selected && s.mode === 'edit') return toggleLock(selected.id);

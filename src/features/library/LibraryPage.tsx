@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { navigate } from '../../app/router';
 import { Icon } from '../../components/Icon';
@@ -10,6 +10,14 @@ import { db } from '../../persistence/db';
 import { describeStorageError, repo } from '../../persistence/repository';
 import { confirmDialog, errorMessage, promptDialog, toast } from '../../state/uiStore';
 import { createSampleGame } from './sampleGame';
+import {
+  filterAndSortGames,
+  LIBRARY_SORT_LABELS,
+  readLibraryPrefs,
+  writeLibraryPrefs,
+  type LibraryPrefs,
+  type LibrarySort,
+} from './libraryView';
 
 function formatDate(iso: string, withTime = true): string {
   const d = new Date(iso);
@@ -196,7 +204,15 @@ export function LibraryPage() {
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(readDismissed);
   const [pinned, setPinned] = useState(false);
+  const [prefs, setPrefs] = useState<LibraryPrefs>(readLibraryPrefs);
+  const [query, setQuery] = useState('');
   const showNotice = pinned || (!dismissed && !!games && games.length > 0);
+  const shown = useMemo(() => (games ? filterAndSortGames(games, query, prefs.sort) : []), [games, query, prefs.sort]);
+  const changePrefs = (patch: Partial<LibraryPrefs>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    writeLibraryPrefs(next);
+  };
 
   // Clean up images no longer used by any game (e.g. after deleting one).
   useEffect(() => {
@@ -272,7 +288,55 @@ export function LibraryPage() {
       )}
 
       <section className="library-section" aria-labelledby="games-h">
-        <h2 id="games-h">Games{games && games.length > 0 && <span className="count">{games.length}</span>}</h2>
+        <div className="library-section-head">
+          <h2 id="games-h">Games{games && games.length > 0 && <span className="count">{games.length}</span>}</h2>
+          {games && games.length > 0 && (
+            <div className="lib-toolbar" role="toolbar" aria-label="Game list options">
+              <label className="lib-search">
+                <Icon name="search" size={15} />
+                <input
+                  type="search"
+                  placeholder="Search games"
+                  aria-label="Search games"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </label>
+              <select
+                className="lib-sort"
+                aria-label="Sort games"
+                value={prefs.sort}
+                onChange={(e) => changePrefs({ sort: e.target.value as LibrarySort })}
+              >
+                {(Object.keys(LIBRARY_SORT_LABELS) as LibrarySort[]).map((s) => (
+                  <option key={s} value={s}>
+                    {LIBRARY_SORT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <span className="lib-view-switch" role="group" aria-label="View">
+                {(
+                  [
+                    ['grid', 'tiles', 'Grid view'],
+                    ['list', 'list', 'List view'],
+                  ] as const
+                ).map(([view, icon, label]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    className={`lib-tool ${prefs.view === view ? 'is-active' : ''}`}
+                    aria-label={label}
+                    aria-pressed={prefs.view === view}
+                    title={label}
+                    onClick={() => changePrefs({ view })}
+                  >
+                    <Icon name={icon} size={17} />
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+        </div>
         {games === undefined ? (
           <p className="hint">Loading…</p>
         ) : games.length === 0 ? (
@@ -280,9 +344,16 @@ export function LibraryPage() {
             <p className="empty-title">The table is empty.</p>
             <p>Start a new game, import a {EXPORT_EXTENSION} file, or add the sample roll-and-write to see how things fit together.</p>
           </div>
+        ) : shown.length === 0 ? (
+          <div className="empty-state">
+            <p className="empty-title">No games match “{query.trim()}”.</p>
+            <button type="button" className="btn btn-small" onClick={() => setQuery('')}>
+              Clear search
+            </button>
+          </div>
         ) : (
-          <ul className="lib-grid">
-            {games.map((g) => (
+          <ul className={`lib-grid ${prefs.view === 'list' ? 'is-list' : ''}`} aria-label="Games">
+            {shown.map((g) => (
               <GameCard key={g.id} g={g} />
             ))}
           </ul>

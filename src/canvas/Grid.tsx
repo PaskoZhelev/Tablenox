@@ -4,7 +4,9 @@ import type { CameraState } from '../domain/types';
 const BASE_SPACING = 50;
 
 /** Infinite-looking grid drawn only for the visible world rectangle. */
-export function Grid({ camera, width, height }: { camera: CameraState; width: number; height: number }) {
+export function Grid({ camera, width, height, light }: { camera: CameraState; width: number; height: number; light?: boolean }) {
+  // Dark lines on a light table, light lines on a dark one.
+  const ink = light ? '0,0,0' : '255,255,255';
   return (
     <Shape
       listening={false}
@@ -28,14 +30,14 @@ export function Grid({ camera, width, height }: { camera: CameraState; width: nu
           c.moveTo(x0, y);
           c.lineTo(x1, y);
         }
-        c.strokeStyle = 'rgba(255,255,255,0.07)';
+        c.strokeStyle = `rgba(${ink},${light ? 0.1 : 0.07})`;
         c.stroke();
         c.beginPath();
         c.moveTo(0, y0);
         c.lineTo(0, y1);
         c.moveTo(x0, 0);
         c.lineTo(x1, 0);
-        c.strokeStyle = 'rgba(255,255,255,0.18)';
+        c.strokeStyle = `rgba(${ink},${light ? 0.25 : 0.18})`;
         c.stroke();
         c.restore();
       }}

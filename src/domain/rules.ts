@@ -545,3 +545,40 @@ export function effectiveHoverRotate(state: TableState, o: TabletopObject, cardI
 export function hoverRotationOf(o: TabletopObject): number {
   return normalizeDegrees(o.rotation + (o.kind === 'deck' ? cardRotationOf(o) : 0));
 }
+
+/** Angles the rotation picker offers. */
+export const ROTATION_CHOICES = [0, 45, 90, 135, 180, 225, 270, 315];
+/** Angles an object steps through when it has no setting of its own (and no deck to follow). */
+export const DEFAULT_ROTATIONS = [0, 90, 180, 270];
+
+/** Cards and piles without their own rotation angles use their deck's (like the hover settings). */
+export function inheritsRotations(o: TabletopObject): boolean {
+  return o.kind === 'card' || (o.kind === 'deck' && o.isPile);
+}
+
+/** The angles `o` may be rotated to with the Rotate action / `R`, sorted. */
+export function effectiveRotations(state: TableState, o: TabletopObject): number[] {
+  const own = o.rotations ?? (inheritsRotations(o) ? hoverSettingsDeck(state, o)?.rotations : undefined) ?? DEFAULT_ROTATIONS;
+  const list = [...new Set(own.map(normalizeDegrees))].sort((a, b) => a - b);
+  return list.length ? list : DEFAULT_ROTATIONS;
+}
+
+/** Whether the Rotate action / `R` can turn `o` (it allows more than one angle). */
+export function canRotate(state: TableState, o: TabletopObject): boolean {
+  return effectiveRotations(state, o).length > 1;
+}
+
+/**
+ * The next allowed angle after `o`'s rotation, clockwise (`dir` 1) or anticlockwise (-1); null when it can't turn.
+ * An object between two allowed angles goes to the nearest one in that direction.
+ */
+export function nextRotation(state: TableState, o: TabletopObject, dir: 1 | -1 = 1): number | null {
+  const angles = effectiveRotations(state, o);
+  const now = ((o.rotation % 360) + 360) % 360;
+  const eps = 0.01;
+  const next =
+    dir === 1
+      ? (angles.find((a) => a > now + eps) ?? angles[0])
+      : ([...angles].reverse().find((a) => a < now - eps) ?? angles[angles.length - 1]);
+  return Math.abs(next - now) < eps ? null : next;
+}

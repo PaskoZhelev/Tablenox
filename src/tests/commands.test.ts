@@ -4,6 +4,7 @@ import { createHistory, HISTORY_LIMIT, pushHistory, redoHistory, undoHistory } f
 import { seededSource } from '../domain/random';
 import {
   cardIndexAt,
+  canRotate,
   cardRotationOf,
   cardSlots,
   drawCardCommand,
@@ -11,6 +12,7 @@ import {
   drawPickedCardCommand,
   effectiveHoverRotate,
   effectiveHoverZoom,
+  effectiveRotations,
   findDropTarget,
   findHoverTarget,
   homeDeckOf,
@@ -18,6 +20,8 @@ import {
   hoverRotateChoices,
   hoverRotateFromChoice,
   hoverRotationOf,
+  inheritsRotations,
+  nextRotation,
   resolveDrop,
   rollDieCommand,
   rotatedBox,
@@ -39,7 +43,9 @@ import {
   dieFaceLabel,
   fixedInPlay,
   HOLDER_MARGIN,
-  moveCardDef,
+  cardGroups,
+  moveCardGroup,
+  setCardCopies,
   movableInPlay,
   ownerDeckOf,
   remapAssetIds,
@@ -48,6 +54,8 @@ import {
   withFrontAsBack,
 } from '../domain/objects';
 import { fixtureGame, tableOf } from './fixtures';
+import { numberedDeck } from '../domain/cards';
+import { isLightColor } from '../canvas/colors';
 
 const byKind = <K extends string>(s: TableState, kind: K) => s.objects.find((o) => o.kind === kind)!;
 const deckOf = (s: TableState) => byKind(s, 'deck') as DeckObject;
@@ -445,21 +453,69 @@ describe('deck rules', () => {
     expect(resolveDrop(s, c2.id, { ...spread().position }, 'play')).not.toHaveProperty('index');
   });
 
-  it('moves a card up or down the card list; the cards in the holder swap the same way', () => {
+  it('moves a card-list row up or down; an unshuffled full holder follows the new order', () => {
     const s = tableOf(fixtureGame());
     const deck = deckOf(s);
     const ids = deck.initialCards.map((c) => c.id);
-    const down = moveCardDef(deck, ids[0], 1)!;
+    const down = moveCardGroup(deck, ids[0], 1)!;
     expect(down.initialCards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
     expect(down.cards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
-    expect(moveCardDef(deck, ids[0], -1)).toBeNull();
-    expect(moveCardDef(deck, ids[ids.length - 1], 1)).toBeNull();
-    expect(moveCardDef(deck, 'missing', 1)).toBeNull();
-    // A card that is out of the holder only moves in the list.
+    expect(moveCardGroup(deck, ids[0], -1)).toBeNull();
+    expect(moveCardGroup(deck, ids[ids.length - 1], 1)).toBeNull();
+    expect(moveCardGroup(deck, 'missing', 1)).toBeNull();
+    // With a card out of the holder only the list changes.
     const out: DeckObject = { ...deck, cards: deck.cards.filter((c) => c.id !== ids[1]) };
-    const up = moveCardDef(out, ids[1], -1)!;
+    const up = moveCardGroup(out, ids[1], -1)!;
     expect(up.initialCards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
     expect(up.cards).toBe(out.cards);
+  });
+
+  it('card copies: identical neighbours form one row; set the number of copies; rows move as a whole', () => {
+    // Three images, then 12, 10 and 8 copies of them: a 30-card deck in three rows.
+    const a = createCardDef({ name: 'Wood', faceAssetId: 'img-a' });
+    const b = createCardDef({ name: 'Stone', faceAssetId: 'img-b' });
+    const c = createCardDef({ name: 'Gold', faceAssetId: 'img-c' });
+    let deck: DeckObject = { ...deckOf(tableOf(fixtureGame())), cards: [a, b, c], initialCards: [a, b, c] };
+    const apply = (next: Pick<DeckObject, 'cards' | 'initialCards'> | null) => {
+      expect(next).not.toBeNull();
+      deck = { ...deck, ...next };
+    };
+    apply(setCardCopies(deck, a.id, 12));
+    apply(setCardCopies(deck, b.id, 10));
+    apply(setCardCopies(deck, c.id, 8));
+    expect(deck.initialCards).toHaveLength(30);
+    expect(deck.cards).toHaveLength(30);
+    expect(new Set(deck.initialCards.map((d) => d.id)).size).toBe(30);
+    const rows = cardGroups(deck.initialCards);
+    expect(rows.map((g) => [g[0].name, g.length])).toEqual([
+      ['Wood', 12],
+      ['Stone', 10],
+      ['Gold', 8],
+    ]);
+    expect(deck.cards.map((d) => d.name)).toEqual(deck.initialCards.map((d) => d.name));
+    expect(setCardCopies(deck, a.id, 12)).toBeNull();
+    // Fewer copies drop the last ones of the row.
+    apply(setCardCopies(deck, b.id, 2));
+    expect(cardGroups(deck.initialCards).map((g) => g.length)).toEqual([12, 2, 8]);
+    expect(deck.cards).toHaveLength(22);
+    // A copy's side in the holder isn't copied; a face-up card still makes face-down copies.
+    deck = { ...deck, cards: deck.cards.map((d) => (d.id === c.id ? { ...d, faceUp: true } : d)) };
+    apply(setCardCopies(deck, c.id, 9));
+    expect(deck.cards.filter((d) => d.name === 'Gold' && d.faceUp)).toHaveLength(1);
+    // Moving a row moves all its copies.
+    apply(moveCardGroup(deck, c.id, -1));
+    expect(cardGroups(deck.initialCards).map((g) => g[0].name)).toEqual(['Wood', 'Gold', 'Stone']);
+    // Numbered decks with copies list each number's copies together.
+    expect(cardGroups(numberedDeck(1, 3, 2)).map((g) => [g[0].name, g.length])).toEqual([
+      ['Card 1', 2],
+      ['Card 2', 2],
+      ['Card 3', 2],
+    ]);
+  });
+
+  it('tells light table colours from dark ones (for the grid)', () => {
+    expect(['#ffffff', '#f4f1ea', '#e6e9ee', '#c9b79c'].map(isLightColor)).toEqual([true, true, true, true]);
+    expect(['#3b3f46', '#1f5c45', '#16181d', undefined, 'red'].map(isLightColor)).toEqual([false, false, false, false, false]);
   });
 
   it('uses a card front as its back: face image and colour', () => {
@@ -739,6 +795,33 @@ describe('deck rules', () => {
     expect(hoverRotateChoiceOf(card())).toBe('upright');
     expect(hoverRotateFromChoice('')).toBeUndefined();
     expect(hoverRotateFromChoice('turn')).toBe(true);
+  });
+
+  it('rotation steps through the allowed angles; cards and piles use their deck’s angles; one angle means no rotation', () => {
+    let s = tableOf(fixtureGame());
+    const draw = drawCardCommand(deckOf(s))! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, draw);
+    const card = () => cardsOnTable(s).find((c) => c.id === draw.cardId)!;
+    const token = byKind(s, 'token');
+    // Default: every 90°, both ways, wrapping round.
+    expect(effectiveRotations(s, token)).toEqual([0, 90, 180, 270]);
+    expect(nextRotation(s, token)).toBe(90);
+    expect(nextRotation(s, { ...token, rotation: 270 })).toBe(0);
+    expect(nextRotation(s, token, -1)).toBe(270);
+    // Between two allowed angles: the next one in that direction.
+    expect(nextRotation(s, { ...token, rotation: 30 })).toBe(90);
+    expect(nextRotation(s, { ...token, rotation: 30 }, -1)).toBe(0);
+    // Eight angles, only 0° and 180°, or only 0° (no rotation).
+    expect(nextRotation(s, { ...token, rotations: [0, 45, 90, 135, 180, 225, 270, 315] })).toBe(45);
+    expect(nextRotation(s, { ...token, rotation: 180, rotations: [180, 0] })).toBe(0);
+    expect(canRotate(s, { ...token, rotations: [0] })).toBe(false);
+    expect(nextRotation(s, { ...token, rotations: [0] })).toBeNull();
+    // Cards follow their deck unless they have their own angles.
+    s = applyCommand(s, { type: 'UpdateObject', id: deckOf(s).id, patch: { rotations: [0, 180] } });
+    expect(inheritsRotations(card())).toBe(true);
+    expect(effectiveRotations(s, card())).toEqual([0, 180]);
+    expect(effectiveRotations(s, { ...card(), rotations: [0] })).toEqual([0]);
+    expect(effectiveRotations(s, token)).toEqual([0, 90, 180, 270]);
   });
 
   it('a pile dropped on a deck goes on top of it in order, keeping each card’s look; the pile disappears', () => {

@@ -30,12 +30,13 @@ export function standardDeck(includeJokers = false): CardDef[] {
   return cards;
 }
 
+/** Cards `from`–`to`, each `copies` times in a row (so the card list shows them as one row per number). */
 export function numberedDeck(from: number, to: number, copies = 1): CardDef[] {
   const cards: CardDef[] = [];
   const lo = Math.min(from, to);
   const hi = Math.max(from, to);
-  for (let c = 0; c < copies; c++) {
-    for (let n = lo; n <= hi; n++) {
+  for (let n = lo; n <= hi; n++) {
+    for (let c = 0; c < copies; c++) {
       cards.push(createCardDef({ name: `Card ${n}`, faceText: String(n) }));
     }
   }

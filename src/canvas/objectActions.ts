@@ -1,6 +1,6 @@
 import type { IconName } from '../components/Icon';
-import { bagOf, homeDeckOf, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
-import { hasPlayMovable, tokenCount } from '../domain/objects';
+import { bagOf, homeDeckOf, nextRotation, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
+import { fixedInPlay, hasPlayMovable, tokenCount } from '../domain/objects';
 import type { DrawSide, Mode, TableState, TabletopObject } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import {
@@ -24,7 +24,7 @@ import {
   returnPileToHolders,
   returnToBag,
   rollDie,
-  rotateBy,
+  rotateStep,
   runButton,
   setZOrder,
   setHolderLayout,
@@ -60,6 +60,13 @@ export interface ObjectAction {
 /** Objects whose menu title row has inline controls (die face, counter value, card / token count), so their menu is never empty. */
 export function hasObjectControls(o: TabletopObject): boolean {
   return o.kind === 'die' || o.kind === 'counter' || o.kind === 'deck' || o.kind === 'bag' || (o.kind === 'token' && tokenCount(o) > 1);
+}
+
+/** Adds "Rotate to N°" (the object's next allowed angle) unless its rotation angles don't let it turn. */
+function pushRotate(actions: ObjectAction[], o: TabletopObject, table: TableState, primary = false): void {
+  const next = nextRotation(table, o);
+  if (next === null) return;
+  actions.push({ id: 'rotate', label: `Rotate to ${next}°`, icon: 'rotate', run: () => rotateStep(o.id), primary, shortcut: 'R' });
 }
 
 /** Actions for an Edit-mode multi-selection. */
@@ -107,7 +114,7 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
   switch (o.kind) {
     case 'card': {
       actions.push({ id: 'flip', label: 'Flip', icon: 'flip', run: () => flipCard(o.id), primary: true, shortcut: 'F' });
-      actions.push({ id: 'rotate', label: 'Rotate 90°', icon: 'rotate', run: () => rotateBy(o.id, 90), primary: true, shortcut: 'R' });
+      pushRotate(actions, o, table, true);
       if (homeDeckOf(table, o)) {
         actions.push({ id: 'return', label: 'Return to holder', icon: 'deck', run: () => returnCardToDeck(o.id), primary: true });
       }
@@ -156,6 +163,8 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
       if (!o.isPile && o.initialCards.length > 0) {
         actions.push({ id: 'reset', label: 'Gather & reset deck', icon: 'reset', run: () => resetDeck(o.id) });
       }
+      // Piles turn like cards; holders only where they may move (Edit mode, or movable in Play mode).
+      if (!o.locked && (o.isPile || edit || !fixedInPlay(o))) pushRotate(actions, o, table);
       if (edit) {
         actions.push({
           id: 'drawside',
@@ -184,7 +193,6 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
       }
       break;
     case 'button':
-      actions.push({ id: 'run', label: edit ? 'Run (test)' : 'Run', icon: 'play', run: () => runButton(o.id), primary: true });
       if (edit) {
         actions.push({
           id: 'automations',
@@ -194,6 +202,7 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
           primary: true,
         });
       }
+      actions.push({ id: 'run', label: edit ? 'Run (test)' : 'Run', icon: 'play', run: () => runButton(o.id), primary: true });
       break;
     case 'token': {
       if (tokenCount(o) > 1) {
@@ -208,7 +217,7 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
       if (bagOf(table, o)) {
         actions.push({ id: 'return-bag', label: 'Return to bag', icon: 'bag', run: () => returnToBag(o.id), primary: true });
       }
-      actions.push({ id: 'rotate', label: 'Rotate 90°', icon: 'rotate', run: () => rotateBy(o.id, 90), shortcut: 'R' });
+      pushRotate(actions, o, table);
       break;
     }
     case 'checkbox':
@@ -223,7 +232,7 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
       break;
     case 'image':
     case 'label':
-      actions.push({ id: 'rotate', label: 'Rotate 90°', icon: 'rotate', run: () => rotateBy(o.id, 90), shortcut: 'R' });
+      pushRotate(actions, o, table);
       if (bagOf(table, o)) {
         actions.push({ id: 'return-bag', label: 'Return to bag', icon: 'bag', run: () => returnToBag(o.id) });
       }

@@ -410,6 +410,38 @@ test('duplicate game, modify duplicate, original unchanged; the library shows cr
   await expect(copy).toContainText('Never');
 });
 
+test('library: search games, sort them, and switch between grid and list view (remembered)', async ({ page }) => {
+  await page.getByRole('button', { name: 'Add sample game' }).click();
+  await expect(page.getByTestId('game-card')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Duplicate' }).click();
+  await expect(page.getByTestId('game-card')).toHaveCount(2);
+
+  const search = page.getByRole('searchbox', { name: 'Search games' });
+  await search.fill('COPY');
+  await expect(page.getByTestId('game-card')).toHaveCount(1);
+  await expect(page.getByTestId('game-card')).toContainText('(copy)');
+  await search.fill('chess');
+  await expect(page.getByTestId('game-card')).toHaveCount(0);
+  await expect(page.getByText('No games match “chess”.')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  await expect(page.getByTestId('game-card')).toHaveCount(2);
+
+  // Sort by name: the original ("Sample: …") comes before its copy ("Sample: … (copy)").
+  await page.getByRole('combobox', { name: 'Sort games' }).selectOption('name');
+  await expect(page.getByTestId('game-card').first()).not.toContainText('(copy)');
+
+  const list = page.getByRole('list', { name: 'Games' });
+  await expect(list).not.toHaveClass(/is-list/);
+  await page.getByRole('button', { name: 'List view' }).click();
+  await expect(list).toHaveClass(/is-list/);
+  await expect(page.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true');
+  await page.reload();
+  await expect(page.getByRole('list', { name: 'Games' })).toHaveClass(/is-list/);
+  await expect(page.getByRole('combobox', { name: 'Sort games' })).toHaveValue('name');
+  await page.getByRole('button', { name: 'Grid view' }).click();
+  await expect(page.getByRole('list', { name: 'Games' })).not.toHaveClass(/is-list/);
+});
+
 test('export, clear data, import restores board and cards with images', async ({ page }) => {
   await newGame(page, 'Portable Game');
   await page
@@ -572,7 +604,7 @@ test('holders fade under dragged objects; dragging never opens the action bar; f
   expect(await obj(page, 'Bonus deck', 'o.cards[0].faceUp')).toBe(true);
 });
 
-test('holder properties: card list, then the holder zone, then everything about its cards; a pile shows no unused back options', async ({
+test('holder properties: card list with fronts then backs, the holder zone, then card size and dealing; a pile shows no back options', async ({
   page,
 }) => {
   await addSampleAndPlay(page);
@@ -582,10 +614,21 @@ test('holder properties: card list, then the holder zone, then everything about 
   const panel = page.getByRole('complementary', { name: 'Properties' });
   const headings = panel.locator('.inspector-section h3');
   await expect(headings).toHaveText(['Card list (12 cards)', 'Holder', 'Cards (12 in the holder)', 'Object']);
+  // The card list has a Fronts part (tools and the list) and, below it, a Backs part.
+  const list = panel.locator('.inspector-section').nth(0);
+  await expect(list.locator('h4')).toHaveText(['Fronts', 'Backs']);
+  const fronts = list.getByRole('group', { name: 'Fronts' });
+  const backs = list.getByRole('group', { name: 'Backs' });
+  await expect(fronts.getByRole('button', { name: 'Hide card list' })).toBeVisible();
+  for (const label of ['Card back colour', 'Card back image', 'Different back for every card']) {
+    await expect(backs.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(backs.getByRole('button', { name: 'Use fronts as backs' })).toBeVisible();
   const cards = panel.locator('.inspector-section').nth(2);
-  for (const label of ['Card back colour', 'Card back image', 'Different back for every card', 'Card width', 'Cards come out']) {
+  for (const label of ['Card width', 'Cards come out']) {
     await expect(cards.getByText(label, { exact: true })).toBeVisible();
   }
+  await expect(cards.getByText('Card back colour')).toHaveCount(0);
   await expect(panel.locator('.inspector-section').nth(1).getByText('Card back colour')).toHaveCount(0);
 
   // Cards move up and down the list; the first can't move up, the last can't move down.
@@ -599,10 +642,17 @@ test('holder properties: card list, then the holder zone, then everything about 
   await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual(ids);
 
   // Every card gets its front as its back.
-  await cards.getByRole('button', { name: 'Use fronts as backs' }).click();
+  await backs.getByRole('button', { name: 'Use fronts as backs' }).click();
   await expect.poll(() => obj<boolean>(page, 'Bonus deck', 'o.individualBacks')).toBe(true);
   expect(await obj<boolean>(page, 'Bonus deck', 'o.initialCards.every(c => c.backColor === c.faceColor)')).toBe(true);
-  await expect(cards.getByText('Different back for every card', { exact: true })).toBeVisible();
+  await expect(backs.getByRole('checkbox', { name: 'Different back for every card' })).toBeChecked();
+
+  // Rotation angles: cards follow the deck; only 0° and 180° means Rotate goes straight to 180°.
+  const angles = panel.getByRole('group', { name: /Rotation angles/ });
+  await expect(angles.getByRole('button', { pressed: true })).toHaveText(['0°', '90°', '180°', '270°']);
+  await angles.getByRole('button', { name: 'Allow 90°' }).click();
+  await angles.getByRole('button', { name: 'Allow 270°' }).click();
+  await expect.poll(() => obj<number[]>(page, 'Bonus deck', 'o.rotations')).toEqual([0, 180]);
 
   await storeState(
     page,
@@ -613,6 +663,20 @@ test('holder properties: card list, then the holder zone, then everything about 
   await expect(panel.getByText('Card back colour')).toHaveCount(0);
   await expect(panel.getByText('Card back image')).toHaveCount(0);
   await expect(panel.getByLabel('Cards come out')).toBeVisible();
+  // The pile follows its deck's rotation angles: R turns it to 180°, then back to 0°.
+  await expect(angles.getByRole('button', { pressed: true })).toHaveText(['0°', '180°']);
+  await expect(panel.getByText('Same as its deck.')).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('r');
+  await expect.poll(() => storeState<number>(page, "(s) => s.history.present.objects.find(o => o.id === 'pile-1').rotation")).toBe(180);
+  await page.keyboard.press('r');
+  await expect.poll(() => storeState<number>(page, "(s) => s.history.present.objects.find(o => o.id === 'pile-1').rotation")).toBe(0);
+  // Only one angle: no Rotate action and R does nothing.
+  await storeState(page, "(s) => s.dispatch({ type: 'UpdateObject', id: 'pile-1', patch: { rotations: [0] } })");
+  await expect(panel.getByText("Only one angle: it can't be rotated")).toBeVisible();
+  await page.keyboard.press('r');
+  await page.waitForTimeout(200);
+  expect(await storeState<number>(page, "(s) => s.history.present.objects.find(o => o.id === 'pile-1').rotation")).toBe(0);
 
   // The pile points to its holder, and the button selects it.
   await panel.getByRole('button', { name: 'Go to Bonus deck' }).click();
@@ -1132,7 +1196,7 @@ test('automation: Rotate turns the cards in a holder (not the holder); Recall op
   await expect(panel.getByText('A holder stays as it is')).toBeVisible();
   await addStep('Recall objects', 'Bonus deck (Holder)');
   await expect(panel.getByLabel('Card rotation in the holders')).toHaveValue('reset');
-  await expect(panel.getByLabel('Face of recalled cards')).toHaveValue('keep');
+  await expect(panel.getByLabel('Face of recalled cards')).toHaveValue('faceDown');
   await panel.getByLabel('Card rotation in the holders').selectOption('keep');
   await panel.getByLabel('Face of recalled cards').selectOption('faceUp');
   await panel.getByLabel('Shuffle after recalling').check();
@@ -1380,6 +1444,70 @@ test('table colour can be changed and is saved with the game', async ({ page }) 
   await waitSaved(page);
   await page.reload();
   await expect(page.getByTestId('table-canvas')).toHaveCSS('background-color', 'rgb(47, 79, 111)');
+});
+
+test('deck copies: 3 images become a 30-card deck; image token stacks are a dashed zone; white table; house button', async ({ page }) => {
+  await addSampleAndPlay(page);
+  // The library button is a house, apart from the Edit / Play switch.
+  await expect(page.getByRole('button', { name: 'Back to library' }).locator('path')).toHaveAttribute('d', /^M3 10\.5L12 3/);
+
+  await switchMode(page, 'edit');
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  await storeState(
+    page,
+    `(s) => { s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(deckId)}, patch: { cards: [], initialCards: [] } }); s.setUi({ inspectorOpen: true }); s.select(${JSON.stringify(deckId)}); }`,
+  );
+  const panel = page.getByRole('complementary', { name: 'Properties' });
+  await page.getByTestId('deck-add-images').setInputFiles([
+    { name: 'wood.png', mimeType: 'image/png', buffer: await makePng(page, 120, 170, 'W') },
+    { name: 'stone.png', mimeType: 'image/png', buffer: await makePng(page, 120, 170, 'S') },
+    { name: 'gold.png', mimeType: 'image/png', buffer: await makePng(page, 120, 170, 'G') },
+  ]);
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(3);
+  for (const [row, n] of [
+    [1, 12],
+    [2, 10],
+    [3, 8],
+  ] as const) {
+    const copies = panel.getByLabel(`Copies of card ${row}`);
+    await copies.fill(String(n));
+    await copies.press('Enter');
+  }
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(30);
+  expect(await obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(30);
+  expect(await obj<number>(page, 'Bonus deck', 'new Set(o.initialCards.map(c => c.id)).size')).toBe(30);
+  await expect(panel.locator('.inspector-section h3').first()).toHaveText('Card list (30 cards, 3 different)');
+  await expect(panel.locator('.card-def-row')).toHaveCount(3);
+  await expect(panel.getByLabel('Copies of card 2')).toHaveValue('10');
+  // Renaming a row renames every copy; removing it removes them all.
+  await panel.getByLabel('Card 3 name').fill('Gold coin');
+  await expect.poll(() => obj<number>(page, 'Bonus deck', "o.initialCards.filter(c => c.name === 'Gold coin').length")).toBe(8);
+  await panel.getByRole('button', { name: 'Remove card 3 (all 8 copies)' }).click();
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(22);
+
+  // A token stack with its own image: a dashed zone instead of coloured tokens peeking out.
+  const markerId = await obj<string>(page, 'Marker', 'o.id');
+  const zones = () =>
+    page.evaluate(
+      (id) =>
+        (window as unknown as { Konva: { stages: { findOne(s: string): { find(s: string): unknown[] } }[] } }).Konva.stages[0]
+          .findOne(`#${id}`)
+          .find('.token-stack-zone').length,
+      markerId,
+    );
+  await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(markerId)}, patch: { count: 5 } })`);
+  await expect.poll(zones).toBe(0);
+  const asset = await obj<string>(page, 'Bonus deck', 'o.initialCards[0].faceAssetId');
+  await storeState(
+    page,
+    `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(markerId)}, patch: { assetId: ${JSON.stringify(asset)} } })`,
+  );
+  await expect.poll(zones).toBe(1);
+
+  // A white table is one of the colours.
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('button', { name: 'Table colour #ffffff' }).click();
+  await expect(page.getByTestId('table-canvas')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 });
 
 test('custom dice: image faces, choose the shown face, roll within the custom faces', async ({ page }) => {

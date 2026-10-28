@@ -484,15 +484,32 @@ export function TokenVisual({ o }: { o: TokenObject }) {
   const layers = count > 2 ? 2 : 1;
   const badgeH = Math.max(18, Math.min(26, Math.round(Math.min(o.width, o.height) * 0.4)));
   const badgeW = Math.max(badgeH * 1.4, badgeH * 0.6 * String(count).length + badgeH * 0.8);
+  const pad = Math.max(4, Math.round(Math.min(o.width, o.height) * 0.1));
   return (
     <>
-      {/* The tokens underneath peek out below the top one. */}
-      {Array.from({ length: layers }, (_, i) => (
-        <Group key={i} y={(layers - i) * TOKEN_STACK_EDGE} listening={false}>
-          <TokenShape o={o} />
-          <TokenShape o={o} shadeOnly />
-        </Group>
-      ))}
+      {o.assetId ? (
+        // Image tokens: the stack is a small dashed zone (like a holder) around the top token, not coloured shapes.
+        <Rect
+          name="token-stack-zone"
+          x={-pad}
+          y={-pad}
+          width={o.width + pad * 2}
+          height={o.height + pad * 2}
+          cornerRadius={6}
+          stroke={DEFAULT_HOLDER_COLOR}
+          strokeWidth={2}
+          dash={[8, 5]}
+          fill="rgba(0,0,0,0.001)"
+        />
+      ) : (
+        // The tokens underneath peek out below the top one.
+        Array.from({ length: layers }, (_, i) => (
+          <Group key={i} y={(layers - i) * TOKEN_STACK_EDGE} listening={false}>
+            <TokenShape o={o} />
+            <TokenShape o={o} shadeOnly />
+          </Group>
+        ))
+      )}
       <TokenShape o={o} />
       <CountBadge x={o.width - badgeW * 0.6} y={-badgeH * 0.5} count={count} width={badgeW} height={badgeH} />
     </>

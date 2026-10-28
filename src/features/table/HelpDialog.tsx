@@ -36,7 +36,10 @@ const ROWS: [string, string][] = [
   ['Wheel', 'Zoom around the cursor'],
   ['Drag empty table / Space + drag', 'Pan'],
   ['V H P E T', 'Select, Pan, Pen, Eraser, Text tool'],
-  ['F / S / R / L', 'Flip card or holder · shuffle holder or bag · roll die or rotate · lock / unlock (Edit mode)'],
+  [
+    'F / S / R / L',
+    'Flip card or holder · shuffle holder or bag · roll die or rotate to the next allowed angle (Shift+R back) · lock / unlock (Edit mode)',
+  ],
   ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
   ['+ − 0 Shift+F', 'Zoom in, out, 100%, fit'],
   ['U', 'Hide / show the interface'],

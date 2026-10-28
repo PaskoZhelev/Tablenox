@@ -22,6 +22,7 @@ import type {
   CounterObject,
   DeckObject,
   DieObject,
+  FlipStep,
   MoveStep,
   RecallStep,
   TableState,
@@ -117,11 +118,18 @@ describe('automation buttons', () => {
     expect(plain.cards.every((c) => !c.faceUp)).toBe(true);
     expect(get<DeckObject>(recall({ rotation: 'keep' }), deck.id).cardTurn).toBe(90);
     expect(get<DeckObject>(recall({ orientation: 'faceUp' }), deck.id).cards.every((c) => c.faceUp === true)).toBe(true);
+    // A face-up card recalled to its deck lies face down there by default, or as it was with "keep".
+    const drawn = applyCommand(state, { type: 'DrawCard', deckId: deck.id, cardId: 'c-out', position: { x: 0, y: 900 }, faceUp: true });
+    const recallCard = (patch: Partial<RecallStep>) =>
+      get<DeckObject>(run(drawn, { ...button, steps: [step<RecallStep>('recall', ['c-out'], patch)] }), deck.id);
+    expect(recallCard({}).cards[0]).toMatchObject({ id: deck.cards[0].id });
+    expect(recallCard({}).cards[0].faceUp).toBeFalsy();
+    expect(recallCard({ orientation: 'keep' }).cards[0].faceUp).toBe(true);
     const shuffled = get<DeckObject>(recall({ shuffle: true }), deck.id).cards.map((c) => c.id);
     expect([...shuffled].sort()).toEqual([...ids].sort());
     expect(shuffled).not.toEqual(ids);
-    expect(describeStep(turned, step<RecallStep>('recall', [deck.id], { orientation: 'faceDown', shuffle: true, rotation: 'keep' }))).toBe(
-      'Recall Deck (face down, shuffled, keeping card rotation)',
+    expect(describeStep(turned, step<RecallStep>('recall', [deck.id], { orientation: 'keep', shuffle: true, rotation: 'keep' }))).toBe(
+      'Recall Deck (keeping card sides, shuffled, keeping card rotation)',
     );
   });
 
@@ -156,6 +164,36 @@ describe('automation buttons', () => {
     const toggled = run(up, { ...button, steps: [step('flip', [holder.id])] });
     expect(get<CardObject>(toggled, card.id).faceUp).toBe(false);
     expect(get<DeckObject>(toggled, holder.id).cards.every((c) => c.faceUp === false)).toBe(true);
+  });
+
+  it('flips only the first cards: the top ones of a holder in place, and the first loose cards', () => {
+    const { state, button, deck, card } = setup();
+    const ids = deck.cards.map((c) => c.id);
+    const top2 = run(state, { ...button, steps: [step<FlipStep>('flip', [deck.id], { count: 2 })] });
+    const flippedDeck = get<DeckObject>(top2, deck.id);
+    expect(flippedDeck.cards.map((c) => c.id)).toEqual(ids);
+    expect(flippedDeck.cards.map((c) => c.faceUp === true)).toEqual(deck.cards.map((c, i) => (i < 2 ? !c.faceUp : c.faceUp === true)));
+    const other = { ...card, id: 'card-2', faceUp: true };
+    const s2 = { ...state, objects: [...state.objects, other] };
+    const first = run(s2, { ...button, steps: [step<FlipStep>('flip', [card.id, other.id], { count: 1 })] });
+    expect(get<CardObject>(first, card.id).faceUp).toBe(false);
+    expect(get<CardObject>(first, other.id).faceUp).toBe(true);
+    expect(describeStep(state, step<FlipStep>('flip', [deck.id], { count: 1, mode: 'faceUp' }))).toBe('Flip first 1 card of Deck face up');
+  });
+
+  it('flips at random, deterministically for a given random source', () => {
+    const { state, button, deck } = setup();
+    const many = { ...deck, cards: Array.from({ length: 40 }, (_, i) => ({ ...deck.cards[0], id: `r${i}`, faceUp: false })) };
+    const s0 = { ...state, objects: state.objects.map((o) => (o.id === deck.id ? many : o)) };
+    const randomStep = step<FlipStep>('flip', [deck.id], { mode: 'random', count: 40 });
+    const out = get<DeckObject>(run(s0, { ...button, steps: [randomStep] }, 3), deck.id);
+    const up = out.cards.filter((c) => c.faceUp).length;
+    expect(up).toBeGreaterThan(0);
+    expect(up).toBeLessThan(40);
+    expect(get<DeckObject>(run(s0, { ...button, steps: [randomStep] }, 3), deck.id)).toEqual(out);
+    expect(describeStep(state, step<FlipStep>('flip', [deck.id], { mode: 'random' }))).toBe('Flip Deck at random');
+    const game = { ...fixtureGame(), objects: [{ ...button, steps: [randomStep] }] };
+    expect(byKind<ButtonObject>(tableOf(parseGame(JSON.parse(JSON.stringify(game)))), 'button').steps).toEqual([randomStep]);
   });
 
   it('shuffles then sorts a holder back into its original order', () => {

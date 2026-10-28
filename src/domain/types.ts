@@ -27,6 +27,11 @@ export interface BaseObject {
    * (cards, holders and piles: same as the deck their card belongs to).
    */
   hoverRotate?: boolean;
+  /**
+   * Angles (degrees, from `ROTATION_CHOICES`) the Rotate action / `R` steps through. Missing means
+   * `DEFAULT_ROTATIONS` (cards and piles: their deck's setting). A single angle means it can't be rotated.
+   */
+  rotations?: number[];
   /** Bag this object was last put into or drawn from; "recall" sends it back there. */
   bagId?: ObjectId;
 }
@@ -228,7 +233,7 @@ export interface BagObject extends BaseObject {
 export type StepOrientation = 'keep' | 'faceUp' | 'faceDown';
 export type DeckMoveMode = 'top' | 'bottom';
 export type RotateMode = 'by' | 'to';
-export type FlipMode = 'toggle' | 'faceUp' | 'faceDown';
+export type FlipMode = 'toggle' | 'faceUp' | 'faceDown' | 'random';
 export type SortBy = 'original' | 'name';
 export type CounterMode = 'add' | 'set';
 
@@ -258,7 +263,7 @@ export interface RecallStep extends StepBase {
   type: 'recall';
   /** Whether the gathered holders' cards turn back to their set-up rotation (missing = `reset`) or keep the turn a Rotate step gave them. */
   rotation?: 'reset' | 'keep';
-  /** Side of the cards in the gathered holders afterwards; missing means as they come back (`keep`). */
+  /** Side of the cards in the gathered holders afterwards; missing means face down (`keep` = as they come back). */
   orientation?: StepOrientation;
   /** Shuffle the gathered holders and bags afterwards. */
   shuffle?: boolean;
@@ -272,7 +277,13 @@ export interface RotateStep extends StepBase {
 
 export interface FlipStep extends StepBase {
   type: 'flip';
+  /** `random` = each card (or a holder/pile as a whole) is turned over or not at random. */
   mode: FlipMode;
+  /**
+   * Flip only the first cards: the top `count` of each holder/pile (turned over in place) and the first
+   * `count` loose cards. Missing means all of them.
+   */
+  count?: number;
 }
 
 export interface ShuffleStep extends StepBase {

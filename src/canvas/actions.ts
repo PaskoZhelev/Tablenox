@@ -23,6 +23,7 @@ import {
   drawPickedCardCommand,
   flipDeckCardCommand,
   homeDeckOf,
+  nextRotation,
   resolveDrop,
   rollDieCommand,
   shuffleBagCommand,
@@ -133,6 +134,13 @@ export function rotateBy(id: string, degrees: number): void {
     height: o.height,
     rotation: o.rotation + degrees,
   });
+}
+
+/** Turns `o` to its next allowed angle (clockwise, or anticlockwise with `dir` -1); see `nextRotation`. */
+export function rotateStep(id: string, dir: 1 | -1 = 1): void {
+  const o = find(id);
+  const next = o ? nextRotation(currentTable(), o, dir) : null;
+  if (o && next !== null) rotateBy(id, next - o.rotation);
 }
 
 export function rollDie(id: string): void {

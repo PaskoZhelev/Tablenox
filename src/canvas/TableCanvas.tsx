@@ -22,6 +22,7 @@ import { cardIndexAt, drawCardCommand, drawRandomFromBagCommand, splitTokensComm
 import type { Command } from '../domain/commands';
 import { resetDoubleClick } from './doubleClick';
 import { Grid } from './Grid';
+import { isLightColor } from './colors';
 import { registerStage } from './stageRegistry';
 import { pickOnTable } from './actions';
 import { pickedIds } from '../domain/buttons';
@@ -873,7 +874,7 @@ export function TableCanvas() {
         >
           {mode === 'edit' && showGrid && (
             <Layer name="grid-layer" listening={false}>
-              <Grid camera={camera} width={viewport.width} height={viewport.height} />
+              <Grid camera={camera} width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} />
             </Layer>
           )}
           <Layer>

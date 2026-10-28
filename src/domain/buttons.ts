@@ -2,7 +2,7 @@ import { applyCommand, type Command } from './commands';
 import { objectCenter } from './geometry';
 import { newId } from './ids';
 import { bagAccepts, bagCount, bagItemWeight, displayName, drawnFaceUp, homeDeckMap, isHolder, sortByZ } from './objects';
-import { secureRandomSource, type RandomSource } from './random';
+import { randomInt, secureRandomSource, type RandomSource } from './random';
 import {
   bagOf,
   cardRotationOf,
@@ -27,6 +27,7 @@ import type {
   CheckStep,
   CounterStep,
   DeckObject,
+  FlipMode,
   FlipStep,
   MoveStep,
   ObjectId,
@@ -461,7 +462,7 @@ function planRecall(plan: Plan, step: RecallStep, random: RandomSource): void {
     if (o?.kind === 'deck' && !o.isPile) {
       if ((step.rotation ?? 'reset') === 'reset' && o.cardTurn !== undefined)
         plan.emit({ type: 'UpdateObject', id, patch: { cardTurn: undefined } });
-      const side = step.orientation ?? 'keep';
+      const side = step.orientation ?? 'faceDown';
       if (side !== 'keep') {
         const before = o.cards;
         const cards: CardDef[] = before.map(({ faceUp: _old, ...c }) => (side === 'faceUp' ? { ...c, faceUp: true } : c));
@@ -489,13 +490,31 @@ function planRotate(plan: Plan, step: RotateStep): void {
   }
 }
 
-function planFlip(plan: Plan, step: FlipStep): void {
+/** Whether a card (or a deck's top card) showing `faceUp` is turned over by a flip in `mode`. */
+function flipsOver(mode: FlipMode, faceUp: boolean, random: RandomSource): boolean {
+  if (mode === 'toggle') return true;
+  if (mode === 'random') return randomInt(2, random) === 1;
+  return faceUp !== (mode === 'faceUp');
+}
+
+function planFlip(plan: Plan, step: FlipStep, random: RandomSource): void {
+  const count = step.count;
+  let looseLeft = count ?? Infinity;
   for (const o of resolveTargets(plan.state, step.objectIds)) {
     if (o.kind === 'card') {
-      setOrientation(plan, o, step.mode === 'toggle' ? (o.faceUp ? 'faceDown' : 'faceUp') : step.mode);
+      if (looseLeft <= 0) continue;
+      looseLeft--;
+      if (flipsOver(step.mode, o.faceUp, random)) plan.emit({ type: 'FlipCard', id: o.id });
     } else if (o.kind === 'deck' && o.cards.length > 0) {
-      // A deck/pile is turned over as a whole when its top side isn't the requested one.
-      if (step.mode === 'toggle' || topFaceUp(o) !== (step.mode === 'faceUp')) plan.emit({ type: 'FlipDeck', id: o.id });
+      if (count === undefined) {
+        // A deck/pile is turned over as a whole when its top side isn't the requested one.
+        if (flipsOver(step.mode, topFaceUp(o), random)) plan.emit({ type: 'FlipDeck', id: o.id });
+      } else {
+        // Only its top cards: each is turned over where it lies, so the order stays.
+        for (const c of o.cards.slice(0, count)) {
+          if (flipsOver(step.mode, c.faceUp === true, random)) plan.emit({ type: 'FlipDeckCard', deckId: o.id, cardId: c.id });
+        }
+      }
     }
   }
 }
@@ -546,7 +565,7 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource): void {
     case 'rotate':
       return planRotate(plan, step);
     case 'flip':
-      return planFlip(plan, step);
+      return planFlip(plan, step, random);
     case 'shuffle':
       for (const o of resolveTargets(plan.state, step.objectIds)) {
         if (o.kind === 'deck' && o.cards.length > 1) plan.emit(shuffleDeckCommand(o, random));
@@ -601,7 +620,7 @@ export function describeStep(state: TableState, step: ButtonStep): string {
     }
     case 'recall': {
       const extras = [
-        step.orientation === 'faceUp' ? 'face up' : step.orientation === 'faceDown' ? 'face down' : '',
+        step.orientation === 'faceUp' ? 'face up' : step.orientation === 'keep' ? 'keeping card sides' : '',
         step.shuffle ? 'shuffled' : '',
         step.rotation === 'keep' ? 'keeping card rotation' : '',
       ].filter(Boolean);
@@ -613,8 +632,11 @@ export function describeStep(state: TableState, step: ButtonStep): string {
       const subject = only && isHolder(only) ? `the cards in ${what}` : what;
       return step.mode === 'by' ? `Rotate ${subject} by ${step.degrees}°` : `Rotate ${subject} to ${step.degrees}°`;
     }
-    case 'flip':
-      return `Flip ${what}${step.mode === 'toggle' ? '' : step.mode === 'faceUp' ? ' face up' : ' face down'}`;
+    case 'flip': {
+      const side = { toggle: '', faceUp: ' face up', faceDown: ' face down', random: ' at random' }[step.mode];
+      const n = step.count;
+      return `Flip ${n === undefined ? what : `first ${n} card${n === 1 ? '' : 's'} of ${what}`}${side}`;
+    }
     case 'shuffle':
       return `Shuffle ${what}`;
     case 'sort':

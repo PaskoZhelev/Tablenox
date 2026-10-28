@@ -38,13 +38,17 @@ import {
   fixedInPlay,
   hasPlayMovable,
   kindLabel,
-  moveCardDef,
+  cardGroups,
+  MAX_CARD_COPIES,
+  moveCardGroup,
+  setCardCopies,
   sortByZ,
   tokenCount,
   withFrontAsBack,
 } from '../domain/objects';
 import {
   effectiveHoverZoom,
+  effectiveRotations,
   HOVER_ZOOM_LABELS,
   homeDeckOf,
   hoverRotateChoiceOf,
@@ -52,8 +56,10 @@ import {
   hoverRotateFromChoice,
   hoverZoomInheritLabel,
   inheritsHoverZoom,
+  inheritsRotations,
   pileHasHome,
   pileHolders,
+  ROTATION_CHOICES,
 } from '../domain/rules';
 import {
   DIE_SIDES,
@@ -85,6 +91,48 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3>{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** Which angles the Rotate action / `R` steps through (dice roll with `R`, so they have none). */
+function RotationAnglesField({ o, update }: { o: TabletopObject; update: Update }) {
+  const table = useTableStore((s) => s.history.present);
+  const angles = effectiveRotations(table, o);
+  const inherited = o.rotations === undefined && inheritsRotations(o);
+  const toggle = (deg: number) => {
+    const next = angles.includes(deg) ? angles.filter((a) => a !== deg) : [...angles, deg].sort((a, b) => a - b);
+    if (next.length === 0) return;
+    update({ rotations: next });
+  };
+  return (
+    <div className="field">
+      <span id={`rot-${o.id}`}>Rotation angles (Rotate / R)</span>
+      <div className="button-row angle-row" role="group" aria-labelledby={`rot-${o.id}`}>
+        {ROTATION_CHOICES.map((deg) => {
+          const on = angles.includes(deg);
+          return (
+            <button
+              key={deg}
+              type="button"
+              className={`btn btn-small ${on ? 'is-active' : ''}`}
+              aria-pressed={on}
+              aria-label={`Allow ${deg}°`}
+              disabled={on && angles.length === 1}
+              onClick={() => toggle(deg)}
+            >
+              {deg}°
+            </button>
+          );
+        })}
+      </div>
+      {inherited && <p className="hint">Same as its deck. Change an angle to give it its own.</p>}
+      {o.rotations !== undefined && inheritsRotations(o) && (
+        <button type="button" className="btn btn-small btn-link" onClick={() => update({ rotations: undefined })}>
+          Use the deck's angles
+        </button>
+      )}
+      {angles.length === 1 && <p className="hint">Only one angle: it can't be rotated with Rotate / R.</p>}
+    </div>
   );
 }
 
@@ -128,6 +176,7 @@ function CommonFields({ o, update }: { o: TabletopObject; update: Update }) {
           <Icon name="swap" size={14} /> Swap width / height
         </button>
       </div>
+      {o.kind !== 'die' && <RotationAnglesField o={o} update={update} />}
       <div className="button-row">
         <button
           type="button"
@@ -210,23 +259,61 @@ async function fitToImage(o: TabletopObject, assetId: string | undefined, update
   }
 }
 
+/** Number of copies of a card-list row; commits on Enter / leaving the field, so typing "12" doesn't pass through 1. */
+function CopiesInput({ value, label, onCommit }: { value: number; label: string; onCommit: (n: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+  const commit = () => {
+    setEditing(false);
+    const n = Math.round(Number(text));
+    if (Number.isFinite(n) && n >= 1 && n !== value) onCommit(Math.min(MAX_CARD_COPIES, n));
+    else setText(String(value));
+  };
+  return (
+    <label className="card-def-copies" title="Number of copies of this card in the deck">
+      <span aria-hidden="true">×</span>
+      <input
+        type="number"
+        min={1}
+        max={MAX_CARD_COPIES}
+        aria-label={label}
+        value={editing ? text : String(value)}
+        onFocus={() => {
+          setText(String(value));
+          setEditing(true);
+        }}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+      />
+    </label>
+  );
+}
+
 const CardDefRow = memo(function CardDefRow({
   def,
   index,
   count,
+  copies,
   individualBacks,
   deckBackColor,
   onChange,
+  onCopies,
   onMove,
   onRemove,
 }: {
+  /** The row's card (all its copies look the same). */
   def: CardDef;
   index: number;
-  /** Number of cards in the list. */
+  /** Number of rows in the list. */
   count: number;
+  copies: number;
   individualBacks: boolean;
   deckBackColor: string;
   onChange: (patch: Partial<CardDef>) => void;
+  onCopies: (n: number) => void;
   onMove: (delta: -1 | 1) => void;
   onRemove: () => void;
 }) {
@@ -298,7 +385,13 @@ const CardDefRow = memo(function CardDefRow({
           />
         </>
       )}
-      <button type="button" className="btn btn-small btn-icon" aria-label={`Remove card ${index + 1}`} onClick={onRemove}>
+      <CopiesInput value={copies} label={`Copies of card ${index + 1}`} onCommit={onCopies} />
+      <button
+        type="button"
+        className="btn btn-small btn-icon"
+        aria-label={copies > 1 ? `Remove card ${index + 1} (all ${copies} copies)` : `Remove card ${index + 1}`}
+        onClick={onRemove}
+      >
         <Icon name="trash" size={14} />
       </button>
     </li>
@@ -307,18 +400,25 @@ const CardDefRow = memo(function CardDefRow({
 
 /** `settings`: the cards' look and how they come out; `list`: the card list and its tools. */
 function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 'settings' | 'list' }) {
-  const [showList, setShowList] = useState(o.initialCards.length <= 20);
+  const rows = cardGroups(o.initialCards);
+  const [showList, setShowList] = useState(rows.length <= 20);
   const setCards = (cards: CardDef[], key?: string) => update({ cards, initialCards: cards }, key);
-  const editCard = (id: string, patch: Partial<CardDef>) =>
+  /** Edits every copy in the row of card `id`. */
+  const editCard = (id: string, patch: Partial<CardDef>) => {
+    const ids = new Set(rows.find((g) => g.some((c) => c.id === id))?.map((c) => c.id) ?? [id]);
     update(
       {
-        cards: o.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-        initialCards: o.initialCards.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+        cards: o.cards.map((c) => (ids.has(c.id) ? { ...c, ...patch } : c)),
+        initialCards: o.initialCards.map((c) => (ids.has(c.id) ? { ...c, ...patch } : c)),
       },
       `card:${id}:${Object.keys(patch).join()}`,
     );
-  const removeCard = (id: string) =>
-    update({ cards: o.cards.filter((c) => c.id !== id), initialCards: o.initialCards.filter((c) => c.id !== id) });
+  };
+  /** Removes the row of card `id` (all its copies). */
+  const removeCard = (id: string) => {
+    const ids = new Set(rows.find((g) => g.some((c) => c.id === id))?.map((c) => c.id) ?? [id]);
+    update({ cards: o.cards.filter((c) => !ids.has(c.id)), initialCards: o.initialCards.filter((c) => !ids.has(c.id)) });
+  };
   const outOfDeck = o.initialCards.length - o.cards.length;
   const individual = !!o.individualBacks;
   const clearBacks = ({ backAssetId: _a, backColor: _c, ...rest }: CardDef): CardDef => rest;
@@ -341,46 +441,6 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
   if (part === 'settings') {
     return (
       <Section title={`Cards (${o.cards.length} in the holder)`}>
-        <ColorField label="Card back colour" value={o.backColor} onChange={(backColor) => update({ backColor }, `back:${o.id}`)} />
-        <ImageField label="Card back image" assetId={o.backAssetId} onChange={(backAssetId) => update({ backAssetId })} />
-        <CheckboxField label="Different back for every card" checked={individual} onChange={(on) => void setIndividualBacks(on)} />
-        <div className="button-row">
-          <button
-            type="button"
-            className="btn btn-small"
-            disabled={o.initialCards.length === 0 && o.cards.length === 0}
-            title="Every card gets its front (image and colour) as its back too"
-            onClick={() =>
-              update({ individualBacks: true, cards: o.cards.map(withFrontAsBack), initialCards: o.initialCards.map(withFrontAsBack) })
-            }
-          >
-            <Icon name="flip" size={14} /> Use fronts as backs
-          </button>
-        </div>
-        {individual && (
-          <>
-            <div className="button-row">
-              <FileButton
-                label="Set backs from images"
-                icon="image"
-                multiple
-                accept={IMAGE_ACCEPT}
-                className="btn btn-small"
-                testId="deck-set-backs"
-                onFiles={async (files) => {
-                  const assets = await uploadImages(files);
-                  const byIndex = new Map(o.initialCards.map((c, i) => [c.id, assets[i]?.id]));
-                  const apply = (c: CardDef): CardDef => {
-                    const backAssetId = byIndex.get(c.id);
-                    return backAssetId ? { ...c, backAssetId } : c;
-                  };
-                  if (assets.length) update({ cards: o.cards.map(apply), initialCards: o.initialCards.map(apply) });
-                }}
-              />
-            </div>
-            <p className="hint">Images are assigned to the cards in list order. Use the buttons in the card list for single cards.</p>
-          </>
-        )}
         <div className="field-grid">
           <NumberField
             label="Card width"
@@ -426,104 +486,162 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
   }
 
   return (
-    <Section title={`Card list (${o.initialCards.length} cards)`}>
+    <Section title={`Card list (${o.initialCards.length} cards${rows.length < o.initialCards.length ? `, ${rows.length} different` : ''})`}>
       {outOfDeck > 0 && <p className="hint">{outOfDeck} card(s) are currently out of the holder. "Gather &amp; reset" brings them back.</p>}
-      <div className="button-row">
-        <FileButton
-          label="Add cards from images"
-          icon="image"
-          multiple
-          accept={IMAGE_ACCEPT}
-          className="btn btn-small"
-          testId="deck-add-images"
-          onFiles={async (files) => {
-            const assets = await uploadImages(files);
-            const defs = assets.map((a) => createCardDef({ name: a.name, faceAssetId: a.id, faceText: '' }));
-            if (defs.length) update({ cards: [...o.cards, ...defs], initialCards: [...o.initialCards, ...defs] });
-          }}
-        />
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() => {
-            const n = o.initialCards.length + 1;
-            const def = createCardDef({ name: `Card ${n}`, faceText: String(n) });
-            update({ cards: [...o.cards, def], initialCards: [...o.initialCards, def] });
-          }}
-        >
-          <Icon name="plus" size={14} /> Blank card
+      <div className="inspector-subsection" role="group" aria-label="Fronts">
+        <h4>Fronts</h4>
+        <div className="button-row">
+          <FileButton
+            label="Add cards from images"
+            icon="image"
+            multiple
+            accept={IMAGE_ACCEPT}
+            className="btn btn-small"
+            testId="deck-add-images"
+            onFiles={async (files) => {
+              const assets = await uploadImages(files);
+              const defs = assets.map((a) => createCardDef({ name: a.name, faceAssetId: a.id, faceText: '' }));
+              if (defs.length) update({ cards: [...o.cards, ...defs], initialCards: [...o.initialCards, ...defs] });
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              const n = o.initialCards.length + 1;
+              const def = createCardDef({ name: `Card ${n}`, faceText: String(n) });
+              update({ cards: [...o.cards, def], initialCards: [...o.initialCards, def] });
+            }}
+          >
+            <Icon name="plus" size={14} /> Blank card
+          </button>
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={async () => {
+              if (
+                o.initialCards.length &&
+                !(await confirmDialog({
+                  title: 'Replace deck contents?',
+                  message: 'All cards in this deck will be replaced by a standard 52-card deck.',
+                  confirmLabel: 'Replace',
+                }))
+              )
+                return;
+              setCards(standardDeck());
+            }}
+          >
+            Standard 52
+          </button>
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={async () => {
+              const v = await promptDialog({
+                title: 'Numbered cards',
+                label: 'Range (e.g. 1-20 or 1-10x2 for two copies)',
+                defaultValue: '1-10',
+              });
+              const m = v && /^\s*(-?\d+)\s*-\s*(-?\d+)\s*(?:x\s*(\d+))?\s*$/i.exec(v);
+              if (!m) return;
+              const defs = numberedDeck(Number(m[1]), Number(m[2]), Math.min(10, Number(m[3] ?? 1))).slice(0, 1000);
+              update({ cards: [...o.cards, ...defs], initialCards: [...o.initialCards, ...defs] });
+            }}
+          >
+            Numbered…
+          </button>
+          <button
+            type="button"
+            className="btn btn-small btn-danger"
+            disabled={o.initialCards.length === 0}
+            onClick={async () => {
+              if (await confirmDialog({ title: 'Remove all cards?', confirmLabel: 'Remove all', danger: true })) setCards([]);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+        <button type="button" className="btn btn-small btn-link" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>
+          {showList ? 'Hide card list' : 'Show card list'}
         </button>
+        {showList && (
+          <ol className="card-def-list">
+            {rows.map((g, i) => (
+              <CardDefRow
+                key={g[0].id}
+                def={g[0]}
+                index={i}
+                count={rows.length}
+                copies={g.length}
+                individualBacks={individual}
+                deckBackColor={o.backColor}
+                onChange={(p) => editCard(g[0].id, p)}
+                onCopies={(n) => {
+                  const next = setCardCopies(o, g[0].id, n);
+                  if (next) update(next);
+                }}
+                onMove={(delta) => {
+                  const moved = moveCardGroup(o, g[0].id, delta);
+                  if (moved) update(moved);
+                }}
+                onRemove={() => removeCard(g[0].id)}
+              />
+            ))}
+          </ol>
+        )}
+        {showList && rows.length > 0 && (
+          <p className="hint">× is the number of copies of a card in the deck (e.g. 12 of one image, 10 of another).</p>
+        )}
       </div>
-      <div className="button-row">
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={async () => {
-            if (
-              o.initialCards.length &&
-              !(await confirmDialog({
-                title: 'Replace deck contents?',
-                message: 'All cards in this deck will be replaced by a standard 52-card deck.',
-                confirmLabel: 'Replace',
-              }))
-            )
-              return;
-            setCards(standardDeck());
-          }}
-        >
-          Standard 52
-        </button>
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={async () => {
-            const v = await promptDialog({
-              title: 'Numbered cards',
-              label: 'Range (e.g. 1-20 or 1-10x2 for two copies)',
-              defaultValue: '1-10',
-            });
-            const m = v && /^\s*(-?\d+)\s*-\s*(-?\d+)\s*(?:x\s*(\d+))?\s*$/i.exec(v);
-            if (!m) return;
-            const defs = numberedDeck(Number(m[1]), Number(m[2]), Math.min(10, Number(m[3] ?? 1))).slice(0, 1000);
-            update({ cards: [...o.cards, ...defs], initialCards: [...o.initialCards, ...defs] });
-          }}
-        >
-          Numbered…
-        </button>
-        <button
-          type="button"
-          className="btn btn-small btn-danger"
-          disabled={o.initialCards.length === 0}
-          onClick={async () => {
-            if (await confirmDialog({ title: 'Remove all cards?', confirmLabel: 'Remove all', danger: true })) setCards([]);
-          }}
-        >
-          Clear
-        </button>
+      <div className="inspector-subsection" role="group" aria-label="Backs">
+        <h4>Backs</h4>
+        <ColorField label="Card back colour" value={o.backColor} onChange={(backColor) => update({ backColor }, `back:${o.id}`)} />
+        <ImageField label="Card back image" assetId={o.backAssetId} onChange={(backAssetId) => update({ backAssetId })} />
+        <CheckboxField label="Different back for every card" checked={individual} onChange={(on) => void setIndividualBacks(on)} />
+        {individual && (
+          <>
+            <div className="button-row">
+              <FileButton
+                label="Set backs from images"
+                icon="image"
+                multiple
+                accept={IMAGE_ACCEPT}
+                className="btn btn-small"
+                testId="deck-set-backs"
+                onFiles={async (files) => {
+                  // One image per row of the list (every copy of a card gets the same back).
+                  const assets = await uploadImages(files);
+                  const byId = new Map(rows.flatMap((g, i) => g.map((c) => [c.id, assets[i]?.id] as const)));
+                  const apply = (c: CardDef): CardDef => {
+                    const backAssetId = byId.get(c.id);
+                    return backAssetId ? { ...c, backAssetId } : c;
+                  };
+                  if (assets.length) update({ cards: o.cards.map(apply), initialCards: o.initialCards.map(apply) });
+                }}
+              />
+            </div>
+            <p className="hint">
+              Images are assigned to the rows of the card list in order (all copies of a card share it). Use the back buttons in the card
+              list for single rows.
+            </p>
+          </>
+        )}
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn btn-small"
+            disabled={o.initialCards.length === 0 && o.cards.length === 0}
+            title="Every card gets its front (image and colour) as its back too"
+            onClick={() =>
+              update({ individualBacks: true, cards: o.cards.map(withFrontAsBack), initialCards: o.initialCards.map(withFrontAsBack) })
+            }
+          >
+            <Icon name="flip" size={14} /> Use fronts as backs
+          </button>
+        </div>
       </div>
-      <button type="button" className="btn btn-small btn-link" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>
-        {showList ? 'Hide card list' : 'Show card list'}
-      </button>
-      {showList && (
-        <ol className="card-def-list">
-          {o.initialCards.map((c, i) => (
-            <CardDefRow
-              key={c.id}
-              def={c}
-              index={i}
-              count={o.initialCards.length}
-              individualBacks={individual}
-              deckBackColor={o.backColor}
-              onChange={(p) => editCard(c.id, p)}
-              onMove={(delta) => {
-                const moved = moveCardDef(o, c.id, delta);
-                if (moved) update(moved);
-              }}
-              onRemove={() => removeCard(c.id)}
-            />
-          ))}
-        </ol>
-      )}
     </Section>
   );
 }

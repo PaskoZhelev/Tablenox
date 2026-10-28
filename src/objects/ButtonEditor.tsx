@@ -36,7 +36,7 @@ const STEP_HINTS: Record<StepType, string> = {
   recall:
     'Sends things back where they came from: cards to their holder, tokens to the stack they were taken from, pieces to their bag. A holder with its own card list gathers all its cards back (like "Gather & reset"); a token stack gathers its tokens; a bag takes back everything that came out of it.',
   rotate: 'Rotates objects about their centre.',
-  flip: 'Flips cards. A holder or pile turns its cards over as a whole; loose cards lying on a listed holder flip too.',
+  flip: 'Flips cards. A holder or pile turns its cards over as a whole; loose cards lying on a listed holder flip too. Random turns each card (or holder) over or not at random.',
   shuffle: 'Shuffles the cards in holders and piles, and the pieces in bags.',
   sort: 'Orders the cards in holders and piles.',
   roll: 'Rolls dice (a holder stands for the dice lying on it).',
@@ -292,9 +292,23 @@ function StepFields({
               { value: 'toggle', label: 'Toggle' },
               { value: 'faceUp', label: 'Face up' },
               { value: 'faceDown', label: 'Face down' },
+              { value: 'random', label: 'Random' },
             ]}
             onChange={(mode) => onChange({ ...step, mode })}
           />
+          <NumberField
+            label="Cards to flip (empty = all)"
+            value={step.count ?? null}
+            min={1}
+            max={5000}
+            allowEmpty
+            emptyLabel="all"
+            onCommit={(count) => onChange({ ...step, count: count === null ? undefined : Math.round(count) })}
+          />
+          <p className="hint">
+            With a number, only the first cards flip: the top ones of each holder or pile (turned over where they lie) and the first loose
+            cards in the list.
+          </p>
         </>
       );
     case 'sort':
@@ -359,13 +373,13 @@ function StepFields({
           />
           <SelectField
             label="Face of recalled cards"
-            value={step.orientation ?? 'keep'}
+            value={step.orientation ?? 'faceDown'}
             options={[
-              { value: 'keep', label: 'As they come back' },
-              { value: 'faceUp', label: 'Face up' },
               { value: 'faceDown', label: 'Face down' },
+              { value: 'faceUp', label: 'Face up' },
+              { value: 'keep', label: 'As they come back' },
             ]}
-            onChange={(orientation) => onChange({ ...step, orientation: orientation === 'keep' ? undefined : orientation })}
+            onChange={(orientation) => onChange({ ...step, orientation: orientation === 'faceDown' ? undefined : orientation })}
           />
           <CheckboxField
             label="Shuffle after recalling"
@@ -505,6 +519,13 @@ export function ButtonFields({ o, update }: { o: ButtonObject; update: Update })
   return (
     <>
       <section className="inspector-section">
+        <h3>Automations</h3>
+        <button type="button" className="btn automations-open" onClick={() => useTableStore.getState().openAutomations(o.id)}>
+          <Icon name="bolt" size={16} /> Automations
+          <span className="badge">{n === 0 ? 'no steps' : `${n} step${n === 1 ? '' : 's'}`}</span>
+        </button>
+      </section>
+      <section className="inspector-section">
         <h3>Button</h3>
         <TextField label="Label" value={o.label} onCommit={(label) => update({ label })} />
         <CheckboxField
@@ -524,13 +545,6 @@ export function ButtonFields({ o, update }: { o: ButtonObject; update: Update })
         <p className="hint">The label always shrinks to fit when the button is too small for it.</p>
         <ColorField label="Colour" value={o.color} onChange={(color) => update({ color }, `color:${o.id}`)} />
         <ColorField label="Text colour" value={o.textColor} onChange={(textColor) => update({ textColor }, `text:${o.id}`)} />
-      </section>
-      <section className="inspector-section">
-        <h3>Automations</h3>
-        <button type="button" className="btn automations-open" onClick={() => useTableStore.getState().openAutomations(o.id)}>
-          <Icon name="bolt" size={16} /> Automations
-          <span className="badge">{n === 0 ? 'no steps' : `${n} step${n === 1 ? '' : 's'}`}</span>
-        </button>
       </section>
     </>
   );
