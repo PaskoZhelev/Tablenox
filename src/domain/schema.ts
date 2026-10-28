@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_TOKEN_STACK, SCHEMA_VERSION, type Game, type TabletopObject } from './types';
+import { MAX_TIMER_SECONDS, MAX_TOKEN_STACK, SCHEMA_VERSION, TOKEN_SHAPES, type Game, type TabletopObject } from './types';
 
 const finite = z.number().refine(Number.isFinite, 'Must be a finite number');
 const positive = finite.refine((n) => n > 0, 'Must be positive');
@@ -74,6 +74,7 @@ export const stepSchema = z.discriminatedUnion('type', [
   z.object({ id, objectIds, type: z.literal('roll') }),
   z.object({ id, objectIds, type: z.literal('counter'), mode: z.enum(['add', 'set']), amount: finite }),
   z.object({ id, objectIds, type: z.literal('check'), mode: z.enum(['toggle', 'check', 'uncheck']) }),
+  z.object({ id, objectIds, type: z.literal('timer'), mode: z.enum(['start', 'pause', 'toggle', 'reset', 'restart']) }),
 ]);
 
 const imageSchema = z.object({ ...base, kind: z.literal('image'), assetId: assetRef });
@@ -120,7 +121,7 @@ const deckSchema = z.object({
 const tokenSchema = z.object({
   ...base,
   kind: z.literal('token'),
-  shape: z.enum(['circle', 'square', 'triangle', 'star', 'hexagon']),
+  shape: z.enum(TOKEN_SHAPES),
   color,
   assetId: assetRef,
   count: z.number().int().min(1).max(MAX_TOKEN_STACK).optional(),
@@ -197,6 +198,18 @@ export const objectSchema = z.discriminatedUnion('kind', [
     color,
     boxColor: color,
     boxFill: color.nullable(),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal('timer'),
+    label: z.string().max(500),
+    mode: z.enum(['countdown', 'stopwatch']),
+    duration: finite.refine((n) => n >= 0 && n <= MAX_TIMER_SECONDS, 'Invalid timer duration'),
+    color,
+    textColor: color,
+    elapsedMs: finite.refine((n) => n >= 0, 'Must not be negative'),
+    startedAt: finite.optional(),
+    sound: z.boolean(),
   }),
   z.object({
     ...base,

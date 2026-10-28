@@ -1187,11 +1187,20 @@ input[type='color'] {
   padding: 0;
 }
 .tool-options {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 8px 28px 8px 8px;
   border-radius: 12px;
+}
+.tool-options .tool-options-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
 }
 .swatches {
   display: flex;
@@ -1456,16 +1465,17 @@ input[type='color'] {
 }
 .card-def-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
+  gap: 3px;
+  padding: 4px;
   border-bottom: 1px solid var(--border);
 }
 .card-def-row:last-child {
   border-bottom: none;
 }
 .card-def-index {
-  width: 22px;
+  width: 16px;
   flex: none;
   font-size: 11px;
   color: var(--text-dim);
@@ -1478,7 +1488,7 @@ input[type='color'] {
   gap: 1px;
 }
 .card-def-move .btn {
-  width: 20px;
+  width: 16px;
   height: 12px;
   min-height: 0;
   padding: 0;
@@ -1486,9 +1496,16 @@ input[type='color'] {
   place-items: center;
 }
 .card-def-row input {
-  padding: 3px 6px;
+  padding: 3px 5px;
   font-size: 12px;
   min-width: 0;
+}
+.card-def-row > .btn-icon {
+  width: 26px;
+  flex: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }
 .card-def-row .card-def-color {
   width: 26px;
@@ -1496,20 +1513,31 @@ input[type='color'] {
   flex: none;
   padding: 0;
 }
-.card-def-text {
-  max-width: 64px;
+.card-def-row .card-def-name {
+  flex: 1 1 0;
+  min-width: 40px;
+}
+.card-def-row .card-def-text {
+  flex: 0 0 34px;
 }
 .card-def-copies {
   display: flex;
   align-items: center;
   gap: 1px;
   flex: none;
-  color: var(--text-dim);
-  font-size: 12px;
 }
 .card-def-row .card-def-copies input {
-  width: 48px;
-  padding: 3px 4px;
+  width: 28px;
+  padding: 3px 2px;
+  text-align: center;
+}
+.card-def-copies .btn {
+  width: 14px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }
 .pick-banner {
   position: absolute;

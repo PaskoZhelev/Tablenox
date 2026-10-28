@@ -64,10 +64,11 @@ function previewOf(o: TabletopObject, table: TableState, mode: Mode, hoverCardId
   return { w: o.width, h: o.height, render: () => <ObjectVisual o={o} mode={mode} /> };
 }
 
-/** Enlarged view of the object under the mouse, for objects with "Zoom on hover" set. */
+/** Enlarged view of the object under the mouse, for objects with "Zoom on hover" set (or of a card held down on a touch screen). */
 export function HoverPreview() {
-  const hoverId = useTableStore((s) => (s.tool === 'select' && !s.draggingId && !s.contextMenu ? s.hoverId : null));
-  const hoverCardId = useTableStore((s) => s.hoverCardId);
+  const pressId = useTableStore((s) => s.pressPreviewId);
+  const hoverId = useTableStore((s) => s.pressPreviewId ?? (s.tool === 'select' && !s.draggingId && !s.contextMenu ? s.hoverId : null));
+  const hoverCardId = useTableStore((s) => (s.pressPreviewId ? null : s.hoverCardId));
   const hovered = useTableStore((s) => s.history.present.objects.find((o) => o.id === hoverId));
   const table = useTableStore((s) => s.history.present);
   const mode = useTableStore((s) => s.mode);
@@ -82,7 +83,8 @@ export function HoverPreview() {
     return () => clearTimeout(t);
   }, [zoom, hoverId]);
 
-  if (zoom === 'off' || !hovered || readyId !== hoverId) return null;
+  // A held-down card shows at once; the mouse hover waits a moment so passing over objects doesn't flash previews.
+  if (zoom === 'off' || !hovered || (readyId !== hoverId && pressId !== hoverId)) return null;
   const preview = previewOf(hovered, table, mode, hoverCardId);
   if (!preview) return null;
 

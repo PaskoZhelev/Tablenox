@@ -53,7 +53,10 @@ const TOUCH_ROWS: [string, string][] = [
     'Touch: tap · double-tap',
     'Select and show the quick action bar (its ⋯ opens every action) · flip card, roll die, turn over a holder’s top card',
   ],
-  ['Touch: long-press', 'Open the actions menu for an object (like right-click)'],
+  [
+    'Touch: long-press',
+    'Open the actions menu for an object (like right-click); on a card with Zoom on hover, show it enlarged while held',
+  ],
   ['Touch: pinch · two-finger drag', 'Zoom · pan (one finger on the empty table pans too)'],
 ];
 

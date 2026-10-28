@@ -356,10 +356,10 @@ describe('automation buttons', () => {
     );
     expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id] }))).toBe(`Move ${deck.name} to ${holder.name}`);
     expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id, deck.id], count: 1 }))).toBe(
-      `Deal top 1 card of ${deck.name} to each of ${holder.name}, ${deck.name}`,
+      `Move top 1 card of ${deck.name} to each of ${holder.name}, ${deck.name}`,
     );
     expect(describeStep(state, step('move', [deck.id], { targetIds: [holder.id, deck.id] }))).toBe(
-      `Deal ${deck.name} among ${holder.name}, ${deck.name}`,
+      `Move ${deck.name} to ${holder.name}, ${deck.name} in turn`,
     );
     expect(describeStep(state, step('roll', []))).toBe('Roll nothing selected');
   });

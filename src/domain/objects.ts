@@ -29,6 +29,7 @@ export const OBJECT_LABELS: Record<ObjectKind, string> = {
   button: 'Button',
   bag: 'Bag',
   checkbox: 'Checkbox',
+  timer: 'Timer',
 };
 
 /** Kind label for display: piles are holders' loose cousins. */
@@ -87,7 +88,7 @@ export const DEFAULT_BAG_COLOR = '#8b6b43';
 
 export const DEFAULT_HOLDER_COLOR = '#8a8f98';
 export const DEFAULT_HOLDER_FILL_OPACITY = 0;
-export const DEFAULT_HOLDER_STROKE_OPACITY = 0.2;
+export const DEFAULT_HOLDER_STROKE_OPACITY = 0.3;
 
 /** Number of tokens in a token stack. */
 export function tokenCount(t: TokenObject): number {
@@ -200,6 +201,17 @@ export function setCardCopies(deck: DeckObject, id: string, copies: number): Car
   return { initialCards: insertAfter(deck.initialCards, extra), cards: insertAfter(deck.cards, extra) };
 }
 
+/** Gives every row of the card list `copies` copies (see `setCardCopies`). Returns null when nothing changes. */
+export function setAllCardCopies(deck: DeckObject, copies: number): CardLists | null {
+  let lists: CardLists = { cards: deck.cards, initialCards: deck.initialCards };
+  for (const row of cardGroups(deck.initialCards)) {
+    // A row keeps its first card, so its id still finds the row after earlier rows changed.
+    const next = setCardCopies({ ...deck, ...lists }, row[0].id, copies);
+    if (next) lists = next;
+  }
+  return lists.initialCards === deck.initialCards && lists.cards === deck.cards ? null : lists;
+}
+
 /**
  * Moves the card-list row holding card `id` one row up (`-1`, towards the top) or down (`1`). While the holder still has
  * every card in list order (not shuffled, none out), its cards follow the new order. Returns null when it can't move.
@@ -291,6 +303,18 @@ export function createObject<K extends ObjectKind>(kind: K, opts: FactoryOptions
         color: '#1f2328',
         boxColor: '#1f2328',
         boxFill: '#ffffff',
+      };
+      break;
+    case 'timer':
+      obj = {
+        ...base('timer', opts, 180, 84),
+        label: '',
+        mode: 'countdown',
+        duration: 300,
+        color: '#1f2328',
+        textColor: '#ffffff',
+        elapsedMs: 0,
+        sound: true,
       };
       break;
     default: {

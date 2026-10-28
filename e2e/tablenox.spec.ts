@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { collectConsoleErrors, makePng, newGame, objectScreenPos, storeState, waitSaved, worldToPage } from './helpers.ts';
+import { collectConsoleErrors, makePng, newGame, objectScreenPos, pickStepObject, storeState, waitSaved, worldToPage } from './helpers.ts';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -1190,11 +1190,11 @@ test('automation: Rotate turns the cards in a holder (not the holder); Recall op
   const panel = page.getByRole('complementary', { name: 'Automations' });
   const addStep = async (type: string, pick: string) => {
     await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: type, exact: true }).click();
-    await panel.getByLabel(/^Add to /).selectOption({ label: pick });
+    await pickStepObject(page, panel, pick);
   };
-  await addStep('Rotate', 'Bonus deck (Holder)');
+  await addStep('Rotate', 'Bonus deck');
   await expect(panel.getByText('A holder stays as it is')).toBeVisible();
-  await addStep('Recall objects', 'Bonus deck (Holder)');
+  await addStep('Recall objects', 'Bonus deck');
   await expect(panel.getByLabel('Card rotation in the holders')).toHaveValue('reset');
   await expect(panel.getByLabel('Face of recalled cards')).toHaveValue('faceDown');
   await panel.getByLabel('Card rotation in the holders').selectOption('keep');
@@ -1359,8 +1359,8 @@ test('edit mode: holders show their cards, a clear outline and "Deck (X cards)" 
     page,
     `(s) => { s.dispatch({ type: 'DrawCard', deckId: ${JSON.stringify(deckId)}, cardId: 'c1', position: { x: 0, y: 0 }, faceUp: true }); s.dispatch({ type: 'AddCardToDeck', cardId: 'c1', deckId: ${JSON.stringify(discardId)} }); }`,
   );
-  await expect.poll(() => nodes(discardId)).toEqual({ info: null, cards: 1, badge: false, outline: 0.2 });
-  expect(await nodes(deckId)).toEqual({ info: null, cards: 1, badge: true, outline: 0.2 });
+  await expect.poll(() => nodes(discardId)).toEqual({ info: null, cards: 1, badge: false, outline: 0.3 });
+  expect(await nodes(deckId)).toEqual({ info: null, cards: 1, badge: true, outline: 0.3 });
 
   // Edit mode shows the same cards, a clear outline, and the deck's size (all its cards, even those out of it).
   await switchMode(page, 'edit');
@@ -1446,7 +1446,7 @@ test('table colour can be changed and is saved with the game', async ({ page }) 
   await expect(page.getByTestId('table-canvas')).toHaveCSS('background-color', 'rgb(47, 79, 111)');
 });
 
-test('deck copies: 3 images become a 30-card deck; image token stacks are a dashed zone; white table; house button', async ({ page }) => {
+test('deck copies: 3 images become a 30-card deck; image token stacks have no outline; white table; house button', async ({ page }) => {
   await addSampleAndPlay(page);
   // The library button is a house, apart from the Edit / Play switch.
   await expect(page.getByRole('button', { name: 'Back to library' }).locator('path')).toHaveAttribute('d', /^M3 10\.5L12 3/);
@@ -1469,7 +1469,7 @@ test('deck copies: 3 images become a 30-card deck; image token stacks are a dash
     [2, 10],
     [3, 8],
   ] as const) {
-    const copies = panel.getByLabel(`Copies of card ${row}`);
+    const copies = panel.getByLabel(`Copies of card ${row}`, { exact: true });
     await copies.fill(String(n));
     await copies.press('Enter');
   }
@@ -1478,31 +1478,47 @@ test('deck copies: 3 images become a 30-card deck; image token stacks are a dash
   expect(await obj<number>(page, 'Bonus deck', 'new Set(o.initialCards.map(c => c.id)).size')).toBe(30);
   await expect(panel.locator('.inspector-section h3').first()).toHaveText('Card list (30 cards, 3 different)');
   await expect(panel.locator('.card-def-row')).toHaveCount(3);
-  await expect(panel.getByLabel('Copies of card 2')).toHaveValue('10');
+  await expect(panel.getByLabel('Copies of card 2', { exact: true })).toHaveValue('10');
+  // Image cards have no face-text field (text is only drawn on cards without an image).
+  await expect(panel.getByLabel('Card 1 face text')).toHaveCount(0);
+  // − / + change the number of copies at once.
+  await panel.getByRole('button', { name: 'More copies of card 2' }).click();
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(31);
+  await expect(panel.getByLabel('Copies of card 2', { exact: true })).toHaveValue('11');
+  await panel.getByRole('button', { name: 'Fewer copies of card 2' }).click();
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(30);
   // Renaming a row renames every copy; removing it removes them all.
   await panel.getByLabel('Card 3 name').fill('Gold coin');
   await expect.poll(() => obj<number>(page, 'Bonus deck', "o.initialCards.filter(c => c.name === 'Gold coin').length")).toBe(8);
   await panel.getByRole('button', { name: 'Remove card 3 (all 8 copies)' }).click();
   await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(22);
+  // Every card at once: 3 copies each.
+  await panel.getByRole('button', { name: 'Copies of all…' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox').fill('3');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.initialCards.length')).toBe(6);
+  await expect(panel.getByLabel('Copies of card 1', { exact: true })).toHaveValue('3');
+  await expect(panel.getByLabel('Copies of card 2', { exact: true })).toHaveValue('3');
 
-  // A token stack with its own image: a dashed zone instead of coloured tokens peeking out.
+  // A token stack with its own image shows just the top token and its badge: no outline, no tokens peeking out.
   const markerId = await obj<string>(page, 'Marker', 'o.id');
-  const zones = () =>
+  const nodes = (selector: string) =>
     page.evaluate(
-      (id) =>
+      ([id, sel]) =>
         (window as unknown as { Konva: { stages: { findOne(s: string): { find(s: string): unknown[] } }[] } }).Konva.stages[0]
           .findOne(`#${id}`)
-          .find('.token-stack-zone').length,
-      markerId,
+          .find(sel).length,
+      [markerId, selector],
     );
   await storeState(page, `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(markerId)}, patch: { count: 5 } })`);
-  await expect.poll(zones).toBe(0);
   const asset = await obj<string>(page, 'Bonus deck', 'o.initialCards[0].faceAssetId');
   await storeState(
     page,
     `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(markerId)}, patch: { assetId: ${JSON.stringify(asset)} } })`,
   );
-  await expect.poll(zones).toBe(1);
+  await expect.poll(() => nodes('Image')).toBe(1);
+  expect(await nodes('.token-stack-zone')).toBe(0);
 
   // A white table is one of the colours.
   await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -1611,6 +1627,107 @@ test('object palette: add by click or by dragging a tile onto the table, pin it 
   await expect.poll(isChecked).toBe(true);
 });
 
+test('timer: start / pause / reset with its buttons and action bar, a countdown runs out; pawn and meeple tokens', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  const palette = page.getByTestId('object-palette');
+  for (const tile of ['Pawn', 'Meeple', 'Timer']) {
+    await page.getByRole('button', { name: 'Add object' }).click();
+    await palette.getByRole('menuitem', { name: tile, exact: true }).click();
+  }
+  expect(await obj(page, 'Pawn', 'o.shape')).toBe('pawn');
+  expect(await obj(page, 'Meeple', 'o.shape')).toBe('meeple');
+
+  // A 2-second countdown, set in the properties panel.
+  const timerId = await obj<string>(page, 'Timer', 'o.id');
+  await storeState(page, `(s) => { s.setUi({ inspectorOpen: true }); s.select(${JSON.stringify(timerId)}); }`);
+  const props = page.getByRole('complementary', { name: 'Properties' });
+  await props.getByLabel('Minutes').fill('0');
+  await props.getByLabel('Minutes').press('Enter');
+  await props.getByLabel('Seconds').fill('2');
+  await props.getByLabel('Seconds').press('Enter');
+  await expect.poll(() => obj<number>(page, 'Timer', 'o.duration')).toBe(2);
+  await page.keyboard.press('Escape');
+
+  await switchMode(page, 'play');
+  const node = (selector: string) =>
+    page.evaluate(
+      ([id, sel]) => {
+        type N = { findOne(s: string): N; getClientRect(): { x: number; y: number; width: number; height: number }; text(): string };
+        const n = (window as unknown as { Konva: { stages: N[] } }).Konva.stages[0].findOne(`#${id}`).findOne(sel);
+        const r = n.getClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2, text: typeof n.text === 'function' ? n.text() : '' };
+      },
+      [timerId, selector],
+    );
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const clickNode = async (selector: string) => {
+    const p = await node(selector);
+    await page.mouse.click(box.x + p.x, box.y + p.y);
+  };
+  expect((await node('.timer-text')).text).toBe('0:02');
+  await clickNode('.timer-play');
+  await expect.poll(() => obj(page, 'Timer', 'o.startedAt')).toEqual(expect.any(Number));
+  await expect.poll(async () => (await node('.timer-text')).text, { timeout: 5000 }).toBe('0:00');
+  // Reset sets it back and stops it.
+  await clickNode('.timer-reset');
+  await expect.poll(() => obj(page, 'Timer', 'o.startedAt ?? null')).toBeNull();
+  await expect.poll(async () => (await node('.timer-text')).text).toBe('0:02');
+
+  // The action bar starts and pauses it too.
+  const t = await objectScreenPos(page, 'Timer');
+  await page.mouse.click(t.x - 30, t.y);
+  const bar = page.getByRole('toolbar', { name: 'Timer actions' });
+  await bar.getByRole('button', { name: 'Start' }).click();
+  await expect.poll(() => obj(page, 'Timer', 'o.startedAt')).toEqual(expect.any(Number));
+  await bar.getByRole('button', { name: 'Pause' }).click();
+  await expect.poll(() => obj(page, 'Timer', 'o.startedAt ?? null')).toBeNull();
+  expect(await obj<number>(page, 'Timer', 'o.elapsedMs')).toBeGreaterThan(0);
+
+  // A Timer automation step restarts it.
+  await storeState(
+    page,
+    `(s) => s.dispatch({ type: 'AddObject', object: { id: 'btn-timer', kind: 'button', name: 'Go', position: { x: 0, y: 400 }, width: 150, height: 52,
+      rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Go', color: '#3f8fd8', textColor: '#ffffff',
+      steps: [{ id: 'st-t', type: 'timer', mode: 'restart', objectIds: [${JSON.stringify(timerId)}] }] } })`,
+  );
+  const go = await objectScreenPos(page, 'Go');
+  await page.mouse.click(go.x, go.y);
+  await expect.poll(() => obj(page, 'Timer', 'o.startedAt')).toEqual(expect.any(Number));
+  expect(await obj<number>(page, 'Timer', 'o.elapsedMs')).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('tool column: pen / eraser / text options can be closed and shown again; full screen button', async ({ page, browserName }) => {
+  await addSampleAndPlay(page);
+  const tools = page.getByRole('toolbar', { name: 'Tools' });
+  await tools.getByRole('button', { name: 'Pen (P)' }).click();
+  const options = page.getByLabel('Pen options');
+  await expect(options).toBeVisible();
+  await options.getByRole('button', { name: 'Close tool options' }).click();
+  await expect(options).toHaveCount(0);
+  expect(await storeState(page, '(s) => s.tool')).toBe('pen');
+  // Clicking the active tool again shows its options; another tool shows its own.
+  await tools.getByRole('button', { name: 'Pen (P)' }).click();
+  await expect(options).toBeVisible();
+  await options.getByRole('button', { name: 'Close tool options' }).click();
+  await tools.getByRole('button', { name: 'Eraser (E)' }).click();
+  await expect(page.getByLabel('Eraser options')).toBeVisible();
+
+  // Full screen sits next to "Fit everything", which has its own icon now.
+  const full = tools.getByRole('button', { name: 'Full screen' });
+  await expect(full).toBeVisible();
+  await expect(full).toHaveAttribute('aria-pressed', 'false');
+  if (browserName === 'chromium') {
+    await full.click();
+    await expect(full).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+    await full.click();
+    await expect(full).toHaveAttribute('aria-pressed', 'false');
+  }
+});
+
 test('pick a card shows red suits in red; unnamed objects show their kind in automation steps and can be found on the table', async ({
   page,
 }) => {
@@ -1633,6 +1750,8 @@ test('pick a card shows red suits in red; unnamed objects show their kind in aut
   const bagId = await storeState<string>(page, '(s) => s.selectedId');
   await page.getByRole('button', { name: 'Add object' }).click();
   await page.getByRole('menuitem', { name: 'Automation button' }).click();
+  // The new button lands on top of the bag: move it aside so the bag can be clicked.
+  await storeState(page, "(s) => s.dispatch({ type: 'MoveObject', id: s.selectedId, position: { x: -3000, y: -3000 } })");
   await page.getByRole('button', { name: 'Properties panel' }).click();
   await page
     .getByRole('complementary', { name: 'Properties' })
@@ -1640,7 +1759,7 @@ test('pick a card shows red suits in red; unnamed objects show their kind in aut
     .click();
   const panel = page.getByRole('complementary', { name: 'Automations' });
   await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: 'Move objects', exact: true }).click();
-  await panel.getByLabel('Add to What to move').selectOption({ label: 'Bag' });
+  await pickStepObject(page, panel, bagId);
   const chip = panel.getByRole('list', { name: 'What to move' }).getByRole('button', { name: 'Bag', exact: true });
   await expect(chip).toBeVisible();
   await expect(panel.getByLabel('Cards or pieces taken from each holder / pile / bag (empty = all)')).toHaveAttribute('placeholder', 'all');
@@ -1669,10 +1788,10 @@ test('automation button: configure, reorder and edit steps; run in Play mode as 
 
   const addStep = async (type: string, pick: string) => {
     await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: type, exact: true }).click();
-    await panel.getByLabel(/^Add to /).selectOption({ label: pick });
+    await pickStepObject(page, panel, pick);
   };
-  await addStep('Change counter', 'Round (Counter)');
-  await addStep('Roll dice', 'White die 1 (Die)');
+  await addStep('Change counter', 'Round');
+  await addStep('Roll dice', 'White die 1');
   await expect(panel.locator('.step-item')).toHaveCount(2);
 
   // Reorder: the die roll moves in front of the counter change.
@@ -1846,7 +1965,7 @@ test('automation button: pick step objects on the table by clicking and Shift+dr
   expect(errors).toEqual([]);
 });
 
-test('phone: one-row top bar, tap shows the action bar, long-press opens the menu, pinch zooms, a finger draws cards', async ({
+test('phone: one-row top bar, tap shows the action bar, long-press opens the menu (or enlarges a zoomable card), pinch zooms, a finger draws cards', async ({
   browser,
   browserName,
 }) => {
@@ -1892,6 +2011,24 @@ test('phone: one-row top bar, tap shows the action bar, long-press opens the men
   for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: deck.x - i * 12, y: deck.y + i * 6 }]);
   await touch('touchEnd', []);
   await expect.poll(() => storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'card').length")).toBe(1);
+
+  // With "Zoom on hover" on its deck, a long-press on the card shows it enlarged while held, instead of the menu.
+  await storeState(
+    page,
+    "(s) => { const d = s.history.present.objects.find(o => o.name === 'Bonus deck'); s.dispatch({ type: 'UpdateObject', id: d.id, patch: { hoverZoom: 'large' } }); }",
+  );
+  const card = await storeState<{ x: number; y: number }>(
+    page,
+    "(s) => { const o = s.history.present.objects.find(o => o.kind === 'card'); const c = s.camera; return { x: (o.position.x + o.width / 2) * c.scale + c.x, y: (o.position.y + o.height / 2) * c.scale + c.y }; }",
+  );
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const cardPos = { x: box.x + card.x, y: box.y + card.y };
+  await touch('touchStart', [cardPos]);
+  await expect(page.getByTestId('card-preview')).toBeVisible();
+  await expect(page.locator('.context-menu')).toHaveCount(0);
+  await touch('touchEnd', []);
+  await expect(page.getByTestId('card-preview')).toHaveCount(0);
+  await expect(page.locator('.context-menu')).toHaveCount(0);
 
   // Two fingers pinch-zoom about their midpoint without drawing, selecting or opening a menu.
   const scale = await storeState<number>(page, '(s) => s.camera.scale');

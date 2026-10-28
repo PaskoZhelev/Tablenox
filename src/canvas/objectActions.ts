@@ -35,7 +35,10 @@ import {
   toggleLockMany,
   togglePlayMovable,
   toggleCheckbox,
+  toggleTimer,
+  resetTimer,
 } from './actions';
+import { isTimerRunning, timerToggleLabel } from '../domain/timer';
 
 /** Label of the draw-side action (it cycles through the three settings). */
 export const DRAW_SIDE_LABELS: Record<DrawSide, string> = {
@@ -230,6 +233,14 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
         active: o.checked,
       });
       break;
+    case 'timer': {
+      const label = timerToggleLabel(o, Date.now());
+      actions.push({ id: 'timer-toggle', label, icon: label === 'Pause' ? 'pause' : 'play', run: () => toggleTimer(o.id), primary: true });
+      if (isTimerRunning(o) || o.elapsedMs > 0) {
+        actions.push({ id: 'timer-reset', label: 'Reset', icon: 'reset', run: () => resetTimer(o.id), primary: true });
+      }
+      break;
+    }
     case 'image':
     case 'label':
       pushRotate(actions, o, table);

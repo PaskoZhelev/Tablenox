@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { fitToScene, zoomIn, zoomOut, zoomReset } from '../../canvas/actions';
 import { PALETTE_COLORS } from '../../domain/objects';
@@ -14,7 +15,7 @@ const TOOLS: { tool: Tool; label: string; icon: IconName; key: string }[] = [
 
 const PEN_WIDTHS = [2, 4, 8, 14];
 
-function ToolOptions() {
+function ToolOptions({ onClose }: { onClose: () => void }) {
   const tool = useTableStore((s) => s.tool);
   const pen = useTableStore((s) => s.pen);
   const setPen = useTableStore((s) => s.setPen);
@@ -23,10 +24,22 @@ function ToolOptions() {
   const eraserRadius = useTableStore((s) => s.eraserRadius);
   const setEraserRadius = useTableStore((s) => s.setEraserRadius);
   if (tool !== 'pen' && tool !== 'text' && tool !== 'eraser') return null;
+  const close = (
+    <button
+      type="button"
+      className="hud-btn tool-options-close"
+      aria-label="Close tool options"
+      title="Close (click the tool again to show its options)"
+      onClick={onClose}
+    >
+      <Icon name="close" size={14} />
+    </button>
+  );
 
   if (tool === 'eraser') {
     return (
       <div className="tool-options" aria-label="Eraser options">
+        {close}
         <label className="inline-range">
           <span>Size</span>
           <input type="range" min={4} max={40} value={eraserRadius} onChange={(e) => setEraserRadius(Number(e.target.value))} />
@@ -38,6 +51,7 @@ function ToolOptions() {
   const setColor = (c: string) => (tool === 'text' ? setTextStyle({ color: c }) : setPen({ color: c }));
   return (
     <div className="tool-options" aria-label={tool === 'pen' ? 'Pen options' : 'Text options'}>
+      {close}
       <div className="swatches">
         {PALETTE_COLORS.slice(0, 8).map((c) => (
           <button
@@ -92,6 +106,24 @@ function ToolOptions() {
   );
 }
 
+/** Whether the browser is showing the page full screen; follows Esc / F11 and other ways of leaving. */
+function useFullscreen(): boolean {
+  const [on, setOn] = useState(() => !!document.fullscreenElement);
+  useEffect(() => {
+    const sync = () => setOn(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  return on;
+}
+
+function toggleFullscreen() {
+  const done = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  done.catch(() => {
+    // Refused (e.g. not allowed in an embedded page): nothing to do.
+  });
+}
+
 /** Compact vertical tool column; collapses to a single button. */
 export function Toolbar() {
   const tool = useTableStore((s) => s.tool);
@@ -103,6 +135,9 @@ export function Toolbar() {
   const cameraLocked = useTableStore((s) => s.ui.cameraLocked);
   const setUi = useTableStore((s) => s.setUi);
   const { open: paletteOpen, toggle: togglePalette } = usePaletteToggle();
+  const fullscreen = useFullscreen();
+  // The tool whose options panel was closed; picking another tool (or the same one again) shows it again.
+  const [optionsClosedFor, setOptionsClosedFor] = useState<Tool | null>(null);
   const activeTool = TOOLS.find((t) => t.tool === tool)!;
 
   if (!open) {
@@ -148,7 +183,13 @@ export function Toolbar() {
             aria-pressed={tool === t.tool}
             aria-label={`${t.label} (${t.key})`}
             title={`${t.label} (${t.key})`}
-            onClick={() => setTool(t.tool)}
+            onClick={() => {
+              if (t.tool === tool) setOptionsClosedFor(optionsClosedFor === tool ? null : tool);
+              else {
+                setTool(t.tool);
+                setOptionsClosedFor(null);
+              }
+            }}
           >
             <Icon name={t.icon} size={18} />
           </button>
@@ -179,6 +220,18 @@ export function Toolbar() {
         >
           <Icon name="fit" size={18} />
         </button>
+        {document.fullscreenEnabled && (
+          <button
+            type="button"
+            className={`hud-btn ${fullscreen ? 'is-active' : ''}`}
+            aria-pressed={fullscreen}
+            aria-label="Full screen"
+            title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen'}
+            onClick={toggleFullscreen}
+          >
+            <Icon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} size={18} />
+          </button>
+        )}
         {mode === 'edit' && (
           <button
             type="button"
@@ -217,7 +270,7 @@ export function Toolbar() {
           <Icon name="chevronLeft" size={18} />
         </button>
       </div>
-      <ToolOptions />
+      {optionsClosedFor !== tool && <ToolOptions onClose={() => setOptionsClosedFor(tool)} />}
     </div>
   );
 }

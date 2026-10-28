@@ -6,7 +6,18 @@ import { cardIndexAt, findHoverTarget, isSpread, spreadInsertIndex } from '../do
 import { isHolder } from '../domain/objects';
 import type { Mode, TabletopObject } from '../domain/types';
 import { currentTable, useTableStore } from '../state/tableStore';
-import { dropObject, flipCard, flipDeckCard, incrementCounter, pickOnTable, rollDie, runButton, toggleCheckbox } from '../canvas/actions';
+import {
+  dropObject,
+  flipCard,
+  flipDeckCard,
+  incrementCounter,
+  pickOnTable,
+  resetTimer,
+  rollDie,
+  runButton,
+  toggleCheckbox,
+  toggleTimer,
+} from '../canvas/actions';
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
 import { ObjectVisual } from './visuals';
@@ -247,6 +258,11 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
           mode={mode}
           pressed={pressed}
           onStep={(d) => (useTableStore.getState().picking ? pickOnTable([o.id], 'toggle') : incrementCounter(o.id, d))}
+          onTimer={(a) => {
+            if (useTableStore.getState().picking) pickOnTable([o.id], 'toggle');
+            else if (a === 'toggle') toggleTimer(o.id);
+            else resetTimer(o.id);
+          }}
         />
       </Group>
       {focused && (

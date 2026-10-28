@@ -32,8 +32,9 @@ import {
   tokensTakenFrom,
 } from '../domain/rules';
 import { newId } from '../domain/ids';
+import { timerToggleCommand } from '../domain/timer';
 import type { Command } from '../domain/commands';
-import type { DrawSide, HolderLayout, HoverZoom, ObjectKind, TabletopObject, Vec2 } from '../domain/types';
+import type { DrawSide, HolderLayout, HoverZoom, ObjectKind, TabletopObject, TokenShape, Vec2 } from '../domain/types';
 import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { pickDialog, promptDialog, toast, type PickableItem } from '../state/uiStore';
 import { screenToWorld } from '../domain/camera';
@@ -121,6 +122,16 @@ export function flipCard(id: string): void {
 export function toggleCheckbox(id: string, checked?: boolean): void {
   const o = find(id);
   if (o?.kind === 'checkbox') useTableStore.getState().dispatch({ type: 'UpdateObject', id, patch: { checked: checked ?? !o.checked } });
+}
+
+/** Starts, pauses or (when a countdown ran out) restarts a timer. */
+export function toggleTimer(id: string): void {
+  const o = find(id);
+  if (o?.kind === 'timer') useTableStore.getState().dispatch(timerToggleCommand(o, Date.now()));
+}
+
+export function resetTimer(id: string): void {
+  if (find(id)?.kind === 'timer') useTableStore.getState().dispatch({ type: 'ResetTimer', id });
 }
 
 export function rotateBy(id: string, degrees: number): void {
@@ -467,7 +478,10 @@ export function viewportCenterWorld(): Vec2 {
  * Adds an object at the centre of the view, or centred on `center` (world point, e.g. where a palette tile was
  * dropped). `withCards` fills a holder with a standard 52-card deck.
  */
-export async function addObject(kind: ObjectKind, opts: { assetId?: string; withCards?: boolean; center?: Vec2 } = {}): Promise<string> {
+export async function addObject(
+  kind: ObjectKind,
+  opts: { assetId?: string; withCards?: boolean; center?: Vec2; tokenShape?: TokenShape } = {},
+): Promise<string> {
   const { dispatch, select } = useTableStore.getState();
   const center = opts.center ?? viewportCenterWorld();
   const obj = createObject(kind, { center, zIndex: maxZ(currentTable().objects) + 1 });
@@ -475,6 +489,10 @@ export async function addObject(kind: ObjectKind, opts: { assetId?: string; with
     obj.cards = standardDeck();
     obj.initialCards = [...obj.cards];
     obj.name = 'Deck';
+  }
+  if (obj.kind === 'token' && opts.tokenShape) {
+    obj.shape = opts.tokenShape;
+    obj.name = opts.tokenShape[0].toUpperCase() + opts.tokenShape.slice(1);
   }
   if (opts.assetId && (obj.kind === 'board' || obj.kind === 'image' || obj.kind === 'token')) {
     obj.assetId = opts.assetId;

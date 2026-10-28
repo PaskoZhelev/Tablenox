@@ -18,7 +18,14 @@ import { ContextMenu, SelectionBar } from './SelectionBar';
 import { getObjectActions, hasObjectControls } from './objectActions';
 import { HoverPreview } from './HoverPreview';
 import { FlashOutline } from './FlashOutline';
-import { cardIndexAt, drawCardCommand, drawRandomFromBagCommand, splitTokensCommand, takeStackCommand } from '../domain/rules';
+import {
+  cardIndexAt,
+  drawCardCommand,
+  drawRandomFromBagCommand,
+  effectiveHoverZoom,
+  splitTokensCommand,
+  takeStackCommand,
+} from '../domain/rules';
 import type { Command } from '../domain/commands';
 import { resetDoubleClick } from './doubleClick';
 import { Grid } from './Grid';
@@ -553,7 +560,18 @@ export function TableCanvas() {
       const s = useTableStore.getState();
       if (!stage || touches.current.size !== 1 || s.draggingId || s.tool !== 'select' || s.editingText) return;
       const screen = local(start);
-      if (!openMenuAt(stage.getIntersection(screen) ?? stage, screen)) return;
+      const target = stage.getIntersection(screen) ?? stage;
+      // A held card with "Zoom on hover" (its own or its deck's) shows enlarged until the finger lifts, instead of the menu.
+      const node = findObjectNode(target);
+      const card = node ? currentTable().objects.find((o) => o.id === node.id()) : undefined;
+      if (!s.picking && card?.kind === 'card' && effectiveHoverZoom(currentTable(), card) !== 'off') {
+        cancelGesture();
+        suppressTaps();
+        s.setContextMenu(null);
+        s.setPressPreview(card.id);
+        return;
+      }
+      if (!openMenuAt(target, screen)) return;
       cancelGesture();
       suppressTaps();
     };
@@ -599,6 +617,7 @@ export function TableCanvas() {
     const up = (e: PointerEvent) => {
       if (!touches.current.delete(e.pointerId)) return;
       cancelLongPress();
+      if (touches.current.size === 0) useTableStore.getState().setPressPreview(null);
       pinch.current = touches.current.size >= 2 ? pinchPoint() : null;
     };
     // Stops compatibility mouse events, the iOS callout and double-tap zoom on the table (Konva does this for shapes).

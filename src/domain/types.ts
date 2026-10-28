@@ -135,7 +135,20 @@ export interface DeckObject extends BaseObject {
   cardHeight?: number;
 }
 
-export type TokenShape = 'circle' | 'square' | 'triangle' | 'star' | 'hexagon';
+export const TOKEN_SHAPES = [
+  'circle',
+  'square',
+  'triangle',
+  'star',
+  'hexagon',
+  'diamond',
+  'heart',
+  'pawn',
+  'meeple',
+  'cube',
+  'cylinder',
+] as const;
+export type TokenShape = (typeof TOKEN_SHAPES)[number];
 
 export interface TokenObject extends BaseObject {
   kind: 'token';
@@ -212,6 +225,32 @@ export interface CheckboxObject extends BaseObject {
   /** Box background; null means transparent. */
   boxFill: string | null;
 }
+
+export type TimerMode = 'countdown' | 'stopwatch';
+
+/**
+ * A countdown or stopwatch. Its run state is stored (`startedAt` / `elapsedMs`), so a running timer keeps
+ * counting across reloads; start, pause and reset are ordinary commands.
+ */
+export interface TimerObject extends BaseObject {
+  kind: 'timer';
+  /** Shown above the time; empty = none. */
+  label: string;
+  mode: TimerMode;
+  /** Countdown length in seconds. */
+  duration: number;
+  color: string;
+  textColor: string;
+  /** Milliseconds counted before the current run (all of it while paused). */
+  elapsedMs: number;
+  /** When the current run started (epoch ms); missing while paused. */
+  startedAt?: number;
+  /** Beep when a countdown runs out. */
+  sound: boolean;
+}
+
+/** Longest countdown: 99:59:59. */
+export const MAX_TIMER_SECONDS = 359999;
 
 /** What a bag can hold: loose pieces (and piles), never boards, buttons, holders or other bags. */
 export type BagItem = CardObject | DeckObject | TokenObject | CounterObject | DieObject | LabelObject | ImageObject;
@@ -313,7 +352,17 @@ export interface CheckStep extends StepBase {
   mode: CheckMode;
 }
 
-export type ButtonStep = MoveStep | RecallStep | RotateStep | FlipStep | ShuffleStep | SortStep | RollStep | CounterStep | CheckStep;
+/** `start` also begins a new countdown when one ran out; `restart` = reset, then start. */
+export type TimerStepMode = 'start' | 'pause' | 'toggle' | 'reset' | 'restart';
+
+/** Starts, pauses, resets or restarts timers. */
+export interface TimerStep extends StepBase {
+  type: 'timer';
+  mode: TimerStepMode;
+}
+
+export type ButtonStep =
+  MoveStep | RecallStep | RotateStep | FlipStep | ShuffleStep | SortStep | RollStep | CounterStep | CheckStep | TimerStep;
 export type StepType = ButtonStep['type'];
 
 /** An automation button: clicking it in Play mode runs its steps in order, as one undo step. */
@@ -338,7 +387,8 @@ export type TabletopObject =
   | LabelObject
   | ButtonObject
   | BagObject
-  | CheckboxObject;
+  | CheckboxObject
+  | TimerObject;
 
 export type ObjectKind = TabletopObject['kind'];
 

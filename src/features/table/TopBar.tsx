@@ -269,7 +269,7 @@ export function TopBar({
                 setUi({ uiHidden: true });
               }}
             >
-              <Icon name="maximize" size={16} /> Hide interface <kbd>U</kbd>
+              <Icon name="eyeOff" size={16} /> Hide interface <kbd>U</kbd>
             </button>
             <button
               type="button"

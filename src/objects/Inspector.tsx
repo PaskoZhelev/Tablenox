@@ -13,6 +13,7 @@ import {
   pickDieFace,
   recallToBag,
   resetDeck,
+  resetTimer,
   returnPileToHolders,
   rollDie,
   setHoverRotate,
@@ -21,6 +22,7 @@ import {
   shuffleDeck,
   takeFromBag,
   toggleLockMany,
+  toggleTimer,
 } from '../canvas/actions';
 import type { ObjectPatch, ZOrderDirection } from '../domain/commands';
 import { numberedDeck, standardDeck } from '../domain/cards';
@@ -41,6 +43,7 @@ import {
   cardGroups,
   MAX_CARD_COPIES,
   moveCardGroup,
+  setAllCardCopies,
   setCardCopies,
   sortByZ,
   tokenCount,
@@ -65,6 +68,8 @@ import {
   DIE_SIDES,
   HOVER_ZOOM_SIZES,
   MAX_TOKEN_STACK,
+  MAX_TIMER_SECONDS,
+  TOKEN_SHAPES,
   type BagItem,
   type BagObject,
   type CardDef,
@@ -259,36 +264,58 @@ async function fitToImage(o: TabletopObject, assetId: string | undefined, update
   }
 }
 
-/** Number of copies of a card-list row; commits on Enter / leaving the field, so typing "12" doesn't pass through 1. */
+/**
+ * Number of copies of a card-list row: − / + (and the ↑ / ↓ keys) change it at once; typed numbers commit on Enter /
+ * leaving the field, so typing "12" doesn't pass through 1.
+ */
 function CopiesInput({ value, label, onCommit }: { value: number; label: string; onCommit: (n: number) => void }) {
-  const [text, setText] = useState(String(value));
-  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const set = (n: number) => {
+    const next = Math.max(1, Math.min(MAX_CARD_COPIES, Math.round(n)));
+    if (next !== value) onCommit(next);
+  };
   const commit = () => {
-    setEditing(false);
-    const n = Math.round(Number(text));
-    if (Number.isFinite(n) && n >= 1 && n !== value) onCommit(Math.min(MAX_CARD_COPIES, n));
-    else setText(String(value));
+    if (draft === null) return;
+    const n = Number(draft);
+    setDraft(null);
+    if (draft.trim() !== '' && Number.isFinite(n) && n >= 1) set(n);
   };
   return (
-    <label className="card-def-copies" title="Number of copies of this card in the deck">
-      <span aria-hidden="true">×</span>
+    <span className="card-def-copies" title="Number of copies of this card in the deck">
+      <button
+        type="button"
+        className="btn btn-small btn-icon"
+        aria-label={`Fewer ${label.toLowerCase()}`}
+        disabled={value <= 1}
+        onClick={() => set(value - 1)}
+      >
+        <Icon name="minus" size={12} />
+      </button>
       <input
-        type="number"
-        min={1}
-        max={MAX_CARD_COPIES}
+        inputMode="numeric"
         aria-label={label}
-        value={editing ? text : String(value)}
-        onFocus={() => {
-          setText(String(value));
-          setEditing(true);
-        }}
-        onChange={(e) => setText(e.target.value)}
+        value={draft ?? String(value)}
+        onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
+          else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            setDraft(null);
+            set(value + (e.key === 'ArrowUp' ? 1 : -1));
+          }
         }}
       />
-    </label>
+      <button
+        type="button"
+        className="btn btn-small btn-icon"
+        aria-label={`More ${label.toLowerCase()}`}
+        disabled={value >= MAX_CARD_COPIES}
+        onClick={() => set(value + 1)}
+      >
+        <Icon name="plus" size={12} />
+      </button>
+    </span>
   );
 }
 
@@ -342,14 +369,25 @@ const CardDefRow = memo(function CardDefRow({
           <Icon name="chevronDown" size={12} />
         </button>
       </span>
-      <input aria-label={`Card ${index + 1} name`} value={def.name} onChange={(e) => onChange({ name: e.target.value })} />
       <input
-        aria-label={`Card ${index + 1} face text`}
-        className="card-def-text"
-        value={def.faceText}
-        placeholder="text"
-        onChange={(e) => onChange({ faceText: e.target.value })}
+        aria-label={`Card ${index + 1} name`}
+        className="card-def-name"
+        title="Card name (shown when picking a card, used by Sort by name)"
+        placeholder="name"
+        value={def.name}
+        onChange={(e) => onChange({ name: e.target.value })}
       />
+      {/* Text is only drawn on cards without a face image. */}
+      {!def.faceAssetId && (
+        <input
+          aria-label={`Card ${index + 1} face text`}
+          className="card-def-text"
+          title="Text printed on the card"
+          value={def.faceText}
+          placeholder="text"
+          onChange={(e) => onChange({ faceText: e.target.value })}
+        />
+      )}
       <FileButton
         label={def.faceAssetId ? '✓' : ''}
         ariaLabel={`${def.faceAssetId ? 'Replace' : 'Upload'} face image for card ${index + 1}`}
@@ -554,6 +592,25 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
           </button>
           <button
             type="button"
+            className="btn btn-small"
+            disabled={o.initialCards.length === 0}
+            title="Set the number of copies of every card at once"
+            onClick={async () => {
+              const v = await promptDialog({
+                title: 'Copies of every card',
+                label: `Number of copies of each of the ${rows.length} different cards (1–${MAX_CARD_COPIES})`,
+                defaultValue: String(rows[0]?.length ?? 1),
+              });
+              const n = v === null ? NaN : Math.round(Number(v));
+              if (!Number.isFinite(n) || n < 1) return;
+              const next = setAllCardCopies(o, Math.min(MAX_CARD_COPIES, n));
+              if (next) update(next);
+            }}
+          >
+            Copies of all…
+          </button>
+          <button
+            type="button"
             className="btn btn-small btn-danger"
             disabled={o.initialCards.length === 0}
             onClick={async () => {
@@ -592,7 +649,10 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
           </ol>
         )}
         {showList && rows.length > 0 && (
-          <p className="hint">× is the number of copies of a card in the deck (e.g. 12 of one image, 10 of another).</p>
+          <p className="hint">
+            The number with − / + is how many copies of a card are in the deck (e.g. 12 of one image, 10 of another);{' '}
+            <em>Copies of all…</em> sets it for every card at once. Face text is only shown on cards without an image.
+          </p>
         )}
       </div>
       <div className="inspector-subsection" role="group" aria-label="Backs">
@@ -1061,10 +1121,7 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
           <SelectField
             label="Shape"
             value={o.shape}
-            options={(['circle', 'square', 'triangle', 'star', 'hexagon'] as const).map((s) => ({
-              value: s,
-              label: s[0].toUpperCase() + s.slice(1),
-            }))}
+            options={TOKEN_SHAPES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))}
             onChange={(shape) => update({ shape })}
           />
           <ColorField label="Colour" value={o.color} onChange={(color) => update({ color }, `color:${o.id}`)} />
@@ -1098,6 +1155,49 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
       );
     case 'die':
       return <DieEditor o={o} update={update} />;
+    case 'timer': {
+      const minutes = Math.floor(o.duration / 60);
+      const seconds = o.duration % 60;
+      const setDuration = (m: number, s: number) =>
+        update({ duration: Math.max(0, Math.min(MAX_TIMER_SECONDS, Math.round(m) * 60 + Math.round(s))) });
+      return (
+        <Section title="Timer">
+          <TextField label="Label" value={o.label} onCommit={(label) => update({ label })} />
+          <SelectField
+            label="Type"
+            value={o.mode}
+            options={[
+              { value: 'countdown', label: 'Countdown' },
+              { value: 'stopwatch', label: 'Stopwatch (counts up)' },
+            ]}
+            onChange={(mode) => update({ mode })}
+          />
+          {o.mode === 'countdown' && (
+            <>
+              <div className="field-grid">
+                <NumberField label="Minutes" value={minutes} min={0} max={5999} onCommit={(m) => setDuration(m ?? 0, seconds)} />
+                <NumberField label="Seconds" value={seconds} min={0} max={59} onCommit={(s) => setDuration(minutes, s ?? 0)} />
+              </div>
+              <CheckboxField label="Beep when it runs out" checked={o.sound} onChange={(sound) => update({ sound })} />
+            </>
+          )}
+          <ColorField label="Colour" value={o.color} onChange={(color) => update({ color }, `color:${o.id}`)} />
+          <ColorField label="Text colour" value={o.textColor} onChange={(textColor) => update({ textColor }, `text:${o.id}`)} />
+          <div className="button-row">
+            <button type="button" className="btn btn-small" onClick={() => toggleTimer(o.id)}>
+              <Icon name={o.startedAt === undefined ? 'play' : 'pause'} size={14} /> {o.startedAt === undefined ? 'Start' : 'Pause'}
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => resetTimer(o.id)}>
+              <Icon name="reset" size={14} /> Reset
+            </button>
+          </div>
+          <p className="hint">
+            Use the ▶ / ❚❚ and ↺ buttons on the timer (in Edit and Play mode) to start, pause and reset it. A countdown flashes red at 0:00;
+            starting it again begins a new countdown. A running timer keeps counting while the game is closed.
+          </p>
+        </Section>
+      );
+    }
     case 'button':
       return <ButtonFields o={o} update={update} />;
     case 'label':

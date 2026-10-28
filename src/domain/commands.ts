@@ -33,9 +33,11 @@ import {
   type TableState,
   type TabletopObject,
   type TextAnnotation,
+  type TimerObject,
   type TokenObject,
   type Vec2,
 } from './types';
+import { timerElapsed } from './timer';
 
 type PatchOf<T> = Partial<Omit<T, 'id' | 'kind'>>;
 /** A patch of any object's editable fields. Callers must only pass fields valid for the target kind. */
@@ -49,7 +51,8 @@ export type ObjectPatch = PatchOf<BoardObject> &
   PatchOf<LabelObject> &
   PatchOf<ButtonObject> &
   PatchOf<BagObject> &
-  PatchOf<CheckboxObject>;
+  PatchOf<CheckboxObject> &
+  PatchOf<TimerObject>;
 
 export type ZOrderDirection = 'forward' | 'backward' | 'front' | 'back';
 
@@ -108,6 +111,12 @@ export type Command =
   | { type: 'RecallToBag'; bagId: string }
   | { type: 'IncrementCounter'; id: string; delta: number }
   | { type: 'RollDie'; id: string; value: number }
+  /** Starts a paused timer at time `at` (epoch ms); a countdown that already ran out starts over. */
+  | { type: 'StartTimer'; id: string; at: number }
+  /** Pauses a running timer at time `at`, keeping the time counted so far. */
+  | { type: 'PauseTimer'; id: string; at: number }
+  /** Stops a timer and sets it back to the start. */
+  | { type: 'ResetTimer'; id: string }
   | { type: 'AddStroke'; stroke: InkStroke }
   | { type: 'EraseAnnotations'; strokeIds: string[]; textIds: string[] }
   | { type: 'AddTextAnnotation'; annotation: TextAnnotation }
@@ -693,6 +702,27 @@ export function applyCommand(state: TableState, cmd: Command): TableState {
         if (o.kind !== 'die') return o;
         const value = Math.min(dieFaceCount(o), Math.max(1, Math.round(cmd.value)));
         return { ...o, value, rollCount: o.rollCount + 1 };
+      });
+
+    case 'StartTimer':
+      return mapObject(state, cmd.id, (o) => {
+        if (o.kind !== 'timer' || o.startedAt !== undefined) return o;
+        const elapsedMs = o.mode === 'countdown' && o.elapsedMs >= o.duration * 1000 ? 0 : o.elapsedMs;
+        return { ...o, elapsedMs, startedAt: cmd.at };
+      });
+
+    case 'PauseTimer':
+      return mapObject(state, cmd.id, (o) => {
+        if (o.kind !== 'timer' || o.startedAt === undefined) return o;
+        const { startedAt: _run, ...rest } = o;
+        return { ...rest, elapsedMs: timerElapsed(o, cmd.at) };
+      });
+
+    case 'ResetTimer':
+      return mapObject(state, cmd.id, (o) => {
+        if (o.kind !== 'timer' || (o.startedAt === undefined && o.elapsedMs === 0)) return o;
+        const { startedAt: _run, ...rest } = o;
+        return { ...rest, elapsedMs: 0 };
       });
 
     case 'AddStroke':

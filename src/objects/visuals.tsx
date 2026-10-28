@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
-import { Circle, Group, Image as KImage, Line, Rect, RegularPolygon, Star, Text } from 'react-konva';
+import { Circle, Group, Image as KImage, Line, Path, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import { cardTextColor } from '../domain/cards';
 import {
   bagCount,
@@ -14,6 +14,8 @@ import {
 } from '../domain/objects';
 import { cardRotationOf, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
+import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
+import { beep } from './beep';
 import type {
   BagObject,
   BoardObject,
@@ -27,7 +29,9 @@ import type {
   LabelObject,
   Mode,
   TabletopObject,
+  TimerObject,
   TokenObject,
+  TokenShape,
 } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import { tapsSuppressed } from '../canvas/touch';
@@ -484,32 +488,16 @@ export function TokenVisual({ o }: { o: TokenObject }) {
   const layers = count > 2 ? 2 : 1;
   const badgeH = Math.max(18, Math.min(26, Math.round(Math.min(o.width, o.height) * 0.4)));
   const badgeW = Math.max(badgeH * 1.4, badgeH * 0.6 * String(count).length + badgeH * 0.8);
-  const pad = Math.max(4, Math.round(Math.min(o.width, o.height) * 0.1));
   return (
     <>
-      {o.assetId ? (
-        // Image tokens: the stack is a small dashed zone (like a holder) around the top token, not coloured shapes.
-        <Rect
-          name="token-stack-zone"
-          x={-pad}
-          y={-pad}
-          width={o.width + pad * 2}
-          height={o.height + pad * 2}
-          cornerRadius={6}
-          stroke={DEFAULT_HOLDER_COLOR}
-          strokeWidth={2}
-          dash={[8, 5]}
-          fill="rgba(0,0,0,0.001)"
-        />
-      ) : (
-        // The tokens underneath peek out below the top one.
+      {/* Coloured tokens underneath peek out below the top one; an image token stack shows just the top token and its badge. */}
+      {!o.assetId &&
         Array.from({ length: layers }, (_, i) => (
           <Group key={i} y={(layers - i) * TOKEN_STACK_EDGE} listening={false}>
             <TokenShape o={o} />
             <TokenShape o={o} shadeOnly />
           </Group>
-        ))
-      )}
+        ))}
       <TokenShape o={o} />
       <CountBadge x={o.width - badgeW * 0.6} y={-badgeH * 0.5} count={count} width={badgeW} height={badgeH} />
     </>
@@ -545,10 +533,47 @@ function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
       return <Star x={w / 2} y={h / 2} numPoints={5} innerRadius={r * 0.45} outerRadius={r} {...common} />;
     case 'hexagon':
       return <RegularPolygon x={w / 2} y={h / 2} sides={6} radius={r} {...common} />;
-    default:
+    case 'circle':
       return <Circle x={w / 2} y={h / 2} radius={r} {...common} />;
+    default: {
+      const scale = { scaleX: w / 100, scaleY: h / 100, strokeScaleEnabled: false };
+      const outline = <Path data={TOKEN_PATHS[o.shape].outline} {...scale} {...common} />;
+      const detail = TOKEN_PATHS[o.shape].detail;
+      if (shadeOnly || !detail) return outline;
+      // Faces of a cube / the top of a cylinder: darker overlays and edges so they read as 3D pieces.
+      return (
+        <Group>
+          {outline}
+          <Path data={detail} {...scale} fill="rgba(0,0,0,0.18)" stroke={stroke} strokeWidth={1.5} listening={false} />
+        </Group>
+      );
+    }
   }
 }
+
+/** Outlines of the figure-like token shapes in a 100 × 100 box (scaled to the token), with optional shaded detail. */
+const TOKEN_PATHS: Record<
+  Exclude<TokenShape, 'circle' | 'square' | 'triangle' | 'star' | 'hexagon'>,
+  { outline: string; detail?: string }
+> = {
+  diamond: { outline: 'M50 2 L94 50 L50 98 L6 50 Z' },
+  heart: {
+    outline: 'M50 92 C20 70 4 52 4 32 C4 16 16 6 30 6 C40 6 46 12 50 20 C54 12 60 6 70 6 C84 6 96 16 96 32 C96 52 80 70 50 92 Z',
+  },
+  pawn: {
+    outline:
+      'M50 6 A16 16 0 0 1 61 33.5 L58 38 H66 V44 H59 C60 60 66 74 78 82 L80 84 V96 H20 V84 L22 82 C34 74 40 60 41 44 H34 V38 H42 L39 33.5 A16 16 0 0 1 50 6 Z',
+  },
+  meeple: {
+    outline:
+      'M50 4 C60 4 66 11 66 21 C66 27 63 31 60 34 C72 36 92 40 96 48 C99 55 92 60 80 58 L68 56 C70 66 76 80 86 94 C88 97 86 98 82 98 H62 C58 98 56 96 54 92 L50 82 L46 92 C44 96 42 98 38 98 H18 C14 98 12 97 14 94 C24 80 30 66 32 56 L20 58 C8 60 1 55 4 48 C8 40 28 36 40 34 C37 31 34 27 34 21 C34 11 40 4 50 4 Z',
+  },
+  cube: { outline: 'M50 4 L92 27 V73 L50 96 L8 73 V27 Z', detail: 'M50 50 L92 27 V73 L50 96 Z M8 27 L50 50' },
+  cylinder: {
+    outline: 'M6 28 A44 18 0 0 1 94 28 V72 A44 18 0 0 1 6 72 Z',
+    detail: 'M6 28 A44 18 0 0 0 94 28 V72 A44 18 0 0 1 6 72 Z',
+  },
+};
 
 function CounterButton({ x, y, size, label, onClick }: { x: number; y: number; size: number; label: string; onClick: () => void }) {
   return (
@@ -895,15 +920,173 @@ export function CheckboxVisual({ o }: { o: CheckboxObject }) {
   );
 }
 
+export type TimerAction = 'toggle' | 'reset';
+
+/** Icons of the timer's on-table buttons, in a 24 × 24 box. */
+const TIMER_ICONS = {
+  play: { data: 'M7 4l13 8-13 8z', filled: true },
+  pause: { data: 'M7 4h3v16H7zM14 4h3v16h-3z', filled: true },
+  reset: { data: 'M1 4v6h6M3.5 15a9 9 0 102.1-9.4L1 10', filled: false },
+};
+
+function TimerButton({
+  x,
+  y,
+  size,
+  icon,
+  onClick,
+}: {
+  x: number;
+  y: number;
+  size: number;
+  icon: keyof typeof TIMER_ICONS;
+  onClick: () => void;
+}) {
+  const { data, filled } = TIMER_ICONS[icon];
+  const s = (size * 0.5) / 24;
+  return (
+    <Group
+      x={x}
+      y={y}
+      name={`ui-button timer-${icon}`}
+      onClick={(e) => {
+        e.cancelBubble = true;
+        if (e.evt.button === 0) onClick();
+      }}
+      onTap={(e) => {
+        e.cancelBubble = true;
+        if (!tapsSuppressed()) onClick();
+      }}
+    >
+      <Circle name="ui-button" radius={size / 2} fill="#eef1f5" stroke="#9aa4b2" strokeWidth={1.5} />
+      <Path
+        name="ui-button"
+        data={data}
+        x={-12 * s}
+        y={-12 * s}
+        scaleX={s}
+        scaleY={s}
+        fill={filled ? '#1f2937' : undefined}
+        stroke="#1f2937"
+        strokeWidth={filled ? 0 : 2.5}
+        lineCap="round"
+        lineJoin="round"
+        strokeScaleEnabled={false}
+      />
+    </Group>
+  );
+}
+
+/** Current time, refreshed a few times a second while `active`. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(t);
+  }, [active]);
+  return now;
+}
+
+/** Runs (`id:startedAt`) that already beeped, so copies of a timer's visual (drag shadow) beep only once. */
+const beepedRuns = new Set<string>();
+
+/** Timer: the time left (countdown) or counted (stopwatch), with start / pause and reset buttons; it flashes red at 0:00. */
+export function TimerVisual({ o, onTimer }: { o: TimerObject; onTimer: (action: TimerAction) => void }) {
+  const running = isTimerRunning(o);
+  const now = useNow(running);
+  const finished = timerFinished(o, now);
+  const wasFinished = useRef(finished);
+  useEffect(() => {
+    const was = wasFinished.current;
+    wasFinished.current = finished;
+    // Only a countdown seen running out here beeps (not one that had already run out when the table opened).
+    if (!finished || was || !running || !o.sound) return;
+    const key = `${o.id}:${o.startedAt}`;
+    if (beepedRuns.has(key)) return;
+    beepedRuns.add(key);
+    beep();
+  }, [finished, running, o.sound, o.id, o.startedAt]);
+
+  const w = o.width;
+  const h = o.height;
+  const pad = Math.min(w, h) * 0.08;
+  const btn = Math.min(h * 0.38, w * 0.2);
+  const textW = w - btn - pad * 3;
+  const labelH = o.label ? Math.min(18, h * 0.22) : 0;
+  const text = timerText(o, now);
+  const fontSize = Math.max(8, Math.min((h - labelH) * 0.62, textW / (text.length * 0.62)));
+  const alarm = finished && (!running || Math.floor(now / 500) % 2 === 0);
+  return (
+    <>
+      <Rect
+        width={w}
+        height={h}
+        cornerRadius={10}
+        fill={alarm ? '#c62828' : o.color}
+        stroke="#9aa4b2"
+        strokeWidth={1.5}
+        shadowColor="#000"
+        shadowBlur={4}
+        shadowOpacity={0.2}
+        shadowOffsetY={1}
+      />
+      {o.label && (
+        <Text
+          x={pad}
+          y={pad * 0.6}
+          width={textW}
+          height={labelH}
+          text={o.label}
+          align="center"
+          verticalAlign="middle"
+          fontFamily={FONT}
+          fontSize={labelH * 0.8}
+          fill={alarm ? '#ffffff' : o.textColor}
+          opacity={0.8}
+          ellipsis
+          wrap="none"
+          listening={false}
+        />
+      )}
+      <Text
+        name="timer-text"
+        x={pad}
+        y={labelH}
+        width={textW}
+        height={h - labelH}
+        text={text}
+        align="center"
+        verticalAlign="middle"
+        fontFamily={FONT}
+        fontStyle="bold"
+        fontSize={fontSize}
+        fill={alarm ? '#ffffff' : o.textColor}
+        listening={false}
+      />
+      <TimerButton
+        x={w - pad - btn / 2}
+        y={h / 2 - btn * 0.56}
+        size={btn}
+        icon={running && !finished ? 'pause' : 'play'}
+        onClick={() => onTimer('toggle')}
+      />
+      <TimerButton x={w - pad - btn / 2} y={h / 2 + btn * 0.56} size={btn} icon="reset" onClick={() => onTimer('reset')} />
+    </>
+  );
+}
+
 export function ObjectVisual({
   o,
   mode,
   onStep,
+  onTimer,
   pressed,
 }: {
   o: TabletopObject;
   mode: Mode;
   onStep?: (d: 1 | -1) => void;
+  onTimer?: (action: TimerAction) => void;
   pressed?: boolean;
 }) {
   switch (o.kind) {
@@ -929,6 +1112,8 @@ export function ObjectVisual({
       return <BagVisual o={o} />;
     case 'checkbox':
       return <CheckboxVisual o={o} />;
+    case 'timer':
+      return <TimerVisual o={o} onTimer={onTimer ?? (() => {})} />;
   }
 }
 

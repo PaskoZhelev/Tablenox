@@ -39,9 +39,11 @@ import type {
   StepType,
   TableState,
   TabletopObject,
+  TimerStep,
 } from './types';
+import { timerFinished } from './timer';
 
-export const STEP_TYPES: StepType[] = ['move', 'recall', 'rotate', 'flip', 'shuffle', 'sort', 'roll', 'counter', 'check'];
+export const STEP_TYPES: StepType[] = ['move', 'recall', 'rotate', 'flip', 'shuffle', 'sort', 'roll', 'counter', 'check', 'timer'];
 
 export const STEP_LABELS: Record<StepType, string> = {
   move: 'Move objects',
@@ -53,6 +55,7 @@ export const STEP_LABELS: Record<StepType, string> = {
   roll: 'Roll dice',
   counter: 'Change counter',
   check: 'Check boxes',
+  timer: 'Timer',
 };
 
 export const MAX_STEPS = 100;
@@ -119,6 +122,8 @@ export function createStep(type: StepType): ButtonStep {
       return { ...base, type, mode: 'add', amount: 1 };
     case 'check':
       return { ...base, type, mode: 'toggle' };
+    case 'timer':
+      return { ...base, type, mode: 'start' };
     case 'recall':
     case 'shuffle':
     case 'roll':
@@ -135,6 +140,7 @@ const STEP_KINDS: Partial<Record<StepType, ObjectKind[]>> = {
   roll: ['die', 'deck'],
   counter: ['counter', 'deck'],
   check: ['checkbox', 'board', 'deck'],
+  timer: ['timer'],
 };
 
 export function stepAcceptsObject(type: StepType, o: TabletopObject): boolean {
@@ -556,7 +562,43 @@ function planCheck(plan: Plan, step: CheckStep): void {
   }
 }
 
-function planStep(plan: Plan, step: ButtonStep, random: RandomSource): void {
+function planTimer(plan: Plan, step: TimerStep, now: number): void {
+  for (const o of resolveTargets(plan.state, step.objectIds)) {
+    if (o.kind !== 'timer') continue;
+    const running = o.startedAt !== undefined;
+    const finished = timerFinished(o, now);
+    const start = () => plan.emit({ type: 'StartTimer', id: o.id, at: now });
+    const reset = () => plan.emit({ type: 'ResetTimer', id: o.id });
+    switch (step.mode) {
+      case 'start':
+        // A countdown that ran out starts over; a running one keeps going.
+        if (finished) {
+          reset();
+          start();
+        } else if (!running) start();
+        break;
+      case 'pause':
+        if (running) plan.emit({ type: 'PauseTimer', id: o.id, at: now });
+        break;
+      case 'toggle':
+        if (finished) {
+          reset();
+          start();
+        } else if (running) plan.emit({ type: 'PauseTimer', id: o.id, at: now });
+        else start();
+        break;
+      case 'reset':
+        reset();
+        break;
+      case 'restart':
+        reset();
+        start();
+        break;
+    }
+  }
+}
+
+function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: number): void {
   switch (step.type) {
     case 'move':
       return planMove(plan, step);
@@ -581,16 +623,23 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource): void {
       return planCounter(plan, step);
     case 'check':
       return planCheck(plan, step);
+    case 'timer':
+      return planTimer(plan, step, now);
   }
 }
 
 /**
- * The command that runs a button's steps in order, or null when nothing would change. Randomness and new
- * object ids are decided here, so the returned command replays deterministically.
+ * The command that runs a button's steps in order, or null when nothing would change. Randomness, the time
+ * (`now`, for timers) and new object ids are decided here, so the returned command replays deterministically.
  */
-export function planButton(state: TableState, button: ButtonObject, random: RandomSource = secureRandomSource): Command | null {
+export function planButton(
+  state: TableState,
+  button: ButtonObject,
+  random: RandomSource = secureRandomSource,
+  now: number = Date.now(),
+): Command | null {
   const plan = new Plan(state);
-  for (const step of button.steps) planStep(plan, step, random);
+  for (const step of button.steps) planStep(plan, step, random, now);
   if (plan.state === state || plan.commands.length === 0) return null;
   return { type: 'Batch', commands: plan.commands };
 }
@@ -615,7 +664,7 @@ export function describeStep(state: TableState, step: ButtonStep): string {
       const to = step.targetIds.length ? describeObjects(state, step.targetIds) : 'no destination';
       const n = step.count;
       const subject = n === undefined ? what : `${step.deckMode} ${n} card${n === 1 ? '' : 's'} of ${what}`;
-      if (step.targetIds.length > 1) return n === undefined ? `Deal ${what} among ${to}` : `Deal ${subject} to each of ${to}`;
+      if (step.targetIds.length > 1) return n === undefined ? `Move ${what} to ${to} in turn` : `Move ${subject} to each of ${to}`;
       return `Move ${subject} to ${to}`;
     }
     case 'recall': {
@@ -647,5 +696,15 @@ export function describeStep(state: TableState, step: ButtonStep): string {
       return step.mode === 'add' ? `Change ${what} by ${step.amount}` : `Set ${what} to ${step.amount}`;
     case 'check':
       return step.mode === 'toggle' ? `Toggle ${what}` : step.mode === 'check' ? `Check ${what}` : `Uncheck ${what}`;
+    case 'timer':
+      return `${TIMER_STEP_VERBS[step.mode]} ${what}`;
   }
 }
+
+const TIMER_STEP_VERBS: Record<TimerStep['mode'], string> = {
+  start: 'Start',
+  pause: 'Pause',
+  toggle: 'Start or pause',
+  reset: 'Reset',
+  restart: 'Restart',
+};

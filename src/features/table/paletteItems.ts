@@ -2,7 +2,7 @@ import type { DragEvent } from 'react';
 import type { IconName } from '../../components/Icon';
 import { addObject } from '../../canvas/actions';
 import { screenToWorld } from '../../domain/camera';
-import type { ObjectKind, Vec2 } from '../../domain/types';
+import type { ObjectKind, TokenShape, Vec2 } from '../../domain/types';
 import { useTableStore } from '../../state/tableStore';
 
 export interface PaletteItem {
@@ -12,6 +12,8 @@ export interface PaletteItem {
   hint: string;
   kind: ObjectKind;
   withCards?: boolean;
+  /** Shape of a token tile's token (also its name). */
+  tokenShape?: TokenShape;
   /** Asks for an image file first (can't be dragged onto the table). */
   file?: 'board' | 'image';
 }
@@ -42,9 +44,12 @@ export const PALETTE_GROUPS: { title: string; items: PaletteItem[] }[] = [
     title: 'Pieces',
     items: [
       { id: 'token', kind: 'token', label: 'Token', icon: 'token', hint: 'A coloured piece or image token' },
+      { id: 'pawn', kind: 'token', label: 'Pawn', icon: 'pawn', hint: 'A pawn-shaped token', tokenShape: 'pawn' },
+      { id: 'meeple', kind: 'token', label: 'Meeple', icon: 'meeple', hint: 'A meeple-shaped token', tokenShape: 'meeple' },
       { id: 'die', kind: 'die', label: 'Die', icon: 'dice', hint: 'A d4–d20 die, or one with custom faces' },
       { id: 'counter', kind: 'counter', label: 'Counter', icon: 'counter', hint: 'A number with − / + buttons' },
       { id: 'checkbox', kind: 'checkbox', label: 'Checkbox', icon: 'checkbox', hint: 'Checked / unchecked with a click in Play mode' },
+      { id: 'timer', kind: 'timer', label: 'Timer', icon: 'timer', hint: 'A countdown or stopwatch: start, pause and reset' },
       { id: 'bag', kind: 'bag', label: 'Bag', icon: 'bag', hint: 'Holds cards, tokens, dice… out of sight: shuffle, draw and recall' },
     ],
   },
@@ -81,7 +86,7 @@ export async function addPaletteItem(item: PaletteItem, center?: Vec2) {
     document.getElementById(`add-${item.file}-input`)?.click();
     return;
   }
-  await addObject(item.kind, { withCards: item.withCards, center });
+  await addObject(item.kind, { withCards: item.withCards, center, tokenShape: item.tokenShape });
   closeUnlessPinned();
 }
 

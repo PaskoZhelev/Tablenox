@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 type StoreState = {
   camera: { x: number; y: number; scale: number };
@@ -29,6 +29,33 @@ export async function objectScreenPos(page: Page, name: string): Promise<{ x: nu
     return { x: (o.position.x + o.width / 2) * c.scale + c.x, y: (o.position.y + o.height / 2) * c.scale + c.y };
   }, name);
   return { x: box.x + p.x, y: box.y + p.y };
+}
+
+/**
+ * Adds an object (found by name or id) to the open automation step's object list by clicking it on the table:
+ * centres the camera on it (left of the automations panel), then Pick on table → click → Done picking.
+ */
+export async function pickStepObject(page: Page, panel: Locator, nameOrId: string): Promise<void> {
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const p = await page.evaluate((key) => {
+    const s = (
+      window as unknown as {
+        __tablenoxStore: {
+          getState(): StoreState & { viewport: { width: number; height: number }; setCamera(c: StoreState['camera']): void };
+        };
+      }
+    ).__tablenoxStore.getState();
+    const o = s.history.present.objects.find((x) => x.id === key || x.name === key) as
+      { position: { x: number; y: number }; width: number; height: number } | undefined;
+    if (!o) throw new Error(`No object ${key}`);
+    const target = { x: s.viewport.width * 0.3, y: s.viewport.height / 2 };
+    const scale = s.camera.scale;
+    s.setCamera({ scale, x: target.x - (o.position.x + o.width / 2) * scale, y: target.y - (o.position.y + o.height / 2) * scale });
+    return target;
+  }, nameOrId);
+  await panel.getByRole('button', { name: 'Pick on table' }).click();
+  await page.mouse.click(box.x + p.x, box.y + p.y);
+  await panel.getByRole('button', { name: 'Done picking' }).click();
 }
 
 export async function worldToPage(page: Page, wx: number, wy: number) {

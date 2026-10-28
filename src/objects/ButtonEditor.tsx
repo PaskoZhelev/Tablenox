@@ -3,17 +3,8 @@ import { Icon, type IconName } from '../components/Icon';
 import { CheckboxField, ColorField, NumberField, SelectField, TextField } from '../components/fields';
 import { focusObject, runButton } from '../canvas/actions';
 import type { ObjectPatch } from '../domain/commands';
-import {
-  buttonMaxFontSize,
-  canPick,
-  createStep,
-  describeStep,
-  MAX_STEPS,
-  STEP_LABELS,
-  STEP_TYPES,
-  type PickField,
-} from '../domain/buttons';
-import { displayName, kindLabel, sortByZ } from '../domain/objects';
+import { buttonMaxFontSize, createStep, describeStep, MAX_STEPS, STEP_LABELS, STEP_TYPES, type PickField } from '../domain/buttons';
+import { displayName, kindLabel } from '../domain/objects';
 import type { ButtonObject, ButtonStep, MoveStep, ObjectId, StepType, TabletopObject } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 
@@ -29,6 +20,7 @@ const STEP_ICONS: Record<StepType, IconName> = {
   roll: 'dice',
   counter: 'counter',
   check: 'checkbox',
+  timer: 'timer',
 };
 
 const STEP_HINTS: Record<StepType, string> = {
@@ -42,6 +34,8 @@ const STEP_HINTS: Record<StepType, string> = {
   roll: 'Rolls dice (a holder stands for the dice lying on it).',
   counter: 'Changes counters, within their minimum and maximum (a holder stands for the counters lying on it).',
   check: 'Checks, unchecks or toggles checkboxes. A board or holder stands for every checkbox lying on it (e.g. to clear a sheet).',
+  timer:
+    'Starts, pauses, resets or restarts timers (e.g. start a turn timer when the turn begins). Start also begins a new countdown when one ran out.',
 };
 
 const objectLabel = (o: TabletopObject) => (o.name.trim() ? `${o.name} (${kindLabel(o)})` : kindLabel(o));
@@ -91,11 +85,10 @@ function Chip({ id, objects, onRemove }: { id: ObjectId; objects: TabletopObject
   );
 }
 
-/** Chosen objects as removable chips, a "pick on table" toggle and a menu to add more. */
+/** Chosen objects as removable chips and a "pick on table" toggle. */
 function ObjectPicker({
   label,
   ids,
-  candidates,
   allObjects,
   pick,
   onChange,
@@ -103,14 +96,12 @@ function ObjectPicker({
 }: {
   label: string;
   ids: ObjectId[];
-  candidates: TabletopObject[];
   allObjects: TabletopObject[];
   pick: { buttonId: ObjectId; stepId: string };
   onChange: (ids: ObjectId[]) => void;
   /** A move step's "what to move" list, styled apart from its destination. */
   source?: boolean;
 }) {
-  const available = candidates.filter((o) => !ids.includes(o.id));
   return (
     <div className={`field ${source ? 'pick-source' : ''}`}>
       <span className={source ? 'pick-heading' : undefined}>
@@ -125,40 +116,24 @@ function ObjectPicker({
       )}
       <div className="pick-row">
         <PickToggle {...pick} field="objects" />
-        <select
-          aria-label={`Add to ${label}`}
-          value=""
-          disabled={available.length === 0}
-          onChange={(e) => e.target.value && onChange([...ids, e.target.value])}
-        >
-          <option value="">{available.length === 0 ? 'No more objects' : 'Add from list…'}</option>
-          {available.map((o) => (
-            <option key={o.id} value={o.id}>
-              {objectLabel(o)}
-            </option>
-          ))}
-        </select>
       </div>
     </div>
   );
 }
 
-/** A move step's destinations: one or more objects, picked on the table or from the list. */
+/** A move step's destinations: one or more objects, picked on the table. */
 function TargetPicker({
   step,
-  candidates,
   allObjects,
   pick,
   onChange,
 }: {
   step: MoveStep;
-  candidates: TabletopObject[];
   allObjects: TabletopObject[];
   pick: { buttonId: ObjectId; stepId: string };
   onChange: (targetIds: ObjectId[]) => void;
 }) {
   const ids = step.targetIds;
-  const available = candidates.filter((o) => !ids.includes(o.id));
   return (
     <div className="field pick-target">
       <span className="pick-heading">
@@ -173,19 +148,6 @@ function TargetPicker({
       )}
       <div className="pick-row">
         <PickToggle {...pick} field="target" />
-        <select
-          aria-label="Destination from list"
-          value=""
-          disabled={available.length === 0}
-          onChange={(e) => e.target.value && onChange([...ids, e.target.value])}
-        >
-          <option value="">{available.length === 0 ? 'No more objects' : ids.length ? 'Add from list…' : 'Choose from list…'}</option>
-          {available.map((o) => (
-            <option key={o.id} value={o.id}>
-              {objectLabel(o)}
-            </option>
-          ))}
-        </select>
       </div>
       {ids.length > 1 && (
         <p className="hint">Cards are dealt to these destinations in turn (the number below is how many each one gets).</p>
@@ -205,14 +167,12 @@ function StepFields({
   objects: TabletopObject[];
   onChange: (next: ButtonStep) => void;
 }) {
-  const byZ = sortByZ(objects).reverse();
   const pick = { buttonId, stepId: step.id };
   const picker = (
     <ObjectPicker
       label={step.type === 'move' ? 'What to move' : 'Objects'}
       source={step.type === 'move'}
       ids={step.objectIds}
-      candidates={byZ.filter((o) => canPick(step, 'objects', o, buttonId))}
       allObjects={objects}
       pick={pick}
       onChange={(objectIds) => onChange({ ...step, objectIds })}
@@ -223,13 +183,7 @@ function StepFields({
       return (
         <>
           {picker}
-          <TargetPicker
-            step={step}
-            candidates={byZ.filter((o) => canPick(step, 'target', o, buttonId))}
-            allObjects={objects}
-            pick={pick}
-            onChange={(targetIds) => onChange({ ...step, targetIds })}
-          />
+          <TargetPicker step={step} allObjects={objects} pick={pick} onChange={(targetIds) => onChange({ ...step, targetIds })} />
           <NumberField
             label={
               step.targetIds.length > 1
@@ -353,6 +307,24 @@ function StepFields({
               { value: 'toggle', label: 'Toggle' },
               { value: 'check', label: 'Check' },
               { value: 'uncheck', label: 'Uncheck' },
+            ]}
+            onChange={(mode) => onChange({ ...step, mode })}
+          />
+        </>
+      );
+    case 'timer':
+      return (
+        <>
+          {picker}
+          <SelectField
+            label="Timer"
+            value={step.mode}
+            options={[
+              { value: 'start', label: 'Start' },
+              { value: 'pause', label: 'Pause' },
+              { value: 'toggle', label: 'Start or pause (toggle)' },
+              { value: 'reset', label: 'Reset (stop at the start)' },
+              { value: 'restart', label: 'Restart (reset and start)' },
             ]}
             onChange={(mode) => onChange({ ...step, mode })}
           />
