@@ -333,15 +333,18 @@ test('writing: pen aligns after zoom, erase/undo/redo, typed numbers persist', a
   await page.mouse.down();
   await page.mouse.move(box.x + 640, box.y + 380, { steps: 8 });
   await page.mouse.up();
-  const stroke = await storeState<{ points: number[] }>(page, '(s) => s.history.present.annotations.strokes.at(-1)');
-  expect(stroke.points[0]).toBeCloseTo((580 - c1.x) / c1.scale, 1);
-  expect(stroke.points[1]).toBeCloseTo((340 - c1.y) / c1.scale, 1);
+  const stroke = await storeState<{ points: number[]; objectId?: string }>(page, '(s) => s.history.present.annotations.strokes.at(-1)');
+  // Drawn on the sample's score sheet: the stroke belongs to it and uses the sheet's own coordinates.
+  const sheet = await obj<{ id: string; position: { x: number; y: number } }>(page, 'Score sheet', 'o');
+  expect(stroke.objectId).toBe(sheet.id);
+  expect(stroke.points[0] + sheet.position.x).toBeCloseTo((580 - c1.x) / c1.scale, 1);
+  expect(stroke.points[1] + sheet.position.y).toBeCloseTo((340 - c1.y) / c1.scale, 1);
 
   for (let i = 0; i < 4; i++) await page.mouse.wheel(0, 250);
   expect(await storeState(page, '(s) => s.history.present.annotations.strokes.at(-1).points')).toEqual(stroke.points);
 
   await page.getByRole('button', { name: 'Eraser (E)' }).click();
-  const sp = await worldToPage(page, stroke.points[0], stroke.points[1]);
+  const sp = await worldToPage(page, stroke.points[0] + sheet.position.x, stroke.points[1] + sheet.position.y);
   await page.mouse.move(sp.x, sp.y);
   await page.mouse.down();
   await page.mouse.move(sp.x + 2, sp.y + 2);
@@ -370,6 +373,90 @@ test('writing: pen aligns after zoom, erase/undo/redo, typed numbers persist', a
     .poll(() => storeState(page, '(s) => s.history.present.annotations.text[0]'))
     .toMatchObject({ text: '37', position: text.position });
   expect(await storeState(page, '(s) => s.history.present.annotations.strokes.length')).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('roll-and-write: marks, stamps and text belong to the sheet and move with it; snap to grid; align a selection', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  const sheet = await obj<{ id: string; position: { x: number; y: number } }>(page, 'Score sheet', 'o');
+  const strokes = () => storeState<number>(page, '(s) => s.history.present.annotations.strokes.length');
+
+  // Stamp tool (M): a cross where you click; on a sheet it belongs to the sheet.
+  await page.keyboard.press('m');
+  await expect(page.getByLabel('Stamp options')).toBeVisible();
+  await page.getByRole('button', { name: 'Stamp: Cross' }).click();
+  const at = await worldToPage(page, sheet.position.x + 200, sheet.position.y + 300);
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(strokes).toBe(1);
+  const stamp = await storeState<{ objectId: string; straight: boolean; points: number[] }>(
+    page,
+    '(s) => s.history.present.annotations.strokes[0]',
+  );
+  expect(stamp).toMatchObject({ objectId: sheet.id, straight: true });
+  // The middle of the cross (its third point) is where the click was, in the sheet's own coordinates.
+  expect(stamp.points[4]).toBeCloseTo(200, 0);
+  expect(stamp.points[5]).toBeCloseTo(300, 0);
+
+  // Text typed on a sheet belongs to it too.
+  await page.keyboard.press('t');
+  const tp = await worldToPage(page, sheet.position.x + 100, sheet.position.y + 400);
+  await page.mouse.click(tp.x, tp.y);
+  await expect(page.getByLabel('Annotation text')).toBeFocused();
+  await page.keyboard.type('12');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => storeState(page, '(s) => s.history.present.annotations.text[0]?.objectId')).toBe(sheet.id);
+
+  // Moving the sheet (Edit mode) takes its marks along; the eraser finds them at the new place.
+  await switchMode(page, 'edit');
+  await page.keyboard.press('v');
+  await drag(page, await worldToPage(page, sheet.position.x + 450, sheet.position.y + 100), 120, 60);
+  const moved = await obj<{ x: number; y: number }>(page, 'Score sheet', 'o.position');
+  expect(moved.x).toBeGreaterThan(sheet.position.x);
+  expect(await storeState(page, '(s) => s.history.present.annotations.strokes[0].points')).toEqual(stamp.points);
+  await page.keyboard.press('e');
+  const sp = await worldToPage(page, moved.x + 200, moved.y + 300);
+  await page.mouse.move(sp.x, sp.y);
+  await page.mouse.down();
+  await page.mouse.move(sp.x + 2, sp.y + 2);
+  await page.mouse.up();
+  await expect.poll(strokes).toBe(0);
+
+  // Deleting the sheet deletes its marks; undo brings both back.
+  await page.keyboard.press('v');
+  await clickObject(page, 'Score sheet');
+  await page.keyboard.press('Delete');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.annotations.text.length')).toBe(0);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.annotations.text.length')).toBe(1);
+  await page.keyboard.press('Escape');
+
+  // Snap to grid (G): a dragged object lands with its corner on the grid (50 by default).
+  await page.keyboard.press('g');
+  await expect(page.getByRole('button', { name: 'Snap to grid (G)' })).toHaveAttribute('aria-pressed', 'true');
+  await drag(page, await objectScreenPos(page, 'White die 1'), -37, -23);
+  const snapped = await obj<{ x: number; y: number }>(page, 'White die 1', 'o.position');
+  expect(Math.abs(snapped.x % 50)).toBe(0);
+  expect(Math.abs(snapped.y % 50)).toBe(0);
+  await page.keyboard.press('g');
+
+  // Align: Ctrl+click three objects, right-click → Align → Align top edges.
+  await clickObject(page, 'White die 1');
+  await page.keyboard.down('Control');
+  const d2 = await objectScreenPos(page, 'White die 2');
+  await page.mouse.click(d2.x, d2.y);
+  const round = await objectScreenPos(page, 'Round');
+  await page.mouse.click(round.x, round.y);
+  await page.keyboard.up('Control');
+  await expect.poll(() => storeState<number>(page, '(s) => s.selectedIds.length')).toBe(3);
+  await page.mouse.click(round.x, round.y, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Align', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Align top edges' }).click();
+  const tops = await storeState<number[]>(
+    page,
+    `(s) => s.history.present.objects.filter((o) => ['White die 1', 'White die 2', 'Round'].includes(o.name)).map((o) => o.position.y)`,
+  );
+  expect(new Set(tops).size).toBe(1);
   expect(errors).toEqual([]);
 });
 
@@ -1227,22 +1314,25 @@ test('zoomed view can turn with the holder; zoom goes below 25%; library thumbna
   await expect.poll(() => storeState<number>(page, '(s) => s.camera.scale')).toBeLessThan(0.2);
   expect(await storeState<number>(page, '(s) => s.camera.scale')).toBeGreaterThanOrEqual(0.05);
 
-  // The saved thumbnail is large enough to stay sharp in the library.
-  await waitSaved(page);
-  const width = await page.evaluate(async () => {
-    const req = indexedDB.open('tablenox');
-    const db: IDBDatabase = await new Promise((r) => (req.onsuccess = () => r(req.result)));
-    const games: { thumbnail?: string }[] = await new Promise((r) => {
-      const q = db.transaction('games').objectStore('games').getAll();
-      q.onsuccess = () => r(q.result);
+  // The saved thumbnail (taken when leaving the game) is large enough to stay sharp in the library.
+  await page.getByRole('button', { name: 'Back to library' }).click();
+  await expect(page.getByTestId('game-card')).toHaveCount(1);
+  const thumbWidth = () =>
+    page.evaluate(async () => {
+      const req = indexedDB.open('tablenox');
+      const db: IDBDatabase = await new Promise((r) => (req.onsuccess = () => r(req.result)));
+      const games: { thumbnail?: string }[] = await new Promise((r) => {
+        const q = db.transaction('games').objectStore('games').getAll();
+        q.onsuccess = () => r(q.result);
+      });
+      db.close();
+      if (!games[0]?.thumbnail) return 0;
+      const img = new Image();
+      img.src = games[0].thumbnail;
+      await img.decode();
+      return img.naturalWidth;
     });
-    db.close();
-    const img = new Image();
-    img.src = games[0].thumbnail!;
-    await img.decode();
-    return img.naturalWidth;
-  });
-  expect(width).toBe(640);
+  await expect.poll(thumbWidth).toBe(640);
 });
 
 test('automation: Rotate turns the cards in a holder (not the holder); Recall options keep the turn, face up, shuffle', async ({

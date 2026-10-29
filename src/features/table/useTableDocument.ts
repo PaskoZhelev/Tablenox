@@ -5,7 +5,7 @@ import { gameTable } from '../../domain/game';
 import { SCHEMA_VERSION, type CameraState, type Game, type TableState } from '../../domain/types';
 import { createAutosaver, type Autosaver } from '../../persistence/autosave';
 import { describeStorageError, repo } from '../../persistence/repository';
-import { captureThumbnail } from '../../canvas/stageRegistry';
+import { captureThumbnail, onStageLeaving } from '../../canvas/stageRegistry';
 import { useTableStore, type DocMeta } from '../../state/tableStore';
 
 export interface Snapshot {
@@ -40,11 +40,15 @@ export function snapshotToGame(snap: Snapshot, thumbnail?: string): Game {
 async function persist(snap: Snapshot): Promise<void> {
   const current = useTableStore.getState().doc;
   const isCurrent = current?.id === snap.doc.id;
-  const thumb = isCurrent ? captureThumbnail() : undefined;
-  if (thumb && isCurrent) useTableStore.getState().setDocMeta({ thumbnail: thumb });
-  // The snapshot may predate the latest "played" mark (it isn't a table change), so take that from the store.
-  const doc = isCurrent && current.lastPlayedAt ? { ...snap.doc, lastPlayedAt: current.lastPlayedAt } : snap.doc;
-  await repo.saveGame(snapshotToGame({ ...snap, doc }, thumb));
+  // The snapshot may predate the latest "played" mark or thumbnail (neither is a table change), so take them from the store.
+  const doc = isCurrent
+    ? {
+        ...snap.doc,
+        thumbnail: current.thumbnail ?? snap.doc.thumbnail,
+        ...(current.lastPlayedAt ? { lastPlayedAt: current.lastPlayedAt } : {}),
+      }
+    : snap.doc;
+  await repo.saveGame(snapshotToGame({ ...snap, doc }));
 }
 
 /** Records that the open game is being played now (shown as "Last played" in the library). */
@@ -86,6 +90,18 @@ export function useGameDocument(id: string): LoadState {
       },
     });
     activeSaver = saver;
+    // The library thumbnail is only taken when leaving the game (rendering it on every autosave is costly), and only
+    // when the table or the view changed since the last one.
+    let thumbStale = false;
+    const captureOnLeave = () => {
+      if (!thumbStale || useTableStore.getState().doc?.id !== id) return;
+      const thumbnail = captureThumbnail();
+      if (!thumbnail) return;
+      thumbStale = false;
+      useTableStore.getState().setDocMeta({ thumbnail });
+      lastSnap.current = takeSnapshot();
+      saver.markDirty();
+    };
 
     (async () => {
       setState({ status: 'loading' });
@@ -106,9 +122,11 @@ export function useGameDocument(id: string): LoadState {
           g.camera,
         );
         lastSnap.current = takeSnapshot();
+        thumbStale = !g.thumbnail;
         unsubscribe = useTableStore.subscribe((s, prev) => {
           if (s.doc?.id !== id) return;
           if (s.revision !== prev.revision || s.cameraRevision !== prev.cameraRevision) {
+            thumbStale = true;
             lastSnap.current = takeSnapshot();
             saver.markDirty();
           }
@@ -122,19 +140,25 @@ export function useGameDocument(id: string): LoadState {
     const onHide = () => {
       if (document.visibilityState === 'hidden') void saver.flush();
     };
-    const onPageHide = () => void saver.flush();
+    const onPageHide = () => {
+      captureOnLeave();
+      void saver.flush();
+    };
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (saver.isDirty() || useTableStore.getState().saveStatus === 'error') {
         void saver.flush();
         e.preventDefault();
       }
     };
+    // Leaving the game unmounts the table: the canvas reports it while its stage can still be drawn.
+    const stopLeaving = onStageLeaving(captureOnLeave);
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('beforeunload', onBeforeUnload);
 
     return () => {
       cancelled = true;
+      stopLeaving();
       unsubscribe?.();
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', onPageHide);

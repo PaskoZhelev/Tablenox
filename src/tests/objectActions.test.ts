@@ -239,7 +239,7 @@ describe('group actions (Edit mode)', () => {
       .filter((o) => o.kind === 'die' || o.kind === 'counter')
       .map((o) => o.id);
     const group = () => getGroupActions(picked, currentTable());
-    expect(group().map((a) => a.label)).toEqual(['Duplicate 2 objects', 'Lock all', 'Delete 2 objects']);
+    expect(group().map((a) => a.label)).toEqual(['Duplicate 2 objects', 'Lock all', 'Delete 2 objects', 'Align']);
     const before = objects().length;
     group()[0].run();
     expect(objects()).toHaveLength(before + 2);
@@ -250,5 +250,40 @@ describe('group actions (Edit mode)', () => {
     expect(picked.some((id) => get(id).locked)).toBe(false);
     group()[2].run();
     expect(picked.map(get).filter(Boolean)).toEqual([]);
+  });
+
+  it('aligns and distributes a selection (locked objects stay put)', () => {
+    const at = (x: number, y: number, name: string): TabletopObject => ({
+      ...createObject('token', { center: { x, y }, zIndex: 50 }),
+      name,
+    });
+    const a = at(0, 0, 'A');
+    const b = at(300, 80, 'B');
+    const c = at(100, 200, 'C');
+    load('edit', [a, b, c]);
+    const picked = [a.id, b.id, c.id];
+    const group = () => getGroupActions(picked, currentTable());
+    const child = (id: string, childId: string) =>
+      group()
+        .find((x) => x.id === id)!
+        .children!.find((x) => x.id === childId)!;
+    expect(group().map((x) => x.id)).toContain('distribute');
+
+    child('align', 'align-left').run();
+    expect(new Set(picked.map((id) => get(id).position.x)).size).toBe(1);
+    useTableStore.getState().undo();
+
+    child('distribute', 'distribute-horizontal').run();
+    // Sorted by centre: A (x 0), C (x 100), B (x 300); C moves halfway, the outer two stay.
+    expect(get(a.id).position.x).toBe(a.position.x);
+    expect(get(b.id).position.x).toBe(b.position.x);
+    expect(get(c.id).position.x).toBe((a.position.x + b.position.x) / 2);
+    useTableStore.getState().undo();
+
+    useTableStore.getState().dispatch({ type: 'ToggleLock', id: b.id });
+    child('align', 'align-top').run();
+    expect(get(b.id).position.y).toBe(b.position.y);
+    expect(get(a.id).position.y).toBe(a.position.y);
+    expect(get(c.id).position.y).toBe(a.position.y);
   });
 });

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { Dropdown } from '../../components/Dropdown';
+import { clampGridSize, MAX_GRID_SIZE, MIN_GRID_SIZE } from '../../domain/geometry';
 import { useTableStore } from '../../state/tableStore';
 import { usePaletteToggle } from './paletteItems';
 
@@ -141,6 +142,50 @@ function TableColorPicker() {
   );
 }
 
+/** Edit mode: grid visibility, snapping and spacing (interface preferences, kept for every game). */
+function GridSettings() {
+  const showGrid = useTableStore((s) => s.ui.showGrid);
+  const snapToGrid = useTableStore((s) => s.ui.snapToGrid);
+  const gridSize = useTableStore((s) => s.ui.gridSize);
+  const setUi = useTableStore((s) => s.setUi);
+  // The typed value until it is committed (Enter / leaving the field).
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft !== null) setUi({ gridSize: clampGridSize(Number(draft)) });
+    setDraft(null);
+  };
+  return (
+    <div className="menu-section" aria-label="Grid">
+      <span className="menu-section-title">
+        <Icon name="grid" size={16} /> Grid
+      </span>
+      <label className="menu-check">
+        <input type="checkbox" checked={showGrid} onChange={(e) => setUi({ showGrid: e.target.checked })} /> Show grid
+      </label>
+      <label className="menu-check">
+        <input type="checkbox" checked={snapToGrid} onChange={(e) => setUi({ snapToGrid: e.target.checked })} /> Snap to grid <kbd>G</kbd>
+      </label>
+      <label className="menu-check">
+        Spacing
+        <input
+          type="number"
+          className="menu-number"
+          aria-label="Grid spacing"
+          min={MIN_GRID_SIZE}
+          max={MAX_GRID_SIZE}
+          step={5}
+          value={draft ?? String(gridSize)}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function TopBar({
   onBack,
   onMode,
@@ -260,6 +305,7 @@ export function TopBar({
               <Icon name="eraser" size={16} /> Clear all pen &amp; text marks…
             </button>
             <TableColorPicker />
+            {mode === 'edit' && <GridSettings />}
             <button
               type="button"
               role="menuitem"

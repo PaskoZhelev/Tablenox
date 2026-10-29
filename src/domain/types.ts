@@ -432,19 +432,29 @@ export interface CameraState {
 
 export interface InkStroke {
   id: string;
-  /** x1,y1,x2,y2,... in WORLD units */
+  /**
+   * x1,y1,x2,y2,... in WORLD units; with `objectId`, in that object's own units (origin = top-left of its unrotated
+   * box), so the mark moves, turns and resizes with it.
+   */
   points: number[];
   color: string;
   width: number;
   opacity: number;
+  /** Sheet (board / image) the mark was made on. Missing = drawn on the table itself. */
+  objectId?: ObjectId;
+  /** Drawn with straight segments instead of a smoothed curve (stamps). */
+  straight?: boolean;
 }
 
 export interface TextAnnotation {
   id: string;
+  /** Top-left of the text: world units, or the sheet's own units with `objectId` (see `InkStroke.points`). */
   position: Vec2;
   text: string;
   fontSize: number;
   color: string;
+  /** Sheet (board / image) the text was typed on. Missing = typed on the table itself. */
+  objectId?: ObjectId;
 }
 
 export interface Annotations {
@@ -468,6 +478,8 @@ export interface StoredAsset {
   sizeBytes: number;
   blob: Blob;
   createdAt: string;
+  /** Hex SHA-256 of the stored bytes (plus the original upload's when it was downscaled), used to de-duplicate images. */
+  hashes?: string[];
 }
 
 /** A game is a single saved document; Edit and Play mode both work on it. */

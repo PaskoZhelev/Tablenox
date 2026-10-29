@@ -1,4 +1,5 @@
 import { applyPermutation } from './random';
+import { followResizedSheets, withoutMarksOn } from './annotations';
 import {
   bagAccepts,
   cardDefFromObject,
@@ -442,6 +443,13 @@ function bagDraw(state: TableState, cmd: Extract<Command, { type: 'BagDraw' }>):
  * which lets the history skip empty entries.
  */
 export function applyCommand(state: TableState, cmd: Command): TableState {
+  const next = applyOne(state, cmd);
+  // A batch applies its commands one by one (each already handled here); a replaced table is taken as it is.
+  if (next === state || cmd.type === 'Batch' || cmd.type === 'ReplaceTable') return next;
+  return followResizedSheets(state, next);
+}
+
+function applyOne(state: TableState, cmd: Command): TableState {
   switch (cmd.type) {
     case 'AddObject':
       if (findObject(state, cmd.object.id)) return state;
@@ -477,7 +485,12 @@ export function applyCommand(state: TableState, cmd: Command): TableState {
 
     case 'DeleteObject':
       if (!findObject(state, cmd.id)) return state;
-      return { ...state, objects: state.objects.filter((o) => o.id !== cmd.id) };
+      // Marks made on a deleted sheet go with it.
+      return {
+        ...state,
+        objects: state.objects.filter((o) => o.id !== cmd.id),
+        annotations: withoutMarksOn(state.annotations, new Set([cmd.id])),
+      };
 
     case 'SetZIndex':
       return setZIndex(state, cmd.id, cmd.direction);
@@ -764,6 +777,8 @@ export function applyCommand(state: TableState, cmd: Command): TableState {
       const existing = state.annotations.text.find((t) => t.id === cmd.id);
       if (!existing) return state;
       const next = { ...existing, ...cmd.patch };
+      // A patch with `objectId: undefined` moves the text off its sheet onto the table.
+      if ('objectId' in cmd.patch && cmd.patch.objectId === undefined) delete next.objectId;
       if (cmd.patch.text !== undefined && !cmd.patch.text.trim()) {
         return { ...state, annotations: { ...state.annotations, text: state.annotations.text.filter((t) => t.id !== cmd.id) } };
       }

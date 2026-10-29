@@ -18,6 +18,8 @@ export class TablenoxDB extends Dexie {
       assets: 'id, createdAt',
       settings: 'key',
     });
+    // Assets stored before v2 have no hashes and are simply never matched for de-duplication.
+    this.version(2).stores({ assets: 'id, createdAt, *hashes' });
   }
 }
 

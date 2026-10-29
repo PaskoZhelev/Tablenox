@@ -17,13 +17,15 @@ import {
   zoomOut,
   zoomReset,
 } from '../../canvas/actions';
-import { buildExportZip, downloadBytes, exportFileName } from '../../import-export/archive';
+import { buildExportZip, exportFileName } from '../../import-export/archive';
+import { downloadExport } from '../../import-export/exportDialog';
 import { fixedInPlay } from '../../domain/objects';
+import { snapPosition } from '../../domain/geometry';
 import { currentTable, useTableStore, type Tool } from '../../state/tableStore';
 import { confirmDialog, errorMessage, toast } from '../../state/uiStore';
 import { snapshotToGame, takeSnapshot } from './useTableDocument';
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'pan', p: 'pen', e: 'eraser', t: 'text' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'pan', p: 'pen', m: 'stamp', e: 'eraser', t: 'text' };
 
 function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -88,11 +90,13 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (e.key === 'F' && e.shiftKey) return fitToScene();
 
       const multi = s.selectedIds.length > 1;
+      // With "Snap to grid", arrow keys move by one grid step (Edit mode).
+      const nudge = s.ui.snapToGrid ? s.ui.gridSize : e.shiftKey ? 10 : 1;
       if (multi && s.mode === 'edit') {
         if (key === 'l') return toggleLockMany(s.selectedIds);
         if (e.key.startsWith('Arrow')) {
           e.preventDefault();
-          const d = e.shiftKey ? 10 : 1;
+          const d = nudge;
           nudgeObjects(
             s.selectedIds,
             e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0,
@@ -115,15 +119,17 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (key === 'c') return s.setUi({ cameraLocked: !s.ui.cameraLocked });
       if (key === 'u') return s.setUi({ uiHidden: !s.ui.uiHidden });
       if (key === 'i' && s.mode === 'edit') return s.setUi({ inspectorOpen: !s.ui.inspectorOpen });
+      if (key === 'g' && s.mode === 'edit') return s.setUi({ snapToGrid: !s.ui.snapToGrid });
       if (key === 'a' && s.mode === 'edit') return s.setPaletteOpen(!(s.paletteOpen || s.ui.palettePinned));
       if (e.key === '?') return onHelp?.();
       if (e.key.startsWith('Arrow') && selected && s.mode === 'edit' && !selected.locked) {
         e.preventDefault();
-        const d = e.shiftKey ? 10 : 1;
+        const d = nudge;
         const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0;
         const dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0;
+        const moved = { x: selected.position.x + dx, y: selected.position.y + dy };
         s.dispatch(
-          { type: 'MoveObject', id: selected.id, position: { x: selected.position.x + dx, y: selected.position.y + dy } },
+          { type: 'MoveObject', id: selected.id, position: s.ui.snapToGrid ? snapPosition(selected, moved, s.ui.gridSize) : moved },
           { coalesceKey: `nudge:${selected.id}` },
         );
         return;
@@ -152,8 +158,7 @@ export async function exportCurrent(): Promise<void> {
   try {
     // Export from memory so it works even when saving to IndexedDB failed.
     const bytes = await buildExportZip(snapshotToGame(snap));
-    downloadBytes(bytes, exportFileName(snap.doc.title));
-    toast('Export downloaded.', 'success');
+    if (await downloadExport(bytes, exportFileName(snap.doc.title))) toast('Export downloaded.', 'success');
   } catch (err) {
     toast(`Export failed: ${errorMessage(err)}`, 'error');
   }

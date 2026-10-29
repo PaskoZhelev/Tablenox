@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { fitToScene, zoomIn, zoomOut, zoomReset } from '../../canvas/actions';
 import { PALETTE_COLORS } from '../../domain/objects';
+import { STAMP_LABELS, STAMP_SHAPES, STAMP_SIZES, stampStroke, type StampShape } from '../../domain/stamps';
 import { useTableStore, type Tool } from '../../state/tableStore';
 import { usePaletteToggle } from './paletteItems';
 
@@ -9,11 +10,24 @@ const TOOLS: { tool: Tool; label: string; icon: IconName; key: string }[] = [
   { tool: 'select', label: 'Select / move', icon: 'select', key: 'V' },
   { tool: 'pan', label: 'Pan', icon: 'pan', key: 'H' },
   { tool: 'pen', label: 'Pen', icon: 'pen', key: 'P' },
+  { tool: 'stamp', label: 'Stamp (tick, cross, circle…)', icon: 'stamp', key: 'M' },
   { tool: 'eraser', label: 'Eraser', icon: 'eraser', key: 'E' },
   { tool: 'text', label: 'Text', icon: 'text', key: 'T' },
 ];
 
 const PEN_WIDTHS = [2, 4, 8, 14];
+
+/** Small preview of a stamp shape for its button. */
+function StampPreview({ shape, color }: { shape: StampShape; color: string }) {
+  const s = stampStroke(shape, { x: 12, y: 12 }, 18, color, '');
+  const pts = s.points.length === 2 ? [...s.points, s.points[0] + 0.01, s.points[1]] : s.points;
+  const d = pts.reduce((acc, v, i) => (i % 2 === 0 ? `${acc}${i === 0 ? 'M' : 'L'}${v} ` : `${acc}${v} `), '');
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden="true">
+      <path d={d} fill="none" stroke={color} strokeWidth={s.width} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function ToolOptions({ onClose }: { onClose: () => void }) {
   const tool = useTableStore((s) => s.tool);
@@ -21,9 +35,11 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
   const setPen = useTableStore((s) => s.setPen);
   const textStyle = useTableStore((s) => s.textStyle);
   const setTextStyle = useTableStore((s) => s.setTextStyle);
+  const stamp = useTableStore((s) => s.stamp);
+  const setStamp = useTableStore((s) => s.setStamp);
   const eraserRadius = useTableStore((s) => s.eraserRadius);
   const setEraserRadius = useTableStore((s) => s.setEraserRadius);
-  if (tool !== 'pen' && tool !== 'text' && tool !== 'eraser') return null;
+  if (tool !== 'pen' && tool !== 'text' && tool !== 'eraser' && tool !== 'stamp') return null;
   const close = (
     <button
       type="button"
@@ -47,10 +63,12 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
       </div>
     );
   }
-  const color = tool === 'text' ? textStyle.color : pen.color;
-  const setColor = (c: string) => (tool === 'text' ? setTextStyle({ color: c }) : setPen({ color: c }));
+  const color = tool === 'text' ? textStyle.color : tool === 'stamp' ? stamp.color : pen.color;
+  const setColor = (c: string) =>
+    tool === 'text' ? setTextStyle({ color: c }) : tool === 'stamp' ? setStamp({ color: c }) : setPen({ color: c });
+  const label = tool === 'pen' ? 'Pen options' : tool === 'stamp' ? 'Stamp options' : 'Text options';
   return (
-    <div className="tool-options" aria-label={tool === 'pen' ? 'Pen options' : 'Text options'}>
+    <div className="tool-options" aria-label={label}>
       {close}
       <div className="swatches">
         {PALETTE_COLORS.slice(0, 8).map((c) => (
@@ -66,7 +84,35 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
         ))}
         <input type="color" className="swatch-custom" aria-label="Custom colour" value={color} onChange={(e) => setColor(e.target.value)} />
       </div>
-      {tool === 'pen' ? (
+      {tool === 'stamp' ? (
+        <>
+          <div className="swatches" role="group" aria-label="Stamp shape">
+            {STAMP_SHAPES.map((shape) => (
+              <button
+                key={shape}
+                type="button"
+                className={`width-btn stamp-btn ${stamp.shape === shape ? 'is-active' : ''}`}
+                aria-label={`Stamp: ${STAMP_LABELS[shape]}`}
+                aria-pressed={stamp.shape === shape}
+                title={STAMP_LABELS[shape]}
+                onClick={() => setStamp({ shape })}
+              >
+                <StampPreview shape={shape} color={stamp.color} />
+              </button>
+            ))}
+          </div>
+          <label className="inline-select">
+            <span className="sr-only">Stamp size</span>
+            <select value={stamp.size} onChange={(e) => setStamp({ size: Number(e.target.value) })}>
+              {STAMP_SIZES.map((s) => (
+                <option key={s} value={s}>
+                  {s}px
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : tool === 'pen' ? (
         <div className="swatches">
           {PEN_WIDTHS.map((w) => (
             <button
@@ -132,6 +178,7 @@ export function Toolbar() {
   const mode = useTableStore((s) => s.mode);
   const open = useTableStore((s) => s.ui.toolbarOpen);
   const showGrid = useTableStore((s) => s.ui.showGrid);
+  const snapToGrid = useTableStore((s) => s.ui.snapToGrid);
   const cameraLocked = useTableStore((s) => s.ui.cameraLocked);
   const setUi = useTableStore((s) => s.setUi);
   const { open: paletteOpen, toggle: togglePalette } = usePaletteToggle();
@@ -238,10 +285,22 @@ export function Toolbar() {
             className={`hud-btn ${showGrid ? 'is-active' : ''}`}
             aria-pressed={showGrid}
             aria-label="Toggle grid"
-            title="Toggle grid"
+            title="Toggle grid (spacing: More menu → Grid)"
             onClick={() => setUi({ showGrid: !showGrid })}
           >
             <Icon name="grid" size={18} />
+          </button>
+        )}
+        {mode === 'edit' && (
+          <button
+            type="button"
+            className={`hud-btn ${snapToGrid ? 'is-active' : ''}`}
+            aria-pressed={snapToGrid}
+            aria-label="Snap to grid (G)"
+            title="Snap to grid: moved, resized and added objects line up with the grid; Shift places freely (G)"
+            onClick={() => setUi({ snapToGrid: !snapToGrid })}
+          >
+            <Icon name="magnet" size={18} />
           </button>
         )}
         <span className="hud-sep-h" />

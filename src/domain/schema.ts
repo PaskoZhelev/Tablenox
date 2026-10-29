@@ -239,6 +239,8 @@ export const strokeSchema = z.object({
   color,
   width: positive,
   opacity: finite,
+  objectId: id.optional(),
+  straight: z.boolean().optional(),
 });
 
 export const textAnnotationSchema = z.object({
@@ -247,6 +249,7 @@ export const textAnnotationSchema = z.object({
   text: z.string().max(10000),
   fontSize: positive,
   color,
+  objectId: id.optional(),
 });
 
 export const annotationsSchema = z.object({

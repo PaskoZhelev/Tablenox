@@ -1,10 +1,22 @@
 import { Shape } from 'react-konva';
 import type { CameraState } from '../domain/types';
+import { DEFAULT_GRID_SIZE } from '../domain/geometry';
 
-const BASE_SPACING = 50;
-
-/** Infinite-looking grid drawn only for the visible world rectangle. */
-export function Grid({ camera, width, height, light }: { camera: CameraState; width: number; height: number; light?: boolean }) {
+/** Infinite-looking grid drawn only for the visible world rectangle. Zoomed far out, every 2nd / 4th… line shows. */
+export function Grid({
+  camera,
+  width,
+  height,
+  light,
+  spacing: base = DEFAULT_GRID_SIZE,
+}: {
+  camera: CameraState;
+  width: number;
+  height: number;
+  light?: boolean;
+  /** Distance between lines, in world units. */
+  spacing?: number;
+}) {
   // Dark lines on a light table, light lines on a dark one.
   const ink = light ? '0,0,0' : '255,255,255';
   return (
@@ -12,7 +24,7 @@ export function Grid({ camera, width, height, light }: { camera: CameraState; wi
       listening={false}
       perfectDrawEnabled={false}
       sceneFunc={(ctx) => {
-        let spacing = BASE_SPACING;
+        let spacing = base;
         while (spacing * camera.scale < 18) spacing *= 2;
         const x0 = -camera.x / camera.scale;
         const y0 = -camera.y / camera.scale;

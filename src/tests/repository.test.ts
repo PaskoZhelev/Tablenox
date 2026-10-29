@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_ASSET_BYTES, sniffImageMime } from '../persistence/assetValidation';
+import { MAX_ASSET_BYTES, sha256Hex, sniffImageMime } from '../persistence/assetValidation';
 import { TablenoxDB } from '../persistence/db';
+import { downscaleImage } from '../persistence/imageResize';
 import { createRepository, describeStorageError } from '../persistence/repository';
 import { fixtureGame, JPEG_BYTES, PNG_BYTES, pngFile, SVG_BYTES } from './fixtures';
 
@@ -76,5 +77,62 @@ describe('repository', () => {
     const t = fixtureGame();
     await db.games.put({ ...t, objects: [{ bogus: true }] } as never);
     await expect(repo.getGame(t.id)).rejects.toThrow(/Invalid game/);
+  });
+
+  it('stores an image uploaded twice only once', async () => {
+    const a = await repo.addAsset(pngFile('a.png'));
+    const b = await repo.addAsset(pngFile('b.png'));
+    expect(b).toBe(a);
+    expect(await db.assets.count()).toBe(1);
+    expect((await repo.getAsset(a))!.hashes).toEqual([await sha256Hex(PNG_BYTES)]);
+    const c = await repo.addAsset(new File([JPEG_BYTES], 'photo.jpg', { type: 'image/jpeg' }));
+    expect(c).not.toBe(a);
+    expect(await db.assets.count()).toBe(2);
+  });
+
+  it('re-uploading a stored image renews its garbage-collection grace period', async () => {
+    const id = await repo.addAsset(pngFile());
+    const now = Date.now();
+    await db.assets.update(id, { createdAt: new Date(now - 10 * 60 * 1000).toISOString() });
+    expect(await repo.addAsset(pngFile())).toBe(id);
+    expect(await repo.collectGarbage(now)).toBe(0);
+    expect(await repo.getAsset(id)).toBeTruthy();
+    expect(await repo.collectGarbage(LATER)).toBe(1);
+  });
+
+  it('stores the downscaled image and records the hashes of both versions', async () => {
+    const resized = new Blob([JPEG_BYTES], { type: 'image/jpeg' });
+    const calls: string[] = [];
+    const resizing = createRepository(db, {
+      resize: async (_blob, mime) => {
+        calls.push(mime);
+        return resized;
+      },
+    });
+    const id = await resizing.addAsset(pngFile());
+    expect(calls).toEqual(['image/png']);
+    const asset = (await resizing.getAsset(id))!;
+    expect(asset.mimeType).toBe('image/jpeg');
+    expect(asset.sizeBytes).toBe(JPEG_BYTES.length);
+    expect(new Uint8Array(await asset.blob.arrayBuffer())).toEqual(JPEG_BYTES);
+    expect(asset.hashes).toEqual([await sha256Hex(JPEG_BYTES), await sha256Hex(PNG_BYTES)]);
+
+    // Uploading the original again (or the stored version) reuses the record without resizing again.
+    expect(await resizing.addAsset(pngFile())).toBe(id);
+    expect(calls).toHaveLength(1);
+    expect(await repo.addAsset(new File([JPEG_BYTES], 'small.jpg', { type: 'image/jpeg' }))).toBe(id);
+    expect(await db.assets.count()).toBe(1);
+  });
+
+  it('keeps the original when the resizer returns nothing usable', async () => {
+    const resizing = createRepository(db, { resize: async () => new Blob([SVG_BYTES], { type: 'image/png' }) });
+    const id = await resizing.addAsset(pngFile());
+    const asset = (await resizing.getAsset(id))!;
+    expect(new Uint8Array(await asset.blob.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(asset.hashes).toEqual([await sha256Hex(PNG_BYTES)]);
+  });
+
+  it('does not resize without browser image APIs', async () => {
+    expect(await downscaleImage(pngFile(), 'image/png')).toBeNull();
   });
 });

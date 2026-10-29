@@ -908,6 +908,9 @@ input[type='color'] {
 .canvas-container.tool-text {
   cursor: text;
 }
+.canvas-container.tool-stamp {
+  cursor: crosshair;
+}
 
 /* Floating panels share one translucent look. */
 .hud-top,
@@ -2022,4 +2025,29 @@ button.pick-chip-name:hover {
   gap: 8px;
   font-size: 13px;
   margin-bottom: 6px;
+}
+
+/* Grid settings in the top bar's More menu. */
+.menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.menu-check kbd {
+  margin-left: auto;
+}
+.menu-number {
+  width: 72px;
+  margin-left: auto;
+}
+
+/* Stamp tool options: the shape buttons. */
+.stamp-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }

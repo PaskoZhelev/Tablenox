@@ -4,8 +4,10 @@ import { CheckboxField, ColorField, FileButton, ImageField, NumberField, Opacity
 import { IMAGE_ACCEPT, uploadImages } from '../components/upload';
 import { AssetThumb } from '../components/AssetThumb';
 import {
+  alignObjects,
   deleteObject,
   deleteObjects,
+  distributeObjects,
   drawFromBag,
   duplicateObject,
   duplicateObjects,
@@ -25,6 +27,8 @@ import {
   toggleTimer,
 } from '../canvas/actions';
 import type { ObjectPatch, ZOrderDirection } from '../domain/commands';
+import { ALIGN_LABELS, DISTRIBUTE_LABELS } from '../domain/align';
+import { ALIGN_ICONS, ALIGN_MODES } from '../canvas/objectActions';
 import { numberedDeck, standardDeck } from '../domain/cards';
 import {
   bagCount,
@@ -1351,6 +1355,38 @@ function MultiSelection({ ids }: { ids: string[] }) {
           </button>
         </div>
         <p className="hint">Ctrl/Shift+click objects to add or remove them. Drag any selected object to move them all.</p>
+      </Section>
+      <Section title="Align & distribute">
+        <div className="button-row" role="group" aria-label="Align">
+          {ALIGN_MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className="btn btn-small btn-icon"
+              aria-label={ALIGN_LABELS[mode]}
+              title={ALIGN_LABELS[mode]}
+              onClick={() => alignObjects(ids, mode)}
+            >
+              <Icon name={ALIGN_ICONS[mode]} size={16} />
+            </button>
+          ))}
+        </div>
+        <div className="button-row" role="group" aria-label="Distribute">
+          {(['horizontal', 'vertical'] as const).map((axis) => (
+            <button
+              key={axis}
+              type="button"
+              className="btn btn-small"
+              disabled={members.length < 3}
+              onClick={() => distributeObjects(ids, axis)}
+            >
+              <Icon name={axis === 'horizontal' ? 'distributeX' : 'distributeY'} size={14} /> {DISTRIBUTE_LABELS[axis]}
+            </button>
+          ))}
+        </div>
+        <p className="hint">
+          Lines objects up by their edges or centres as seen on the table; locked objects stay put. Distribute needs 3 or more.
+        </p>
       </Section>
       <Section title="Objects">
         <ObjectList />

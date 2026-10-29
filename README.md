@@ -28,6 +28,8 @@ No account, no server and no cloud. Everything is stored in your browser (Indexe
 - **Automation buttons**: Add → *Automation button*, then press **Automations** (first in its properties panel and its action bar) to open the automations panel, which holds only the steps. Add steps with the step-type buttons. In Play mode a click runs the steps from top to bottom as **one undo step**; the button sinks while you hold it. Its label size is automatic (fits the button) or set by you, and always shrinks to fit. Step types: *Move objects* (onto a holder, a pile or any object; a holder or pile gives up all its cards or N from the top/bottom, face up/down, and the holder itself stays where it is; several cards moved onto a non-holder object form a pile; with **several destinations** the cards are dealt one to each in turn, N each, or all of them when no number is set, e.g. one card to each of four holders; its summary always reads *Move…*), *Pick cards* (takes chosen cards from every listed holder or pile; *Cards are chosen* **now, with the step** (default: press *Choose cards…* next to each holder and click its cards, e.g. for a *Set up scenario 1* button; the button then takes them without asking, only the ones still in the holder at that point, so put a *Recall objects* step first to gather them) or **by the player when the button runs** (every listed holder or pile shows its cards in the *Pick card(s)* dialog; *Cancel* stops the whole button; earlier steps such as a shuffle are already applied in the dialog, and the run is still one undo step); the chosen cards go to the destination, dealt in turn with several, or next to the holder without one, as the holder gives them, face up or face down), *Recall objects* (cards back to the holder they belong to, tokens to their stack, pieces to their bag; a deck gathers all its cards, a token stack its tokens, a bag everything that came out of it; options: *Card rotation in the holders* turns the cards back to how they were set up (default) or keeps the turn a *Rotate* step gave them, *Face of recalled cards* face down (default) / face up / as they come back, and *Shuffle after recalling*), *Rotate* (by/to an angle; a holder itself never turns: the cards in it and the pieces lying on it do), *Flip* (toggle, face up, face down or **random**: each card, or a holder as a whole, turns over or not at random; optionally only the **first N cards**: the top N of each holder or pile, turned over where they lie, and the first N loose cards), *Shuffle*, *Sort* (original order, by name, or reverse the current order), *Roll dice*, *Change counter* (add/set), *Check boxes* (check, uncheck or toggle; a board or holder stands for every checkbox on it, e.g. to clear a sheet) and *Timer* (start, pause, start or pause, reset, or restart timers, e.g. start a turn timer; *Start* also begins a new countdown when one ran out). Steps can be reordered with the arrows, edited by clicking them and deleted. Move steps are split into *What to move* and *Where to move it* (colour-coded) plus *Face of moved cards*. Choose a step's objects **on the table**: press *Pick on table* (or *Pick destinations on table*), then click objects to add or remove them, or **Shift+drag** a box to add several. Press *Done picking* or Esc to finish (objects are only chosen on the table). Click an object's name in a step to select and outline it on the table. A holder in a step's object list stands for its own cards plus the pieces lying on it, so *Flip* on a holder turns all its cards over. *Run (test)* tries a button in Edit mode.
 - **Zoom on hover** (per object): pick *Off / Small / Medium / Large / Extra large* in an object's right-click menu (Edit mode) or properties panel. Works for decks, cards, boards, images, tokens, dice, counters and labels. Cards follow their deck's setting unless they have their own, and holders and piles without their own setting follow the deck of the card shown. Face-down cards show their back; in a spread the card under the mouse is shown. Once an object zooms, *Zoomed view* chooses whether the enlarged view is **always upright** (default) or **turned like on the table** (the object's rotation, plus the card rotation of a holder); cards, holders and piles can follow their deck's choice.
 - **Multi-select (Edit mode)**: Ctrl/Shift+click objects, Shift+drag a selection box on the table, or (with the camera locked) just drag on the table. Drag any selected object to move them all; duplicate, lock or delete them all from the action bar, right-click menu, properties panel or `Ctrl+D` / `L` / `Delete`. `Ctrl+A` selects everything.
+- **Align & distribute (Edit mode)**: with several objects selected, right-click → *Align* lines up their **left edges**, **centres**, **right edges**, **top edges**, **middles** or **bottom edges**, and *Distribute* (3 or more objects) spaces them evenly **horizontally** or **vertically** (the outermost two stay put). Rotated objects count by the box they cover on the table; locked objects don't move. The same buttons are in the properties panel of a multi-selection. Each is one undo step.
+- **Grid & snapping (Edit mode)**: the grid's **spacing** (5–500, default 50) is set in the top bar's ⋯ menu → *Grid*, which also shows / hides it. Turn on **Snap to grid** there, with the magnet button in the tool column or with `G`: dragged objects land with the corner of the box they cover on the table on the grid (in a multi-selection the dragged object snaps and the others keep their places relative to it), resizing an unrotated object without a fixed aspect ratio snaps the edges you drag, new objects are placed on the grid and the arrow keys move by one grid step. Hold `Shift` while dragging to place freely. Grid settings are interface preferences, the same for every game.
 - **Multi-select (Play mode)**: Shift+drag a selection box on the table (or just drag with the camera locked) to select every piece inside that you can move in Play mode (cards, piles, tokens and stacks, dice, counters, labels, images, and holders / bags / boards set to *Movable in Play mode*; locked objects, fixed boards and holders, buttons and checkboxes are left out). Drag any of them, even a pile or a token stack, to move them all as one undo step. A click elsewhere clears the selection.
 - **Lock camera**: toggle it in the tool column (or press `C`) so that dragging the table never pans (in Edit mode it draws a selection box instead). The wheel, the Pan tool and Space+drag still move the view.
 - **Table colour**: choose it in the top bar's ⋯ menu (grey by default; 16 colours from near black to white, plus any custom colour). It is saved with each game. On light tables the Edit-mode grid uses dark lines.
@@ -35,9 +37,11 @@ No account, no server and no cloud. Everything is stored in your browser (Indexe
 - **Moving and locking**: boards and holders move freely in Edit mode but stay put in Play mode (dragging them pans the view), unless you tick *Movable in Play mode* in the properties panel or right-click menu. Lock any object so it can't be dragged in either mode (dragging a locked object pans the view). Lock or unlock in Edit mode via the action bar, the right-click menu or `L`.
 - **Zoom & pan**: the mouse wheel zooms about the cursor (5%–400%, so big tables still fit on a phone screen). Drag empty table space, hold Space, middle-drag, or use the Pan tool to pan. Fit and 100% controls are included; *Fit everything* keeps the scene clear of the floating top bar and tool column. The **Full screen** button below it (corner brackets) shows the page full screen in the browser; press it again or Esc to leave (it is hidden where the browser can't do it, e.g. on iPhones).
 - **Phones & tablets**: play with touch. Tap an object for its action bar (its ⋯ opens every action), double-tap to flip / roll, long-press for the full menu (like right-click; on a card whose deck has *Zoom on hover*, whether it lies loose, in a holder or in a pile, a long-press shows the card enlarged until you lift your finger instead, and the menu is in the action bar's ⋯), pinch to zoom and drag with two fingers to pan (one finger on the empty table pans too). Dragging cards, tokens and pieces, drawing with the pen and typing text all work with a finger. On narrow screens the top bar becomes one compact row (icon-only mode switch; the palette opens from the tool column's **+**), the tool column scrolls when the screen is short, panels open below the top bar, and touch screens get larger buttons.
-- **Drawing & writing**: pen (colours, widths, highlighter), whole-stroke eraser, typed text annotations, all in world coordinates so they stay aligned at every zoom level. The tool's options panel next to the tool column closes with its ×; click the tool again to bring it back.
+- **Drawing & writing**: pen (colours, widths, highlighter), **stamps**, whole-stroke eraser and typed text annotations. Marks made **on a board or image (a sheet) belong to it**: they move, turn, lift and resize with it, are drawn under pieces lying on the sheet, and are deleted with it (undo brings both back); an image put into a bag takes its marks along. Marks made on the empty table stay where they are on the table. Drag a text mark onto a sheet (or off it) to move it there. Everything stays aligned at every zoom level. The tool's options panel next to the tool column closes with its ×; click the tool again to bring it back.
+- **Stamps** (`M`): the Stamp tool puts a quick mark where you click: a **tick**, **cross**, **circle**, **dot**, **slash** or **star**, in any colour and five sizes (tool options). A faint preview follows the pointer. Stamps are pen marks drawn in one go, so they belong to the sheet they are on, and erase and undo like any stroke.
 - **Autosave**: debounced saves to IndexedDB with a small status icon. On failure your work stays in memory, and a banner offers Retry and Export.
-- **Portable files**: `.tablenox.zip` archives contain a JSON manifest plus all images. Imports are validated and transactional.
+- **Portable files**: `.tablenox.zip` archives contain a JSON manifest plus all images. Imports are validated and transactional. **Export all** in the library saves every game in one archive (`tablenox-library-YYYY-MM-DD.tablenox.zip`; an image used by several games is stored once); **Import** takes several files at once and reports which ones failed. Exports larger than the 100 MB import limit ask before downloading, since they couldn't be imported back.
+- **Image storage**: an image is stored once however many times it is uploaded or imported (recognised by its content, SHA-256), and images larger than 2048 px on their long side are scaled down on upload (keeping PNG / JPEG / WebP, so transparency is kept). The library thumbnail of a game is taken when you leave it.
 
 ## Getting started
 
@@ -75,16 +79,19 @@ Before the first E2E run, install the browsers: `npx playwright install chromium
 | Drag                             | Move an object (locked objects, and boards/holders in Play mode, pan the view instead) |
 | Drag a card onto a card / holder | Put it into the holder, or make a pile (target fades while hovering) |
 | Drag a pile onto a holder / pile | Put all its cards on top                                      |
-| `Shift` + drop                   | Place freely: no stacking, no holder rotation                 |
+| `Shift` + drop                   | Place freely: no stacking, no holder rotation, no grid snapping |
 | Drag from a holder               | Take its top card (stacked) or the grabbed card (spread) (Play mode) |
 | Drag a token stack               | Take one token off it; drag its badge or Shift+drag to move the whole stack (Play mode) |
 | Drag a holder's count badge      | Lift its whole stack out as a pile; the holder stays (Play mode) |
 | Drag from a bag                  | Draw a random piece out of it (Play mode); drop a piece on a bag to put it in |
 | Double-click                     | Flip card · roll die · turn over a holder's top card (in a spread: the clicked card) |
 | Right-click                      | Action menu for an object (Play mode: game actions only; Edit mode: also lock, zoom on hover, order, delete…) |
+| Right-click a selection          | Duplicate, lock, delete, **align** and **distribute** the selected objects (Edit mode) |
 | `Ctrl/Shift` + click             | Add to / remove from the selection (Edit mode)                |
 | `Shift` + drag table             | Selection box (plain drag when the camera is locked); in Play mode it selects the pieces you can move |
-| `V` `H` `P` `E` `T`              | Select, Pan, Pen, Eraser, Text tool                           |
+| `V` `H` `P` `M` `E` `T`          | Select, Pan, Pen, Stamp, Eraser, Text tool                    |
+| Stamp tool: click                | Put a tick / cross / circle / dot / slash / star there (on a sheet it belongs to the sheet) |
+| Drag a text mark · double-click it | Move it (onto or off a sheet) · edit it                      |
 | `F`                              | Flip selected card, or all cards of the selected holder       |
 | `S`                              | Shuffle selected holder or bag                                |
 | `R` / `Shift+R`                  | Roll selected die / rotate selected piece to its next (previous) allowed angle |
@@ -93,16 +100,17 @@ Before the first E2E run, install the browsers: `npx playwright install chromium
 | `C`                              | Lock camera on / off (dragging never pans)                    |
 | `I`                              | Properties panel (Edit mode)                                  |
 | `A`                              | Object palette (Edit mode)                                    |
+| `G`                              | Snap to grid on / off (Edit mode)                             |
 | `?`                              | Controls & shortcuts dialog                                   |
 | `Ctrl/Cmd+Z`                     | Undo                                                          |
 | `Ctrl/Cmd+Shift+Z`, `Ctrl/Cmd+Y` | Redo                                                          |
 | `Delete` / `Backspace`           | Delete selected object(s) (Edit mode) |
 | `Ctrl/Cmd+D`                     | Duplicate selected object(s) (Edit mode)                      |
 | `Ctrl/Cmd+A`                     | Select all (Edit mode)                                        |
-| Arrow keys (`Shift` = 10)        | Nudge selected object(s) (Edit mode)                          |
+| Arrow keys (`Shift` = 10)        | Nudge selected object(s) (Edit mode; one grid step with Snap to grid) |
 | `+` `-` `0` `Shift+F`            | Zoom in, zoom out, 100%, fit everything                       |
 | `Space` + drag                   | Pan                                                           |
-| `Esc`                            | Close menu / cancel text / deselect / back to Select tool     |
+| `Esc`                            | Stop picking / close menu / cancel text / deselect / back to Select tool |
 | Touch: tap · double-tap          | Select and show the action bar · flip card, roll die, turn over a holder's top card |
 | Touch: long-press                | Action menu for an object (like right-click); a card with zoom on hover (also in a holder or pile) is shown enlarged while held |
 | Touch: pinch · two-finger drag   | Zoom · pan                                                    |
@@ -115,18 +123,18 @@ Shortcuts are ignored while typing in an input.
 - When you first open this version, older data (separate templates and play sessions) is merged automatically: each template becomes one game, keeping whichever is newer, the template or its most recent session.
 - Clearing site data, using a private/incognito window, or browser storage eviction can delete your games. **Export regularly.**
 - The library shows current storage usage and offers a "keep data" button that calls `navigator.storage.persist()`. Browsers may decline this.
-- Images are limited to 10 MB each (PNG, JPEG, WebP; SVG is rejected). Imports are limited to 50 MB.
+- Images are limited to 10 MB each (PNG, JPEG, WebP; SVG is rejected) and scaled down to 2048 px on their long side. Imports are limited to 100 MB per file.
 
 ## Import / export format
 
-An export is a ZIP file named `<title>.tablenox.zip`:
+An export is a ZIP file named `<title>.tablenox.zip` (one game) or `tablenox-library-YYYY-MM-DD.tablenox.zip` (*Export all*):
 
 ```
 manifest.json
 assets/<assetId>.png|jpg|webp
 ```
 
-`manifest.json`:
+`manifest.json` of a single game:
 
 ```json
 {
@@ -139,13 +147,15 @@ assets/<assetId>.png|jpg|webp
 }
 ```
 
+A library archive has `"exportType": "library"` and `"games": [Game, …]` instead of `data`; every image is stored once in `assets/`, however many games use it.
+
 Only files with the current schema version import (the app is still in testing, so there are no upgrades of older formats).
 
 On import, Tablenox:
 
-- rejects unsafe paths (anything other than `manifest.json` and `assets/<id>.<ext>`), archives with more than 2,000 entries, files larger than 10 MB, total uncompressed data over 200 MB (checked before inflating), unsupported schema versions, and images whose bytes don't match a PNG, JPEG or WebP signature;
+- rejects files over 100 MB, unsafe paths (anything other than `manifest.json` and `assets/<id>.<ext>`), archives with more than 5,000 entries, images larger than 10 MB, total uncompressed data over 250 MB (checked before inflating), unsupported schema versions, and images whose bytes don't match a PNG, JPEG or WebP signature;
 - validates all game data with Zod (`src/domain/schema.ts`);
-- assigns fresh IDs to the document and its assets, then writes everything in one IndexedDB transaction.
+- assigns fresh IDs to the games, reuses images already stored in the browser (same content) and gives the others fresh IDs, then writes everything in one IndexedDB transaction (a library archive imports all of its games or none).
 
 ## Deploying to Cloudflare Pages
 

@@ -39,6 +39,12 @@ export function extensionForMime(mime: AssetMimeType): string {
   return mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'webp';
 }
 
+/** Hex SHA-256 of the given bytes (used to de-duplicate stored images). */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** Validates an uploaded file before it is stored. Size is checked before reading the content. */
 export async function validateImageFile(file: Blob & { name?: string }): Promise<AssetMimeType> {
   if (file.size > MAX_ASSET_BYTES) {

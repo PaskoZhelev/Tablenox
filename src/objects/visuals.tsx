@@ -9,9 +9,11 @@ import {
   DEFAULT_HOLDER_STROKE_OPACITY,
   DIE_PIP_LAYOUT,
   ownerDeckOf,
+  ownerDecksById,
   resolveCardLook,
   tokenCount,
 } from '../domain/objects';
+import { useShallow } from 'zustand/react/shallow';
 import { cardRotationOf, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
@@ -220,7 +222,15 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   const count = o.cards.length;
   const w = o.width;
   const h = o.height;
-  const objects = useTableStore((s) => s.history.present.objects);
+  // Only the decks owning the cards shown here matter (their card size and back), so other table changes don't
+  // re-render every holder and pile.
+  const owners = useTableStore(
+    useShallow((s) => {
+      const byId = ownerDecksById(s.history.present.objects);
+      return [...new Set(o.cards.map((c) => byId.get(c.id)).filter((d): d is DeckObject => !!d))];
+    }),
+  );
+  const objects: TabletopObject[] = owners;
   const gapAt = useTableStore((s) => (s.dropTargetId === o.id ? s.dropIndex : null));
   const holder = !o.isPile;
   const edit = mode === 'edit';

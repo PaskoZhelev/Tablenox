@@ -4,7 +4,7 @@ const ROWS: [string, string][] = [
   ['Drag', 'Move a card, token, die… (locked objects, and boards / holders in Play mode, pan the view instead)'],
   ['Drag onto a card / holder', 'A card joins the holder, or makes a pile with the card; the target fades while you hover'],
   ['Drag a pile onto a holder / pile', 'Put all its cards on top'],
-  ['Shift + drop', 'Place freely, without stacking or snapping'],
+  ['Shift + drop', 'Place freely, without stacking, snapping into a holder or snapping to the grid'],
   ['Drag from a holder', 'Take its top card (stacked) or the card you grab (spread out) (Play mode)'],
   [
     'Right-click a holder',
@@ -33,19 +33,33 @@ const ROWS: [string, string][] = [
     'Right-click',
     'Actions for an object: in Play mode only what you do in a game; in Edit mode also setup (lock, zoom on hover, order, delete…)',
   ],
+  [
+    'Right-click a selection',
+    'Duplicate, lock, delete, align (left / centres / right / top / middles / bottom) and distribute (3+ objects) (Edit mode; also in the properties panel)',
+  ],
   ['Wheel', 'Zoom around the cursor'],
   ['Drag empty table / Space + drag', 'Pan'],
-  ['V H P E T', 'Select, Pan, Pen, Eraser, Text tool'],
+  ['V H P M E T', 'Select, Pan, Pen, Stamp, Eraser, Text tool'],
+  [
+    'Pen · Stamp · Text on a sheet',
+    'Marks made on a board or image belong to it: they move, turn and resize with it and go when it is deleted; elsewhere they stay on the table',
+  ],
+  ['M · click', 'Stamp a tick, cross, circle, dot, slash or star where you click (shape, colour and size in the tool options)'],
+  ['Drag a text mark · double-click it', 'Move it (onto a sheet or off it) · edit it'],
   [
     'F / S / R / L',
     'Flip card or holder · shuffle holder or bag · roll die or rotate to the next allowed angle (Shift+R back) · lock / unlock (Edit mode)',
   ],
-  ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
+  ['Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y', 'Undo / redo'],
   ['+ − 0 Shift+F', 'Zoom in, out, 100%, fit'],
   ['U', 'Hide / show the interface'],
   ['C', 'Lock camera: dragging the table never pans (wheel, Pan tool and Space still work)'],
   ['I', 'Properties panel (Edit mode)'],
+  ['G', 'Snap to grid on / off (Edit mode): dragged, resized and added objects line up with the grid; spacing in the More menu → Grid'],
+  ['Arrow keys', 'Nudge the selection by 1 (Shift: 10; with Snap to grid: one grid step) (Edit mode)'],
   ['Delete · Ctrl+D · Ctrl+A', 'Delete · duplicate · select all (Edit mode; works on every selected object)'],
+  ['Esc', 'Stop picking · close the text editor, menu or palette · deselect · back to the Select tool'],
+  ['?', 'This list'],
 ];
 
 const TOUCH_ROWS: [string, string][] = [

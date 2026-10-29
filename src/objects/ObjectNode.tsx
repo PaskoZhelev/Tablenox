@@ -4,6 +4,10 @@ import { Group, Rect } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { cardIndexAt, findHoverTarget, isSpread, spreadInsertIndex } from '../domain/rules';
 import { isHolder } from '../domain/objects';
+import { isMarkAnchor } from '../domain/annotations';
+import { screenToWorld, worldToScreen } from '../domain/camera';
+import { snapPosition } from '../domain/geometry';
+import { SheetMarks } from '../drawing/AnnotationLayer';
 import type { Mode, TabletopObject } from '../domain/types';
 import { currentTable, useTableStore } from '../state/tableStore';
 import {
@@ -75,6 +79,21 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     latest.current = o;
   });
   const shuffleSeq = useTableStore((s) => (s.shuffled?.ids.includes(o.id) ? s.shuffled.seq : 0));
+  // Edit mode with "Snap to grid": the grid size a drag snaps to (0 = free).
+  const gridSize = useTableStore((s) => (s.mode === 'edit' && s.ui.snapToGrid ? s.ui.gridSize : 0));
+
+  /**
+   * Keeps a dragged object's bounding box corner on the grid (Shift places freely). Only the object under the pointer
+   * snaps; the rest of a multi-selection follows it by the same amount, so their layout is kept.
+   */
+  const snapDrag = (pos: { x: number; y: number }, evt?: { shiftKey?: boolean }) => {
+    if (evt?.shiftKey) return pos;
+    const { camera } = useTableStore.getState();
+    const obj = latest.current;
+    const center = screenToWorld(camera, pos);
+    const p = snapPosition(obj, { x: center.x - obj.width / 2, y: center.y - obj.height / 2 }, gridSize);
+    return worldToScreen(camera, { x: p.x + obj.width / 2, y: p.y + obj.height / 2 });
+  };
 
   // Shuffled: a holder's / pile's cards riffle (alternate cards slide left and right); a bag wobbles.
   useEffect(() => {
@@ -262,6 +281,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       offsetY={o.height / 2}
       rotation={o.rotation}
       draggable={draggable}
+      dragBoundFunc={gridSize ? snapDrag : undefined}
       opacity={dropTarget && !(o.kind === 'deck' && isSpread(o)) ? 0.45 : o.visible ? 1 : 0.35}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
@@ -301,6 +321,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
             else resetTimer(o.id);
           }}
         />
+        {isMarkAnchor(o) && <SheetMarks objectId={o.id} />}
       </Group>
       {focused && (
         <Rect

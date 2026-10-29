@@ -29,18 +29,19 @@ function load(mode: Mode) {
 
 beforeEach(() => {
   s().unload();
-  s().setUi({ inspectorOpen: false, uiHidden: false, cameraLocked: false, palettePinned: false });
+  s().setUi({ inspectorOpen: false, uiHidden: false, cameraLocked: false, palettePinned: false, snapToGrid: false, gridSize: 50 });
   onHelp = vi.fn<() => void>();
   renderHook(() => useTableShortcuts(onHelp));
 });
 afterEach(cleanup);
 
 describe('keyboard shortcuts', () => {
-  it('switch tools with V / H / P / E / T; Esc goes back to Select', () => {
+  it('switch tools with V / H / P / M / E / T; Esc goes back to Select', () => {
     load('play');
     for (const [key, tool] of [
       ['h', 'pan'],
       ['p', 'pen'],
+      ['m', 'stamp'],
       ['e', 'eraser'],
       ['t', 'text'],
       ['v', 'select'],
@@ -126,6 +127,24 @@ describe('keyboard shortcuts', () => {
     press('l');
     press('Backspace');
     expect(two.map(get).filter(Boolean)).toEqual([]);
+  });
+
+  it('Edit mode: G toggles snap to grid; arrows then move by one grid step onto the grid', () => {
+    load('edit');
+    press('g');
+    expect(s().ui.snapToGrid).toBe(true);
+    s().setUi({ gridSize: 25 });
+    const label = ofKind('label');
+    s().dispatch({ type: 'MoveObject', id: label.id, position: { x: 103, y: 47 } });
+    s().select(label.id);
+    press('ArrowRight');
+    expect(get(label.id).position).toEqual({ x: 125, y: 50 });
+    press('g');
+    expect(s().ui.snapToGrid).toBe(false);
+    // Play mode has no grid.
+    s().setMode('play');
+    press('g');
+    expect(s().ui.snapToGrid).toBe(false);
   });
 
   it('setup keys do nothing in Play mode', () => {

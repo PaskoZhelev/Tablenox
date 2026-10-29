@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { TEXT_LINE_HEIGHT } from '../domain/annotations';
+import { placeText, TEXT_LINE_HEIGHT } from '../domain/annotations';
 import { worldToScreen } from '../domain/camera';
 import { newId } from '../domain/ids';
-import { useTableStore, type TextEditing } from '../state/tableStore';
+import { currentTable, useTableStore, type TextEditing } from '../state/tableStore';
 
 function commit(editing: TextEditing, text: string) {
   const { dispatch, setEditingText } = useTableStore.getState();
@@ -10,14 +10,17 @@ function commit(editing: TextEditing, text: string) {
   if (editing.id) {
     dispatch({ type: 'EditTextAnnotation', id: editing.id, patch: { text } });
   } else if (text.trim()) {
+    // Typed on a sheet, the text belongs to it (and moves with it).
+    const place = placeText(currentTable().objects, editing.position);
     dispatch({
       type: 'AddTextAnnotation',
       annotation: {
         id: newId(),
-        position: editing.position,
+        position: place.position,
         text,
         fontSize: editing.fontSize,
         color: editing.color,
+        ...(place.objectId ? { objectId: place.objectId } : {}),
       },
     });
   }

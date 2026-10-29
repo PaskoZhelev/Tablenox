@@ -415,6 +415,22 @@ export function homeDeckMap(objects: TabletopObject[]): Map<string, string> {
   return map;
 }
 
+const ownerDeckCache = new WeakMap<readonly TabletopObject[], Map<string, DeckObject>>();
+
+/**
+ * Card-definition id -> the deck that owns it, cached per (immutable) objects array: cheap enough to call from store
+ * selectors that run on every state change.
+ */
+export function ownerDecksById(objects: readonly TabletopObject[]): Map<string, DeckObject> {
+  let map = ownerDeckCache.get(objects);
+  if (!map) {
+    map = new Map();
+    for (const o of objects) if (o.kind === 'deck') for (const c of o.initialCards) map.set(c.id, o);
+    ownerDeckCache.set(objects, map);
+  }
+  return map;
+}
+
 export function maxZ(objects: TabletopObject[]): number {
   return objects.reduce((m, o) => Math.max(m, o.zIndex), 0);
 }

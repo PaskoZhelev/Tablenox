@@ -34,7 +34,9 @@ export function unionRects(rects: Rect[]): Rect | null {
 export function sceneBounds(objects: TabletopObject[], annotations?: Annotations): Rect | null {
   const rects = objects.filter((o) => o.visible).map(objectBounds);
   if (annotations) {
+    // Marks on a sheet use its coordinates and lie on it anyway; only marks on the table itself count here.
     for (const s of annotations.strokes) {
+      if (s.objectId) continue;
       const xs = s.points.filter((_, i) => i % 2 === 0);
       const ys = s.points.filter((_, i) => i % 2 === 1);
       if (xs.length) {
@@ -60,4 +62,28 @@ export function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const x = a.x + t * dx;
   const y = a.y + t * dy;
   return Math.hypot(p.x - x, p.y - y);
+}
+
+export const DEFAULT_GRID_SIZE = 50;
+export const MIN_GRID_SIZE = 5;
+export const MAX_GRID_SIZE = 500;
+
+/** A grid size the editor accepts (whole world units, `MIN_GRID_SIZE`–`MAX_GRID_SIZE`). */
+export function clampGridSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_GRID_SIZE;
+  return Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, Math.round(size)));
+}
+
+export function snapToGrid(v: number, size: number): number {
+  return Math.round(v / size) * size;
+}
+
+/**
+ * The position (top-left of the unrotated box) that puts the top-left corner of the object's bounding box, as seen on
+ * the table, on the grid. For unrotated objects that is the position itself, snapped.
+ */
+export function snapPosition(o: Pick<TabletopObject, 'width' | 'height' | 'rotation'>, position: Vec2, size: number): Vec2 {
+  const b = objectBounds({ ...o, position });
+  const round = (v: number) => Math.round(v * 100) / 100;
+  return { x: round(position.x + snapToGrid(b.x, size) - b.x), y: round(position.y + snapToGrid(b.y, size) - b.y) };
 }

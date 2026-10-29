@@ -1,5 +1,6 @@
 import { fitBounds, NO_INSETS, zoomBy, zoomToCenter, ZOOM_STEP, type Insets } from '../domain/camera';
-import { objectBounds, objectCenter, sceneBounds } from '../domain/geometry';
+import { objectBounds, objectCenter, sceneBounds, snapPosition } from '../domain/geometry';
+import { alignCommand, distributeCommand, type AlignMode, type DistributeAxis } from '../domain/align';
 import {
   bagCount,
   createObject,
@@ -510,6 +511,16 @@ export function nudgeObjects(ids: string[], dx: number, dy: number): void {
   );
 }
 
+/** Lines up the edges or centres of objects (Edit mode multi-selection), as one undo step; locked ones stay put. */
+export function alignObjects(ids: string[], mode: AlignMode): void {
+  useTableStore.getState().dispatch(alignCommand(currentTable().objects, ids, mode));
+}
+
+/** Spaces three or more objects evenly along one axis, as one undo step. */
+export function distributeObjects(ids: string[], axis: DistributeAxis): void {
+  useTableStore.getState().dispatch(distributeCommand(currentTable().objects, ids, axis));
+}
+
 export function selectAll(): void {
   const { mode, setSelection, setSelectionBar } = useTableStore.getState();
   if (mode !== 'edit') return;
@@ -610,6 +621,8 @@ export async function addObject(
   }
   // Objects without a default name (bags) stay unnamed.
   if (kind === 'board' || obj.name) obj.name = uniqueName(kind === 'board' ? 'Board' : obj.name);
+  const { mode, ui } = useTableStore.getState();
+  if (mode === 'edit' && ui.snapToGrid) obj.position = snapPosition(obj, obj.position, ui.gridSize);
   dispatch({ type: 'AddObject', object: obj });
   select(obj.id);
   return obj.id;

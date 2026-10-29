@@ -4,15 +4,15 @@ import { newId, nowIso } from '../domain/ids';
 import { collectAssetIds, remapAssetIds } from '../domain/objects';
 import { parseGame, SchemaError } from '../domain/schema';
 import { ASSET_MIME_TYPES, SCHEMA_VERSION, type Game, type StoredAsset } from '../domain/types';
-import { extensionForMime, MAX_ASSET_BYTES, sniffImageMime } from '../persistence/assetValidation';
+import { extensionForMime, MAX_ASSET_BYTES, sha256Hex, sniffImageMime } from '../persistence/assetValidation';
 import { db as defaultDb, type TablenoxDB } from '../persistence/db';
 
 export const EXPORT_FORMAT = 'tablenox';
 export const EXPORT_EXTENSION = '.tablenox.zip';
-export const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
-export const MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024;
-export const MAX_MANIFEST_BYTES = 20 * 1024 * 1024;
-export const MAX_ENTRIES = 2000;
+export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
+export const MAX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
+export const MAX_MANIFEST_BYTES = 50 * 1024 * 1024;
+export const MAX_ENTRIES = 5000;
 
 const ASSET_PATH = /^assets\/([A-Za-z0-9_-]{1,100})\.(png|jpg|jpeg|webp)$/;
 
@@ -31,36 +31,34 @@ const manifestAssetSchema = z.object({
   path: z.string().regex(ASSET_PATH),
 });
 
-const manifestSchema = z.object({
+const manifestBase = {
   format: z.literal(EXPORT_FORMAT),
   schemaVersion: z.number().int(),
-  exportType: z.literal('game'),
   exportedAt: z.string().max(64),
-  data: z.unknown(),
   assets: z.array(manifestAssetSchema).max(MAX_ENTRIES),
-});
+};
 
-export interface Manifest {
+const manifestSchema = z.discriminatedUnion('exportType', [
+  z.object({ ...manifestBase, exportType: z.literal('game'), data: z.unknown() }),
+  z.object({ ...manifestBase, exportType: z.literal('library'), games: z.array(z.unknown()).max(MAX_ENTRIES) }),
+]);
+
+type ManifestContent = { exportType: 'game'; data: Game } | { exportType: 'library'; games: Game[] };
+
+/** A single game (`data`) or a whole library (`games`); each image is stored once in the shared `assets/` folder. */
+export type Manifest = ManifestContent & {
   format: typeof EXPORT_FORMAT;
   schemaVersion: typeof SCHEMA_VERSION;
-  exportType: 'game';
   exportedAt: string;
-  data: Game;
   assets: z.infer<typeof manifestAssetSchema>[];
-}
+};
 
-export async function buildExportZip(data: Game, database: TablenoxDB = defaultDb): Promise<Uint8Array> {
-  const ids = [...collectAssetIds(data.objects)];
-  const assets = (await database.assets.bulkGet(ids)).filter((a): a is StoredAsset => !!a);
+async function buildZip(content: ManifestContent, games: Game[], database: TablenoxDB): Promise<Uint8Array> {
+  const ids = new Set<string>();
+  for (const g of games) collectAssetIds(g.objects).forEach((id) => ids.add(id));
+  const assets = (await database.assets.bulkGet([...ids])).filter((a): a is StoredAsset => !!a);
   const files: Zippable = {};
-  const manifest: Manifest = {
-    format: EXPORT_FORMAT,
-    schemaVersion: SCHEMA_VERSION,
-    exportType: 'game',
-    exportedAt: nowIso(),
-    data,
-    assets: [],
-  };
+  const manifest: Manifest = { format: EXPORT_FORMAT, schemaVersion: SCHEMA_VERSION, exportedAt: nowIso(), assets: [], ...content };
   for (const a of assets) {
     const path = `assets/${a.id}.${extensionForMime(a.mimeType)}`;
     files[path] = [new Uint8Array(await a.blob.arrayBuffer()), { level: 0 }];
@@ -68,6 +66,20 @@ export async function buildExportZip(data: Game, database: TablenoxDB = defaultD
   }
   files['manifest.json'] = [strToU8(JSON.stringify(manifest)), { level: 6 }];
   return zipSync(files);
+}
+
+export function buildExportZip(data: Game, database: TablenoxDB = defaultDb): Promise<Uint8Array> {
+  return buildZip({ exportType: 'game', data }, [data], database);
+}
+
+/** Exports several games into one archive; an image used by several games is included once. */
+export function buildLibraryZip(games: Game[], database: TablenoxDB = defaultDb): Promise<Uint8Array> {
+  return buildZip({ exportType: 'library', games }, games, database);
+}
+
+/** True when an export is too large to be imported back. */
+export function exceedsImportLimit(bytes: Uint8Array): boolean {
+  return bytes.length > MAX_IMPORT_BYTES;
 }
 
 export function exportFileName(title: string): string {
@@ -78,6 +90,11 @@ export function exportFileName(title: string): string {
       .replace(/\s+/g, '-')
       .slice(0, 60) || 'tablenox-game';
   return `${safe}${EXPORT_EXTENSION}`;
+}
+
+export function libraryExportFileName(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `tablenox-library-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}${EXPORT_EXTENSION}`;
 }
 
 export function downloadBytes(bytes: Uint8Array, fileName: string): void {
@@ -93,7 +110,7 @@ export function downloadBytes(bytes: Uint8Array, fileName: string): void {
 }
 
 export interface ParsedImport {
-  data: Game;
+  games: Game[];
   assets: { id: string; name: string; mimeType: StoredAsset['mimeType']; bytes: Uint8Array }[];
 }
 
@@ -155,12 +172,16 @@ export function parseImportZip(bytes: Uint8Array): ParsedImport {
     throw new ImportError(`Unsupported schema version ${m.data.schemaVersion}.`);
   }
 
-  let data: Game;
-  try {
-    data = parseGame(m.data.data);
-  } catch (err) {
-    throw new ImportError(err instanceof SchemaError ? err.message : 'Game data is invalid.');
-  }
+  const rawGames = m.data.exportType === 'game' ? [m.data.data] : m.data.games;
+  if (rawGames.length === 0) throw new ImportError('The archive contains no games.');
+  const games = rawGames.map((raw, i) => {
+    try {
+      return parseGame(raw);
+    } catch (err) {
+      const message = err instanceof SchemaError ? err.message : 'Game data is invalid.';
+      throw new ImportError(rawGames.length > 1 ? `Game ${i + 1}: ${message}` : message);
+    }
+  });
 
   const assets: ParsedImport['assets'] = [];
   const seen = new Set<string>();
@@ -174,38 +195,67 @@ export function parseImportZip(bytes: Uint8Array): ParsedImport {
     assets.push({ id: a.id, name: a.name, mimeType: sniffed, bytes: entry });
   }
 
-  for (const ref of collectAssetIds(data.objects)) {
+  // Only keep images the games actually use (an archive may carry extra ones).
+  const used = new Set<string>();
+  for (const g of games) collectAssetIds(g.objects).forEach((id) => used.add(id));
+  for (const ref of used) {
     if (!seen.has(ref)) throw new ImportError('Game references an image that is not included in the archive.');
   }
-
-  // Only keep images the game actually uses (an archive may carry extra ones).
-  const used = collectAssetIds(data.objects);
-  return { data, assets: assets.filter((a) => used.has(a.id)) };
+  return { games, assets: assets.filter((a) => used.has(a.id)) };
 }
 
-/** Imports with fresh IDs inside a single transaction (all-or-nothing). */
-export async function importParsed(parsed: ParsedImport, database: TablenoxDB = defaultDb): Promise<{ id: string; title: string }> {
-  const idMap = new Map(parsed.assets.map((a) => [a.id, newId()]));
-  const createdAt = nowIso();
-  const assetRecords: StoredAsset[] = parsed.assets.map((a) => ({
-    id: idMap.get(a.id)!,
-    name: a.name,
-    mimeType: a.mimeType,
-    sizeBytes: a.bytes.length,
-    blob: new Blob([a.bytes as BlobPart], { type: a.mimeType }),
-    createdAt,
-  }));
+export interface ImportedGame {
+  id: string;
+  title: string;
+}
+
+/**
+ * Imports every game with fresh IDs inside a single transaction (all-or-nothing). Images that are already stored
+ * (same SHA-256) are reused instead of being added again.
+ */
+export async function importParsed(parsed: ParsedImport, database: TablenoxDB = defaultDb): Promise<ImportedGame[]> {
+  // Hash before the transaction: awaiting anything other than IndexedDB inside a Dexie transaction ends it.
+  const hashed = await Promise.all(parsed.assets.map(async (a) => ({ ...a, hash: await sha256Hex(a.bytes) })));
   const now = nowIso();
-  const id = newId();
+  const results = parsed.games.map((g) => ({ id: newId(), title: g.title }));
 
   await database.transaction('rw', database.assets, database.games, async () => {
-    await database.assets.bulkAdd(assetRecords);
-    await database.games.add({ ...parsed.data, id, objects: remapAssetIds(parsed.data.objects, idMap), updatedAt: now });
+    const hashes = [...new Set(hashed.map((a) => a.hash))];
+    const existing = hashes.length > 0 ? await database.assets.where('hashes').anyOf(hashes).toArray() : [];
+    const idByHash = new Map<string, string>();
+    for (const e of existing) for (const h of e.hashes ?? []) if (!idByHash.has(h)) idByHash.set(h, e.id);
+    const reused = new Set(hashes.map((h) => idByHash.get(h)).filter((id): id is string => !!id));
+
+    const idMap = new Map<string, string>();
+    const added: StoredAsset[] = [];
+    for (const a of hashed) {
+      let id = idByHash.get(a.hash);
+      if (!id) {
+        id = newId();
+        idByHash.set(a.hash, id);
+        added.push({
+          id,
+          name: a.name,
+          mimeType: a.mimeType,
+          sizeBytes: a.bytes.length,
+          blob: new Blob([a.bytes as BlobPart], { type: a.mimeType }),
+          createdAt: now,
+          hashes: [a.hash],
+        });
+      }
+      idMap.set(a.id, id);
+    }
+
+    for (const id of reused) await database.assets.update(id, { createdAt: now });
+    await database.assets.bulkAdd(added);
+    for (const [i, g] of parsed.games.entries()) {
+      await database.games.add({ ...g, id: results[i].id, objects: remapAssetIds(g.objects, idMap), updatedAt: now });
+    }
   });
-  return { id, title: parsed.data.title };
+  return results;
 }
 
-export async function importFile(file: Blob, database: TablenoxDB = defaultDb) {
+export async function importFile(file: Blob, database: TablenoxDB = defaultDb): Promise<ImportedGame[]> {
   if (file.size > MAX_IMPORT_BYTES) throw new ImportError(`File is too large (limit ${MAX_IMPORT_BYTES / 1024 / 1024} MB).`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   return importParsed(parseImportZip(bytes), database);

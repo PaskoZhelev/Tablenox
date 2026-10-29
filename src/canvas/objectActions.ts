@@ -2,12 +2,15 @@ import type { IconName } from '../components/Icon';
 import { bagOf, homeDeckOf, nextRotation, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
 import { fixedInPlay, hasPlayMovable, tokenCount } from '../domain/objects';
 import type { DrawSide, Mode, TableState, TabletopObject } from '../domain/types';
+import { ALIGN_LABELS, DISTRIBUTE_LABELS, type AlignMode } from '../domain/align';
 import { useTableStore } from '../state/tableStore';
 import {
+  alignObjects,
   cycleDrawSide,
   cyclePutSide,
   deleteObject,
   deleteObjects,
+  distributeObjects,
   drawFromBag,
   drawFromDeck,
   duplicateObject,
@@ -114,8 +117,46 @@ export function getGroupActions(ids: string[], table: TableState): ObjectAction[
       danger: true,
       shortcut: 'Del',
     },
+    {
+      id: 'align',
+      label: 'Align',
+      icon: 'alignLeft',
+      run: () => undefined,
+      children: ALIGN_MODES.map((mode) => ({
+        id: `align-${mode}`,
+        label: ALIGN_LABELS[mode],
+        icon: ALIGN_ICONS[mode],
+        run: () => alignObjects(ids, mode),
+      })),
+    },
+    ...(objs.length >= 3
+      ? [
+          {
+            id: 'distribute',
+            label: 'Distribute',
+            icon: 'distributeX',
+            run: () => undefined,
+            children: (['horizontal', 'vertical'] as const).map((axis) => ({
+              id: `distribute-${axis}`,
+              label: DISTRIBUTE_LABELS[axis],
+              icon: axis === 'horizontal' ? 'distributeX' : 'distributeY',
+              run: () => distributeObjects(ids, axis),
+            })),
+          },
+        ]
+      : []),
   ];
 }
+
+export const ALIGN_MODES: AlignMode[] = ['left', 'centerX', 'right', 'top', 'centerY', 'bottom'];
+export const ALIGN_ICONS: Record<AlignMode, IconName> = {
+  left: 'alignLeft',
+  centerX: 'alignCenterX',
+  right: 'alignRight',
+  top: 'alignTop',
+  centerY: 'alignCenterY',
+  bottom: 'alignBottom',
+};
 
 /**
  * Actions for one object. Play mode only offers what players do during a game (draw, shuffle, flip, roll…);

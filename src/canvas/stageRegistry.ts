@@ -60,3 +60,16 @@ export function captureThumbnail(width = THUMBNAIL_WIDTH): string | undefined {
     return undefined;
   }
 }
+
+const leavingListeners = new Set<() => void>();
+
+/** Calls `fn` right before the table's stage goes away (leaving the game), while it can still be drawn. */
+export function onStageLeaving(fn: () => void): () => void {
+  leavingListeners.add(fn);
+  return () => leavingListeners.delete(fn);
+}
+
+/** Called by the table canvas as it unmounts, before its stage is detached. */
+export function notifyStageLeaving(): void {
+  leavingListeners.forEach((fn) => fn());
+}

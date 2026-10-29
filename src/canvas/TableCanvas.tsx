@@ -2,12 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom';
 import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import type { Box as TransformBox } from 'konva/lib/shapes/Transformer';
 import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
-import { simplifyPoints, strokeHit, textHit } from '../domain/annotations';
-import { panBy, pinchBy, screenToWorld, zoomBy, type PinchPoint } from '../domain/camera';
+import { anchorStroke, simplifyPoints, strokeHitAt, textHitAt } from '../domain/annotations';
+import { panBy, pinchBy, screenToWorld, worldToScreen, zoomBy, type PinchPoint } from '../domain/camera';
 import { newId } from '../domain/ids';
 import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByZ, tokenCount } from '../domain/objects';
-import { objectBounds } from '../domain/geometry';
+import { objectBounds, snapToGrid } from '../domain/geometry';
+import { stampStroke } from '../domain/stamps';
 import type { TabletopObject, Vec2 } from '../domain/types';
 import { AnnotationLayer } from '../drawing/AnnotationLayer';
 import { focusTextEditor, startEditingText } from '../drawing/textEditing';
@@ -30,7 +32,7 @@ import type { Command } from '../domain/commands';
 import { resetDoubleClick } from './doubleClick';
 import { Grid } from './Grid';
 import { isLightColor } from './colors';
-import { registerStage } from './stageRegistry';
+import { notifyStageLeaving, registerStage } from './stageRegistry';
 import { pickOnTable } from './actions';
 import { pickedIds } from '../domain/buttons';
 import { allowTaps, LONG_PRESS_MS, LONG_PRESS_SLOP, suppressTaps, tapsSuppressed, TOUCH_DRAG_DISTANCE } from './touch';
@@ -60,6 +62,7 @@ type Gesture =
   | { kind: 'group'; id: string; start: Vec2 };
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+const setHiddenIds = (ids: ReadonlySet<string>) => useTableStore.getState().setErasingIds(ids);
 const KEEP_RATIO_KINDS = new Set(['board', 'image', 'card', 'token', 'die']);
 const CLICK_SLOP = 4;
 const DECK_DRAG_SLOP = 6;
@@ -103,6 +106,7 @@ export function TableCanvas() {
   const trRef = useRef<Konva.Transformer>(null);
   const liveLineRef = useRef<Konva.Line>(null);
   const eraserRef = useRef<Konva.Circle>(null);
+  const stampGhostRef = useRef<Konva.Line>(null);
   const marqueeRef = useRef<Konva.Rect>(null);
   const gesture = useRef<Gesture | null>(null);
   /** The gesture that ended last: a click / tap arrives after the window's pointerup has already ended it. */
@@ -115,7 +119,7 @@ export function TableCanvas() {
   const closedEditor = useRef(false);
   const pendingDragId = useRef<string | null>(null);
   const swallowClick = useRef(false);
-  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(EMPTY_SET);
+  const hiddenIds = useTableStore((s) => s.erasingIds);
   const [panning, setPanning] = useState(false);
 
   const viewport = useTableStore((s) => s.viewport);
@@ -129,6 +133,7 @@ export function TableCanvas() {
   const selectedIds = useTableStore((s) => s.selectedIds);
   const spaceHeld = useTableStore((s) => s.spaceHeld);
   const showGrid = useTableStore((s) => s.ui.showGrid);
+  const gridSize = useTableStore((s) => s.ui.gridSize);
   const tableColor = useTableStore((s) => s.doc?.tableColor);
   const dropTargetId = useTableStore((s) => s.dropTargetId);
   const editingId = useTableStore((s) => s.editingText?.id);
@@ -153,6 +158,8 @@ export function TableCanvas() {
   }, [setViewport]);
 
   useEffect(() => () => registerStage(null), []);
+  // A layout-effect cleanup runs before the Stage below is detached, so the game can still take its thumbnail.
+  useLayoutEffect(() => () => notifyStageLeaving(), []);
 
   const setStageRef = useCallback((s: Konva.Stage | null) => {
     stageRef.current = s;
@@ -163,6 +170,10 @@ export function TableCanvas() {
     if (tool !== 'eraser' && eraserRef.current?.visible()) {
       eraserRef.current.visible(false);
       eraserRef.current.getLayer()?.batchDraw();
+    }
+    if (tool !== 'stamp' && stampGhostRef.current?.visible()) {
+      stampGhostRef.current.visible(false);
+      stampGhostRef.current.getLayer()?.batchDraw();
     }
   }, [tool]);
 
@@ -253,16 +264,15 @@ export function TableCanvas() {
         line?.getLayer()?.batchDraw();
         const points = simplifyPoints(g.points, 0.75 / s.camera.scale);
         if (points.length >= 2) {
-          s.dispatch({
-            type: 'AddStroke',
-            stroke: {
-              id: newId(),
-              points,
-              color: s.pen.color,
-              width: s.pen.width,
-              opacity: s.pen.opacity,
-            },
+          // A stroke started on a sheet belongs to it (and moves with it).
+          const stroke = anchorStroke(currentTable().objects, {
+            id: newId(),
+            points,
+            color: s.pen.color,
+            width: s.pen.width,
+            opacity: s.pen.opacity,
           });
+          s.dispatch({ type: 'AddStroke', stroke });
         }
         break;
       }
@@ -321,15 +331,16 @@ export function TableCanvas() {
     const s = useTableStore.getState();
     const radius = s.eraserRadius / s.camera.scale;
     const ann = currentTable().annotations;
+    const objects = currentTable().objects;
     let changed = false;
     for (const st of ann.strokes) {
-      if (!g.strokeIds.has(st.id) && strokeHit(st, world, radius)) {
+      if (!g.strokeIds.has(st.id) && strokeHitAt(objects, st, world, radius)) {
         g.strokeIds.add(st.id);
         changed = true;
       }
     }
     for (const t of ann.text) {
-      if (!g.textIds.has(t.id) && textHit(t, world, radius)) {
+      if (!g.textIds.has(t.id) && textHitAt(objects, t, world, radius)) {
         g.textIds.add(t.id);
         changed = true;
       }
@@ -383,6 +394,7 @@ export function TableCanvas() {
         return;
       }
       case 'text':
+      case 'stamp':
         return;
       case 'select': {
         if (s.picking) {
@@ -663,6 +675,13 @@ export function TableCanvas() {
       eraserRef.current.visible(true);
       eraserRef.current.getLayer()?.batchDraw();
     }
+    if (s.tool === 'stamp' && world && stampGhostRef.current) {
+      // A faint preview of the stamp under the pointer.
+      const ghost = stampStroke(s.stamp.shape, world, s.stamp.size, s.stamp.color, '');
+      const pts = ghost.points.length === 2 ? [...ghost.points, ghost.points[0] + 0.01, ghost.points[1]] : ghost.points;
+      stampGhostRef.current.setAttrs({ points: pts, stroke: ghost.color, strokeWidth: ghost.width, visible: !gesture.current });
+      stampGhostRef.current.getLayer()?.batchDraw();
+    }
     const g = gesture.current;
     if (!g || !world || !screen) return;
     switch (g.kind) {
@@ -792,6 +811,16 @@ export function TableCanvas() {
       s.setSelectionBar(id);
       return;
     }
+    if (s.tool === 'stamp' && stage) {
+      const g = gesture.current ?? lastGesture.current;
+      if (g?.kind === 'pan' && g.moved) return;
+      const world = stage.getRelativePointerPosition();
+      if (!world) return;
+      // A stamp on a sheet belongs to it, like a pen stroke made there.
+      const stamp = stampStroke(s.stamp.shape, world, s.stamp.size, s.stamp.color, newId());
+      s.dispatch({ type: 'AddStroke', stroke: anchorStroke(currentTable().objects, stamp, world) });
+      return;
+    }
     if (s.tool !== 'text' || !stage) return;
     if (swallowClick.current) {
       swallowClick.current = false;
@@ -864,6 +893,31 @@ export function TableCanvas() {
   };
 
   const cursorClass = panning ? 'is-panning' : spaceHeld ? 'tool-pan' : picking ? 'is-picking' : `tool-${tool}`;
+  const keepRatio = transformable.length > 1 || (!!selected && KEEP_RATIO_KINDS.has(selected.kind));
+
+  /**
+   * Resize limits; with "Snap to grid" (Edit mode) the edges being dragged land on the grid. Only for unrotated boxes
+   * without a fixed aspect ratio (snapping both edges would distort images and cards).
+   */
+  const snapBox = (oldBox: TransformBox, newBox: TransformBox): TransformBox => {
+    if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return oldBox;
+    const s = useTableStore.getState();
+    if (s.mode !== 'edit' || !s.ui.snapToGrid || keepRatio || Math.abs(newBox.rotation) > 1e-6) return newBox;
+    const size = s.ui.gridSize;
+    const w0 = screenToWorld(s.camera, { x: oldBox.x, y: oldBox.y });
+    const w1 = screenToWorld(s.camera, { x: oldBox.x + oldBox.width, y: oldBox.y + oldBox.height });
+    const n0 = screenToWorld(s.camera, { x: newBox.x, y: newBox.y });
+    const n1 = screenToWorld(s.camera, { x: newBox.x + newBox.width, y: newBox.y + newBox.height });
+    const moved = (a: number, b: number) => Math.abs(a - b) > 1e-3;
+    const left = moved(n0.x, w0.x) ? snapToGrid(n0.x, size) : n0.x;
+    const top = moved(n0.y, w0.y) ? snapToGrid(n0.y, size) : n0.y;
+    const right = moved(n1.x, w1.x) ? snapToGrid(n1.x, size) : n1.x;
+    const bottom = moved(n1.y, w1.y) ? snapToGrid(n1.y, size) : n1.y;
+    if (right - left < 4 || bottom - top < 4) return oldBox;
+    const a = worldToScreen(s.camera, { x: left, y: top });
+    const b = worldToScreen(s.camera, { x: right, y: bottom });
+    return { ...newBox, x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
+  };
 
   return (
     <div
@@ -874,6 +928,7 @@ export function TableCanvas() {
       onContextMenu={(e) => e.preventDefault()}
       onPointerLeave={() => {
         eraserRef.current?.visible(false);
+        stampGhostRef.current?.visible(false);
         eraserRef.current?.getLayer()?.batchDraw();
         useTableStore.getState().setHover(null);
       }}
@@ -896,7 +951,7 @@ export function TableCanvas() {
         >
           {mode === 'edit' && showGrid && (
             <Layer name="grid-layer" listening={false}>
-              <Grid camera={camera} width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} />
+              <Grid camera={camera} width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} spacing={gridSize} />
             </Layer>
           )}
           <Layer>
@@ -918,13 +973,13 @@ export function TableCanvas() {
               rotateEnabled={mode === 'edit'}
               rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
               rotationSnapTolerance={6}
-              keepRatio={transformable.length > 1 || (!!selected && KEEP_RATIO_KINDS.has(selected.kind))}
+              keepRatio={keepRatio}
               flipEnabled={false}
               ignoreStroke
               anchorSize={COARSE_POINTER ? 14 : 9}
               borderStroke="#2684ff"
               anchorStroke="#2684ff"
-              boundBoxFunc={(oldBox, newBox) => (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8 ? oldBox : newBox)}
+              boundBoxFunc={snapBox}
               onTransformEnd={onTransformEnd}
             />
             <FlashOutline />
@@ -956,6 +1011,16 @@ export function TableCanvas() {
               dash={[3, 3]}
               strokeScaleEnabled={false}
               fill="rgba(255,255,255,0.35)"
+              listening={false}
+            />
+            <Line
+              ref={stampGhostRef}
+              name="stamp-ghost"
+              visible={false}
+              points={[]}
+              opacity={0.4}
+              lineCap="round"
+              lineJoin="round"
               listening={false}
             />
             <Rect

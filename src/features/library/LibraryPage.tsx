@@ -5,7 +5,16 @@ import { Icon } from '../../components/Icon';
 import { FileButton } from '../../components/fields';
 import { createGame, duplicateGame } from '../../domain/game';
 import type { Game } from '../../domain/types';
-import { buildExportZip, downloadBytes, EXPORT_EXTENSION, exportFileName, importFile } from '../../import-export/archive';
+import {
+  buildExportZip,
+  buildLibraryZip,
+  EXPORT_EXTENSION,
+  exportFileName,
+  importFile,
+  libraryExportFileName,
+  type ImportedGame,
+} from '../../import-export/archive';
+import { downloadExport } from '../../import-export/exportDialog';
 import { db } from '../../persistence/db';
 import { describeStorageError, repo } from '../../persistence/repository';
 import { confirmDialog, errorMessage, promptDialog, toast } from '../../state/uiStore';
@@ -167,7 +176,7 @@ function GameCard({ g }: { g: Game }) {
               title="Export"
               onClick={() =>
                 run(async () => {
-                  downloadBytes(await buildExportZip(g), exportFileName(g.title));
+                  await downloadExport(await buildExportZip(g), exportFileName(g.title));
                 })
               }
             >
@@ -202,6 +211,7 @@ function GameCard({ g }: { g: Game }) {
 export function LibraryPage() {
   const games = useLiveQuery(() => db.games.orderBy('updatedAt').reverse().toArray(), []);
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [dismissed, setDismissed] = useState(readDismissed);
   const [pinned, setPinned] = useState(false);
   const [prefs, setPrefs] = useState<LibraryPrefs>(readLibraryPrefs);
@@ -228,16 +238,41 @@ export function LibraryPage() {
       navigate({ name: 'edit', id: g.id });
     });
 
-  const onImport = (files: FileList) =>
-    run(async () => {
+  const onImport = (files: FileList) => {
+    // Copy now: the file input is cleared right after this handler returns.
+    const list = Array.from(files);
+    return run(async () => {
       setBusy(true);
+      const imported: ImportedGame[] = [];
+      const failed: string[] = [];
       try {
-        const res = await importFile(files[0]);
-        toast(`Imported "${res.title}".`, 'success');
-      } catch (err) {
-        toast(`Import failed: ${errorMessage(err)}`, 'error');
+        for (const file of list) {
+          try {
+            imported.push(...(await importFile(file)));
+          } catch (err) {
+            failed.push(list.length > 1 ? `${file.name}: ${errorMessage(err)}` : errorMessage(err));
+          }
+        }
       } finally {
         setBusy(false);
+      }
+      if (imported.length === 1) toast(`Imported "${imported[0].title}".`, 'success');
+      else if (imported.length > 1) toast(`Imported ${imported.length} games.`, 'success');
+      if (failed.length > 0) toast(`Import failed: ${failed.join('; ')}`, 'error');
+    });
+  };
+
+  const exportAll = () =>
+    run(async () => {
+      if (!games || games.length === 0) return;
+      setExporting(true);
+      try {
+        const bytes = await buildLibraryZip(games);
+        if (await downloadExport(bytes, libraryExportFileName(), 'library')) {
+          toast(`Exported ${games.length} ${games.length === 1 ? 'game' : 'games'}.`, 'success');
+        }
+      } finally {
+        setExporting(false);
       }
     });
 
@@ -259,9 +294,15 @@ export function LibraryPage() {
             label={busy ? 'Importing…' : 'Import'}
             icon="upload"
             accept=".zip,application/zip"
+            multiple
             onFiles={onImport}
             testId="import-input"
           />
+          {games && games.length > 0 && (
+            <button type="button" className="btn" onClick={exportAll} disabled={exporting} title="Export every game into one file">
+              <Icon name="download" size={16} /> {exporting ? 'Exporting…' : 'Export all'}
+            </button>
+          )}
           <button
             type="button"
             className="btn"

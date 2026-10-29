@@ -120,7 +120,7 @@ export async function createSampleGame(): Promise<Game> {
   });
   const title = at(createObject('label', { center: { x: 0, y: -680 }, zIndex: z++ }), {
     name: 'Instructions',
-    text: 'Use the Pen tool (P) to cross off boxes and the Text tool (T) to write scores.',
+    text: 'Cross off boxes with the Pen (P) or Stamp (M) tool; write scores with the Text tool (T).',
     width: 900,
     height: 40,
     fontSize: 22,

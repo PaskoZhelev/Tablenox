@@ -5,8 +5,10 @@ import { createHistory, pushHistory, redoHistory, undoHistory, type History } fr
 import { emptyTable } from '../domain/game';
 import type { CameraState, Mode, TableState, Vec2 } from '../domain/types';
 import type { SaveStatus } from '../persistence/autosave';
+import { clampGridSize, DEFAULT_GRID_SIZE } from '../domain/geometry';
+import { DEFAULT_STAMP_SIZE, type StampShape } from '../domain/stamps';
 
-export type Tool = 'select' | 'pan' | 'pen' | 'eraser' | 'text';
+export type Tool = 'select' | 'pan' | 'pen' | 'eraser' | 'text' | 'stamp';
 
 export interface DocMeta {
   id: string;
@@ -56,6 +58,10 @@ export interface UiPrefs {
   cameraLocked: boolean;
   /** Edit mode: the object palette stays open after adding an object. */
   palettePinned: boolean;
+  /** Spacing of the Edit-mode grid, in world units. */
+  gridSize: number;
+  /** Edit mode: dragged and added objects (and arrow-key nudges) snap to the grid. */
+  snapToGrid: boolean;
 }
 
 const UI_PREFS_KEY = 'tablenox.ui';
@@ -66,6 +72,8 @@ const DEFAULT_UI: UiPrefs = {
   showGrid: true,
   cameraLocked: false,
   palettePinned: false,
+  gridSize: DEFAULT_GRID_SIZE,
+  snapToGrid: false,
 };
 
 function loadUiPrefs(): UiPrefs {
@@ -74,7 +82,8 @@ function loadUiPrefs(): UiPrefs {
     if (!raw) return { ...DEFAULT_UI };
     const saved = JSON.parse(raw) as Partial<UiPrefs> & { hoverZoom?: unknown };
     delete saved.hoverZoom;
-    return { ...DEFAULT_UI, ...saved };
+    const prefs = { ...DEFAULT_UI, ...saved };
+    return { ...prefs, gridSize: clampGridSize(Number(prefs.gridSize)) };
   } catch {
     return { ...DEFAULT_UI };
   }
@@ -102,7 +111,10 @@ export interface TableStoreState {
   spaceHeld: boolean;
   pen: { color: string; width: number; opacity: number };
   textStyle: { color: string; fontSize: number };
+  stamp: { shape: StampShape; color: string; size: number };
   eraserRadius: number;
+  /** Marks the eraser is going over (hidden until the stroke ends and erases them). */
+  erasingIds: ReadonlySet<string>;
   ui: UiPrefs;
   editingText: TextEditing | null;
   /** Object currently being dragged (hides the selection action bar). */
@@ -159,7 +171,9 @@ export interface TableStoreActions {
   setSpaceHeld(held: boolean): void;
   setPen(p: Partial<TableStoreState['pen']>): void;
   setTextStyle(p: Partial<TableStoreState['textStyle']>): void;
+  setStamp(p: Partial<TableStoreState['stamp']>): void;
   setEraserRadius(r: number): void;
+  setErasingIds(ids: ReadonlySet<string>): void;
   setUi(p: Partial<UiPrefs>): void;
   setEditingText(t: TextEditing | null): void;
   setDragging(id: string | null): void;
@@ -183,6 +197,8 @@ export type TableStore = TableStoreState & TableStoreActions;
 
 const COALESCE_WINDOW_MS = 1200;
 
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
 /** Ids of the holders / piles / bags a command shuffles (also inside batches). */
 export function shuffledBy(cmd: Command): string[] {
   if (cmd.type === 'ShuffleDeck' || cmd.type === 'ShuffleBag') return [cmd.id];
@@ -199,6 +215,7 @@ const transient = {
   tool: 'select' as Tool,
   spaceHeld: false,
   editingText: null,
+  erasingIds: EMPTY_IDS,
   draggingId: null,
   barObjectId: null,
   dropTargetId: null,
@@ -235,6 +252,7 @@ export const useTableStore = create<TableStore>()((set, get) => ({
   viewport: { width: 0, height: 0 },
   pen: { color: '#1f4fd1', width: 4, opacity: 1 },
   textStyle: { color: '#1f4fd1', fontSize: 28 },
+  stamp: { shape: 'check', color: '#1f4fd1', size: DEFAULT_STAMP_SIZE },
   eraserRadius: 10,
   ui: loadUiPrefs(),
 
@@ -366,8 +384,16 @@ export const useTableStore = create<TableStore>()((set, get) => ({
     set((s) => ({ textStyle: { ...s.textStyle, ...p } }));
   },
 
+  setStamp(p) {
+    set((s) => ({ stamp: { ...s.stamp, ...p } }));
+  },
+
   setEraserRadius(eraserRadius) {
     set({ eraserRadius });
+  },
+
+  setErasingIds(erasingIds) {
+    if (get().erasingIds !== erasingIds) set({ erasingIds });
   },
 
   setUi(p) {

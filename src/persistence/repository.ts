@@ -2,8 +2,9 @@
 import { collectAssetIds } from '../domain/objects';
 import { parseGame } from '../domain/schema';
 import type { Game, StoredAsset } from '../domain/types';
-import { validateImageFile } from './assetValidation';
+import { sha256Hex, validateImageFile } from './assetValidation';
 import { db, type TablenoxDB } from './db';
+import { downscaleImage, type ImageResizer } from './imageResize';
 
 export class StorageError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -25,7 +26,14 @@ export function describeStorageError(err: unknown): string {
 /** Assets newer than this are never garbage-collected, to protect uploads that have not been autosaved yet. */
 const GC_GRACE_MS = 2 * 60 * 1000;
 
-export function createRepository(database: TablenoxDB = db) {
+export interface RepositoryOptions {
+  /** Shrinks large uploads; injectable for tests. */
+  resize?: ImageResizer;
+}
+
+export function createRepository(database: TablenoxDB = db, options: RepositoryOptions = {}) {
+  const resize = options.resize ?? downscaleImage;
+
   async function getGame(id: string): Promise<Game | undefined> {
     const raw = await database.games.get(id);
     return raw ? parseGame(raw) : undefined;
@@ -66,17 +74,51 @@ export function createRepository(database: TablenoxDB = db) {
   }
 
   async function addAsset(file: Blob & { name?: string }): Promise<string> {
-    const mimeType = await validateImageFile(file);
+    const originalMime = await validateImageFile(file);
+    const originalHash = await sha256Hex(new Uint8Array(await file.arrayBuffer()));
+    const existing = await reuseAsset([originalHash]);
+    if (existing) return existing;
+
+    let blob: Blob = file;
+    let mimeType = originalMime;
+    const resized = await resize(file, originalMime).catch(() => null);
+    if (resized) {
+      const resizedMime = await validateImageFile(resized).catch(() => null);
+      if (resizedMime) {
+        blob = resized;
+        mimeType = resizedMime;
+      }
+    }
+    const hashes = blob === file ? [originalHash] : [await sha256Hex(new Uint8Array(await blob.arrayBuffer())), originalHash];
     const asset: StoredAsset = {
       id: newId(),
       name: (file.name ?? 'image').slice(0, 200),
       mimeType,
-      sizeBytes: file.size,
-      blob: file.type === mimeType ? file : new Blob([file], { type: mimeType }),
+      sizeBytes: blob.size,
+      blob: blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }),
       createdAt: nowIso(),
+      hashes,
     };
-    await database.assets.add(asset);
-    return asset.id;
+    return database.transaction('rw', database.assets, async () => {
+      const match = await reuseAsset(hashes);
+      if (match) return match;
+      await database.assets.add(asset);
+      return asset.id;
+    });
+  }
+
+  /**
+   * Finds a stored asset with one of these hashes and refreshes its `createdAt`, so the GC grace period protects it
+   * until the game that uses it is saved. Records any new hashes on it. Returns its id.
+   */
+  async function reuseAsset(hashes: string[]): Promise<string | undefined> {
+    return database.transaction('rw', database.assets, async () => {
+      const match = await database.assets.where('hashes').anyOf(hashes).first();
+      if (!match) return undefined;
+      const merged = [...new Set([...(match.hashes ?? []), ...hashes])];
+      await database.assets.update(match.id, { createdAt: nowIso(), hashes: merged });
+      return match.id;
+    });
   }
 
   async function getAsset(id: string): Promise<StoredAsset | undefined> {

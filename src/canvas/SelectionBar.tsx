@@ -329,6 +329,7 @@ function MenuAction({ a, open, onToggle }: { a: ObjectAction; open: boolean; onT
         <div role="group" aria-label={a.label} className="context-menu-sub">
           {a.children!.map((c) => (
             <button key={c.id} type="button" role="menuitem" className="context-menu-item" onClick={() => runFromMenu(c)}>
+              {c.icon && <Icon name={c.icon} size={15} />}
               <span className="context-menu-label">{c.label}</span>
             </button>
           ))}
