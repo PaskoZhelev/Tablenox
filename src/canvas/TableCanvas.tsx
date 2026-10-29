@@ -17,7 +17,7 @@ import { TextEditorOverlay } from '../drawing/TextEditorOverlay';
 import { ObjectNode } from '../objects/ObjectNode';
 import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { ContextMenu, SelectionBar } from './SelectionBar';
-import { getObjectActions, hasObjectControls } from './objectActions';
+import { getGroupActions, getObjectActions, hasObjectControls } from './objectActions';
 import { HoverPreview } from './HoverPreview';
 import { FlashOutline } from './FlashOutline';
 import {
@@ -254,8 +254,7 @@ export function TableCanvas() {
         }
         const ids = g.additive ? [...s.selectedIds, ...inside.filter((id) => !s.selectedIds.includes(id))] : inside;
         s.setSelection(ids);
-        // Play mode has no group actions, so a group gets no action bar there.
-        s.setSelectionBar(ids.length > 1 ? (s.mode === 'edit' ? MULTI_BAR : null) : (ids[0] ?? null));
+        s.setSelectionBar(ids.length > 1 ? MULTI_BAR : (ids[0] ?? null));
         break;
       }
       case 'pen': {
@@ -535,9 +534,12 @@ export function TableCanvas() {
       s.setContextMenu(null);
       return false;
     }
-    if (s.mode === 'edit' && s.selectedIds.length > 1 && s.selectedIds.includes(obj.id)) {
-      s.setContextMenu({ objectId: obj.id, x: screen.x, y: screen.y, multi: true });
-      return true;
+    if (s.selectedIds.length > 1 && s.selectedIds.includes(obj.id)) {
+      // A right-click on a member of a multi-selection keeps the group and opens its menu (Play mode: when it has game actions).
+      if (s.mode === 'edit' || getGroupActions(s.selectedIds, currentTable(), 'play', obj.id).length > 0) {
+        s.setContextMenu({ objectId: obj.id, x: screen.x, y: screen.y, multi: true });
+        return true;
+      }
     }
     // Play mode: objects without anything to do in a game (e.g. boards) get no menu.
     if (s.mode === 'play' && !hasObjectControls(obj) && getObjectActions(obj, 'play', currentTable()).length === 0) {

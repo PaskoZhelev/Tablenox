@@ -71,7 +71,7 @@ const DEFAULT_UI: UiPrefs = {
   uiHidden: false,
   showGrid: true,
   cameraLocked: false,
-  palettePinned: false,
+  palettePinned: true,
   gridSize: DEFAULT_GRID_SIZE,
   snapToGrid: false,
 };
@@ -105,7 +105,7 @@ export interface TableStoreState {
   viewport: { width: number; height: number };
   /** Primary selected object (the most recently selected one). Always a member of `selectedIds`. */
   selectedId: string | null;
-  /** Every selected object; more than one only in Edit mode. */
+  /** Every selected object (Play mode: only through a selection box). */
   selectedIds: string[];
   tool: Tool;
   spaceHeld: boolean;

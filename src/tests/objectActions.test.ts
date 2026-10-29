@@ -9,7 +9,7 @@ import {
   type ObjectAction,
 } from '../canvas/objectActions';
 import { createObject } from '../domain/objects';
-import type { DeckObject, Mode, TabletopObject } from '../domain/types';
+import type { CardObject, DeckObject, Mode, TabletopObject } from '../domain/types';
 import { currentTable, useTableStore } from '../state/tableStore';
 import { useUiStore } from '../state/uiStore';
 import { fixtureGame, tableOf } from './fixtures';
@@ -239,7 +239,7 @@ describe('group actions (Edit mode)', () => {
       .filter((o) => o.kind === 'die' || o.kind === 'counter')
       .map((o) => o.id);
     const group = () => getGroupActions(picked, currentTable());
-    expect(group().map((a) => a.label)).toEqual(['Duplicate 2 objects', 'Lock all', 'Delete 2 objects', 'Align']);
+    expect(group().map((a) => a.label)).toEqual(['Duplicate 2 objects', 'Lock all', 'Delete 2 objects', 'Align', 'Roll the die']);
     const before = objects().length;
     group()[0].run();
     expect(objects()).toHaveLength(before + 2);
@@ -285,5 +285,55 @@ describe('group actions (Edit mode)', () => {
     expect(get(b.id).position.y).toBe(b.position.y);
     expect(get(a.id).position.y).toBe(a.position.y);
     expect(get(c.id).position.y).toBe(a.position.y);
+  });
+});
+
+describe('group actions (Play mode)', () => {
+  it('forms a pile where the anchor lies, flips, returns cards and rolls dice; no set-up actions', () => {
+    load('play');
+    const deck = named<DeckObject>('Deck');
+    const before = deckCards().length;
+    const a = drawFromDeck(deck.id, { x: 0, y: 0 })!;
+    const b = drawFromDeck(deck.id, { x: 500, y: 0 })!;
+    const die = objects().find((o) => o.kind === 'die')!;
+    const picked = [a, b, die.id];
+    const group = (anchor?: string) => getGroupActions(picked, currentTable(), 'play', anchor);
+    expect(ids(group())).toEqual(['form-pile', 'flip', 'return', 'roll']);
+    expect(group().every((x) => x.primary)).toBe(true);
+
+    const faceUp = !!get<CardObject>(a).faceUp;
+    group()
+      .find((x) => x.id === 'flip')!
+      .run();
+    expect(!!get<CardObject>(a).faceUp).toBe(!faceUp);
+    expect(!!get<CardObject>(b).faceUp).toBe(!faceUp);
+    useTableStore.getState().undo();
+
+    const past = useTableStore.getState().history.past.length;
+    const defs = [get<CardObject>(a).cardDefId, get<CardObject>(b).cardDefId];
+    const anchorAt = get(a).position;
+    group(a)
+      .find((x) => x.id === 'form-pile')!
+      .run();
+    const pile = objects().find((o): o is DeckObject => o.kind === 'deck' && !!o.isPile)!;
+    // The anchor lies at the bottom, the other card (higher up on the table) on top.
+    expect(pile.position).toEqual(anchorAt);
+    expect(pile.cards.map((c) => c.id)).toEqual([defs[1], defs[0]]);
+    expect(objects().some((o) => o.kind === 'card' && picked.includes(o.id))).toBe(false);
+    expect(useTableStore.getState().selectedIds).toEqual([pile.id]);
+    expect(useTableStore.getState().history.past.length).toBe(past + 1);
+
+    getGroupActions([pile.id, die.id], currentTable(), 'play')
+      .find((x) => x.id === 'return')!
+      .run();
+    expect(deckCards()).toHaveLength(before);
+    expect(get(pile.id)).toBeUndefined();
+  });
+
+  it('a group with nothing to do in a game has no actions', () => {
+    const t1 = createObject('token', { center: { x: 0, y: 0 }, zIndex: 50 });
+    const t2 = createObject('token', { center: { x: 300, y: 0 }, zIndex: 51 });
+    load('play', [t1, t2]);
+    expect(getGroupActions([t1.id, t2.id], currentTable(), 'play')).toEqual([]);
   });
 });

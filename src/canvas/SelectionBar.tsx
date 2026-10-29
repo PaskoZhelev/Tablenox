@@ -173,7 +173,10 @@ export function SelectionBar() {
   if (!bounds) return null;
   const { left, top } = barPosition(bounds, size);
 
-  const actions = multi ? getGroupActions(selectedIds, table) : getObjectActions(selected, mode, table).filter((a) => a.primary);
+  const all = multi ? getGroupActions(selectedIds, table, mode, selected.id) : getObjectActions(selected, mode, table);
+  // A Play-mode group with nothing to do (e.g. only tokens) gets no bar.
+  if (multi && all.length === 0) return null;
+  const actions = all.filter((a) => a.primary);
   return (
     <div
       ref={sizeRef}
@@ -272,7 +275,7 @@ export function ContextMenu() {
   const multi = !!menu.multi && selectedIds.length > 1;
   const left = Math.max(4, Math.min(viewport.width - size.w - 4, menu.x));
   const top = Math.max(4, Math.min(viewport.height - size.h - 4, menu.y));
-  const actions = multi ? getGroupActions(selectedIds, table) : getObjectActions(o, mode, table);
+  const actions = multi ? getGroupActions(selectedIds, table, mode, o.id) : getObjectActions(o, mode, table);
   const title = multi ? `${selectedIds.length} objects` : displayName(o);
   return (
     <div ref={setRefs} className="context-menu" role="menu" aria-label={`${title} menu`} style={{ left, top }}>

@@ -266,3 +266,16 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Library archives.** The import limit is 100 MB (5,000 entries, 250 MB uncompressed). An export over 100 MB asks before downloading (`exportDialog.ts`). *Export all* writes a manifest with `exportType: 'library'` and `games: Game[]`, with each image once; single-game archives are unchanged. Import accepts several files and imports each archive all-or-nothing, with fresh game ids.
 
 **Consequences:** marks on a sheet survive any later rearranging of the table, and deleting or resizing a sheet treats them as part of it. Duplicating a sheet does not copy its marks (a fresh sheet). Grid settings are the same for every game. Storage use drops when the same art is reused across games or re-imported.
+
+## ADR-0032: Play-mode group actions, a quick-only group bar, the palette starts pinned
+
+**Context:** in Play mode a right-click on a box selection selected just the clicked piece, so a group could only be dragged; there was no way to gather several loose cards into a pile at once. The Edit-mode group action bar showed every group action as a button, including *Align* and *Distribute*, which only open options inside the menu, so those bar buttons did nothing. New users had to find the palette before they could add anything.
+
+**Decision:**
+
+- **Group actions per mode.** `getGroupActions(ids, table, mode, anchorId)` returns, in Play mode, only game actions: *Form a pile* (2+ loose cards / piles), *Flip cards* (`FlipCard` / `FlipDeck`), *Return cards to their holders* (`AddCardToDeck` / `ReturnPile`) and *Roll dice*, each one `Batch` / undo step and all shown in the Play-mode group bar. Edit mode keeps duplicate / lock / delete / align / distribute and lists the game actions in the menu too. A Play-mode box selection now gets the `MULTI_BAR` action bar, and a right-click (or long-press) on a selected piece keeps the selection and opens the group menu, unless the group has no game action (then it behaves as before).
+- **`FormPile { ids, pileId }`** builds one new pile in the place of `ids[0]` (a card's position / size / back, or a pile's settings), with the others on top in order (last = top) and the highest `zIndex` of the members; fewer than two cards / piles or an existing `pileId` is a no-op. `formPileCommand` puts the right-clicked piece first (missing: the lowest) and orders the rest by stacking order, so the pile matches what lay on top.
+- **The group bar shows `primary` actions only**, like the single-object bar; entries with `children` (*Align*, *Distribute*) stay in the menu.
+- **The object palette starts pinned** (`DEFAULT_UI.palettePinned = true`): the first time Edit mode opens it is shown; unpinning or closing it is saved in `tablenox.ui` like before. E2E tests start with it unpinned (`beforeEach`), except the test for the default.
+
+**Consequences:** browsers that already saved interface preferences keep their saved palette setting.

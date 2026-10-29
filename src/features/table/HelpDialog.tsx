@@ -35,7 +35,7 @@ const ROWS: [string, string][] = [
   ],
   [
     'Right-click a selection',
-    'Duplicate, lock, delete, align (left / centres / right / top / middles / bottom) and distribute (3+ objects) (Edit mode; also in the properties panel)',
+    'Play mode: form a pile, flip cards, return cards to their holders, roll dice · Edit mode also: duplicate, lock, delete, align (left / centres / right / top / middles / bottom) and distribute (3+ objects; also in the properties panel)',
   ],
   ['Wheel', 'Zoom around the cursor'],
   ['Drag empty table / Space + drag', 'Pan'],

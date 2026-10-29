@@ -25,8 +25,11 @@ import {
   drawManyFromBagCommand,
   drawPickedCardsCommand,
   flipDeckCardCommand,
+  formPileCommand,
   homeDeckOf,
   nextRotation,
+  pileableObjects,
+  pileHasHome,
   resolveDrop,
   rollDieCommand,
   shuffleBagCommand,
@@ -519,6 +522,43 @@ export function alignObjects(ids: string[], mode: AlignMode): void {
 /** Spaces three or more objects evenly along one axis, as one undo step. */
 export function distributeObjects(ids: string[], axis: DistributeAxis): void {
   useTableStore.getState().dispatch(distributeCommand(currentTable().objects, ids, axis));
+}
+
+/** Gathers the selected loose cards and piles into one pile where `anchorId` lies, and selects it. */
+export function formPile(ids: string[], anchorId?: string | null): void {
+  const s = useTableStore.getState();
+  const cmd = formPileCommand(currentTable(), ids, anchorId);
+  if (cmd?.type === 'FormPile' && s.dispatch(cmd)) s.setSelection([cmd.pileId]);
+}
+
+function dispatchAll(commands: Command[]): void {
+  if (commands.length) useTableStore.getState().dispatch(commands.length === 1 ? commands[0] : { type: 'Batch', commands });
+}
+
+/** Turns over every selected card and pile, as one undo step. */
+export function flipObjects(ids: string[]): void {
+  dispatchAll(
+    pileableObjects(currentTable(), ids).map((o): Command =>
+      o.kind === 'card' ? { type: 'FlipCard', id: o.id } : { type: 'FlipDeck', id: o.id },
+    ),
+  );
+}
+
+/** Sends every selected card (and the cards of every selected pile) back to its holder, as one undo step. */
+export function returnCardsToHolders(ids: string[]): void {
+  const table = currentTable();
+  dispatchAll(
+    pileableObjects(table, ids).flatMap((o): Command[] => {
+      if (o.kind === 'deck') return pileHasHome(table, o) ? [{ type: 'ReturnPile', id: o.id }] : [];
+      const home = homeDeckOf(table, o);
+      return home ? [{ type: 'AddCardToDeck', cardId: o.id, deckId: home.id }] : [];
+    }),
+  );
+}
+
+/** Rolls every selected die, as one undo step. */
+export function rollDice(ids: string[]): void {
+  dispatchAll(currentTable().objects.flatMap((o) => (o.kind === 'die' && ids.includes(o.id) ? [rollDieCommand(o)] : [])));
 }
 
 export function selectAll(): void {

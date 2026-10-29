@@ -93,6 +93,11 @@ export type Command =
   | { type: 'MergeCards'; cardId: string; targetCardId: string; pileId: string }
   /** Puts every card of a pile into a deck/pile (keeping their order), on top or at `index`; the pile disappears. */
   | { type: 'MergePileIntoDeck'; pileId: string; deckId: string; asDefinition?: boolean; index?: number }
+  /**
+   * Gathers loose cards and piles into one new pile `pileId` in the place of the first one; the others go on top in
+   * the given order (the last one ends up on top). Needs at least two of them.
+   */
+  | { type: 'FormPile'; ids: string[]; pileId: string }
   /** Takes `count` tokens off a token stack as a new stack `newId` at `position`; the stack keeps at least one. */
   | { type: 'SplitTokens'; id: string; newId: string; count: number; position: Vec2 }
   /** Puts a token (stack) onto an identical one: their counts add up and the dropped one disappears. */
@@ -185,6 +190,33 @@ const stripFace = ({ faceUp: _faceUp, ...rest }: CardDef): CardDef => rest;
 function insertCards(cards: CardDef[], incoming: CardDef[], index: number | undefined): CardDef[] {
   const at = index === undefined ? 0 : Math.max(0, Math.min(cards.length, Math.round(index)));
   return [...cards.slice(0, at), ...incoming, ...cards.slice(at)];
+}
+
+/** A table card as it goes into a pile (it keeps its side). */
+function tableCardDef(state: TableState, card: CardObject): CardDef {
+  return cardDefFromObject(card, true, ownerDeckOf(state.objects, card.cardDefId));
+}
+
+/** A new pile holding `cards`, lying where the table card `card` lies and with its back. */
+function pileInPlaceOf(card: CardObject, pileId: string, cards: CardDef[]): DeckObject {
+  return {
+    id: pileId,
+    kind: 'deck',
+    name: 'Pile',
+    position: { ...card.position },
+    width: card.width,
+    height: card.height,
+    rotation: card.rotation,
+    zIndex: card.zIndex,
+    locked: false,
+    visible: true,
+    cards,
+    initialCards: [],
+    backAssetId: card.backAssetId,
+    backColor: card.backColor,
+    drawSide: 'keep',
+    isPile: true,
+  };
 }
 
 function addCardToDeck(state: TableState, cardId: string, deckId: string, asDefinition: boolean, index?: number): TableState {
@@ -626,27 +658,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
       const target = findObject(state, cmd.targetCardId);
       if (!card || card.kind !== 'card' || !target || target.kind !== 'card' || card.id === target.id) return state;
       if (findObject(state, cmd.pileId)) return state;
-      const pile: DeckObject = {
-        id: cmd.pileId,
-        kind: 'deck',
-        name: 'Pile',
-        position: { ...target.position },
-        width: target.width,
-        height: target.height,
-        rotation: target.rotation,
-        zIndex: target.zIndex,
-        locked: false,
-        visible: true,
-        cards: [
-          cardDefFromObject(card, true, ownerDeckOf(state.objects, card.cardDefId)),
-          cardDefFromObject(target, true, ownerDeckOf(state.objects, target.cardDefId)),
-        ],
-        initialCards: [],
-        backAssetId: target.backAssetId,
-        backColor: target.backColor,
-        drawSide: 'keep',
-        isPile: true,
-      };
+      const pile = pileInPlaceOf(target, cmd.pileId, [tableCardDef(state, card), tableCardDef(state, target)]);
       return {
         ...state,
         objects: [...state.objects.filter((o) => o.id !== card.id && o.id !== target.id), pile],
@@ -655,6 +667,23 @@ function applyOne(state: TableState, cmd: Command): TableState {
 
     case 'MergePileIntoDeck':
       return mergePileIntoDeck(state, cmd.pileId, cmd.deckId, !!cmd.asDefinition, cmd.index);
+
+    case 'FormPile': {
+      if (findObject(state, cmd.pileId)) return state;
+      const members = [...new Set(cmd.ids)]
+        .map((id) => findObject(state, id))
+        .filter((o): o is CardObject | DeckObject => o?.kind === 'card' || (o?.kind === 'deck' && !!o.isPile));
+      if (members.length < 2) return state;
+      // Index 0 is the top card: the last member goes on top.
+      const cards = [...members].reverse().flatMap((m) => (m.kind === 'card' ? [tableCardDef(state, m)] : m.cards));
+      const first = members[0];
+      const pile: DeckObject = {
+        ...(first.kind === 'deck' ? { ...first, id: cmd.pileId, cards } : pileInPlaceOf(first, cmd.pileId, cards)),
+        zIndex: Math.max(...members.map((m) => m.zIndex)),
+      };
+      const gone = new Set(members.map((m) => m.id));
+      return { ...state, objects: [...state.objects.filter((o) => !gone.has(o.id)), pile] };
+    }
 
     case 'SplitTokens': {
       const token = findObject(state, cmd.id);

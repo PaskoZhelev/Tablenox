@@ -477,6 +477,24 @@ export function pileHolders(state: TableState, pile: DeckObject): DeckObject[] {
   return out;
 }
 
+/** Loose cards and piles among `ids` (what *Form a pile* gathers). */
+export function pileableObjects(state: TableState, ids: readonly string[]): (CardObject | DeckObject)[] {
+  return state.objects.filter(
+    (o): o is CardObject | DeckObject => ids.includes(o.id) && (o.kind === 'card' || (o.kind === 'deck' && !!o.isPile)),
+  );
+}
+
+/**
+ * Gathers the loose cards and piles among `ids` into one pile where `anchorId` lies (missing / not a card or pile:
+ * the lowest one); the others go on top of it in their stacking order. Null with fewer than two of them.
+ */
+export function formPileCommand(state: TableState, ids: readonly string[], anchorId?: string | null): Command | null {
+  const members = pileableObjects(state, ids).sort((a, b) => a.zIndex - b.zIndex);
+  if (members.length < 2) return null;
+  const anchor = members.find((o) => o.id === anchorId) ?? members[0];
+  return { type: 'FormPile', ids: [anchor.id, ...members.filter((o) => o !== anchor).map((o) => o.id)], pileId: newId() };
+}
+
 export function rollDieCommand(die: DieObject, source: RandomSource = secureRandomSource): Command {
   return { type: 'RollDie', id: die.id, value: randomInt(dieFaceCount(die), source) + 1 };
 }

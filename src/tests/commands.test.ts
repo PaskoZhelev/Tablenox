@@ -272,6 +272,31 @@ describe('deck rules', () => {
     expect(cardsOnTable(s)).toHaveLength(2);
   });
 
+  it('FormPile gathers cards and piles into one new pile in the first one’s place, the last one on top', () => {
+    let s = tableOf(fixtureGame());
+    const deal = (x: number) => {
+      const cmd = drawCardCommand(deckOf(s), { x, y: 0 })! as Extract<Command, { type: 'DrawCard' }>;
+      s = applyCommand(s, cmd);
+      return s.objects.find((o) => o.id === cmd.cardId) as CardObject;
+    };
+    const a = deal(0);
+    const b = deal(400);
+    const c = deal(800);
+    s = applyCommand(s, { type: 'MergeCards', cardId: c.id, targetCardId: b.id, pileId: 'p1' });
+    const p1 = piles(s)[0];
+    expect(applyCommand(s, { type: 'FormPile', ids: [a.id], pileId: 'p2' })).toBe(s);
+    expect(applyCommand(s, { type: 'FormPile', ids: [a.id, p1.id], pileId: p1.id })).toBe(s);
+    const formed = applyCommand(s, { type: 'FormPile', ids: [p1.id, a.id], pileId: 'p2' });
+    const [pile] = piles(formed);
+    expect(piles(formed)).toHaveLength(1);
+    expect(cardsOnTable(formed).some((o) => o.id === a.id)).toBe(false);
+    expect(pile).toMatchObject({ id: 'p2', position: p1.position, isPile: true });
+    expect(pile.cards.map((x) => x.id)).toEqual([a.cardDefId, ...p1.cards.map((x) => x.id)]);
+    expect(pile.zIndex).toBe(Math.max(a.zIndex, p1.zIndex));
+    // Replaying it creates nothing new.
+    expect(applyCommand(formed, { type: 'FormPile', ids: [p1.id, a.id], pileId: 'p2' })).toBe(formed);
+  });
+
   it('reset gathers the deck’s cards from the table and from piles, without duplicates', () => {
     let s = tableOf(fixtureGame());
     const deckId = mainDeck(s).id;

@@ -1,5 +1,5 @@
 import type { IconName } from '../components/Icon';
-import { bagOf, homeDeckOf, nextRotation, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
+import { bagOf, homeDeckOf, nextRotation, pileableObjects, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
 import { fixedInPlay, hasPlayMovable, tokenCount } from '../domain/objects';
 import type { DrawSide, Mode, TableState, TabletopObject } from '../domain/types';
 import { ALIGN_LABELS, DISTRIBUTE_LABELS, type AlignMode } from '../domain/align';
@@ -17,6 +17,8 @@ import {
   duplicateObjects,
   flipCard,
   flipDeck,
+  flipObjects,
+  formPile,
   pickCardsFromDeck,
   promptDrawCards,
   promptDrawFromBag,
@@ -25,8 +27,10 @@ import {
   recallTokens,
   resetDeck,
   returnCardToDeck,
+  returnCardsToHolders,
   returnPileToHolders,
   returnToBag,
+  rollDice,
   rollDie,
   rotateStep,
   runButton,
@@ -86,9 +90,16 @@ function pushRotate(actions: ObjectAction[], o: TabletopObject, table: TableStat
   actions.push({ id: 'rotate', label: `Rotate to ${next}°`, icon: 'rotate', run: () => rotateStep(o.id), primary, shortcut: 'R' });
 }
 
-/** Actions for an Edit-mode multi-selection. */
-export function getGroupActions(ids: string[], table: TableState): ObjectAction[] {
+/**
+ * Actions for a multi-selection. Play mode offers the game actions only (form a pile, flip, return, roll); Edit
+ * mode adds the set-up actions (duplicate, lock, delete, align, distribute) and keeps the game ones in the menu.
+ * `anchorId` (the object the menu was opened on) is where *Form a pile* puts the pile.
+ */
+export function getGroupActions(ids: string[], table: TableState, mode: Mode = 'edit', anchorId?: string | null): ObjectAction[] {
   const objs = table.objects.filter((o) => ids.includes(o.id));
+  const play = mode === 'play';
+  const game = getGroupGameActions(ids, table, play, anchorId);
+  if (play) return game;
   const allLocked = objs.length > 0 && objs.every((o) => o.locked);
   return [
     {
@@ -145,7 +156,29 @@ export function getGroupActions(ids: string[], table: TableState): ObjectAction[
           },
         ]
       : []),
+    ...game,
   ];
+}
+
+/** Game actions for a group of objects; the Play-mode action bar shows them all as buttons. */
+function getGroupGameActions(ids: string[], table: TableState, primary: boolean, anchorId?: string | null): ObjectAction[] {
+  const actions: ObjectAction[] = [];
+  const cards = pileableObjects(table, ids);
+  if (cards.length >= 2) {
+    actions.push({ id: 'form-pile', label: 'Form a pile', icon: 'deck', run: () => formPile(ids, anchorId), primary });
+  }
+  if (cards.length > 0) {
+    actions.push({ id: 'flip', label: 'Flip cards', icon: 'flip', run: () => flipObjects(ids), primary });
+  }
+  const homeless = cards.every((o) => (o.kind === 'card' ? !homeDeckOf(table, o) : !pileHasHome(table, o)));
+  if (!homeless) {
+    actions.push({ id: 'return', label: 'Return cards to their holders', icon: 'reset', run: () => returnCardsToHolders(ids), primary });
+  }
+  const dice = table.objects.filter((o) => o.kind === 'die' && ids.includes(o.id)).length;
+  if (dice > 0) {
+    actions.push({ id: 'roll', label: dice === 1 ? 'Roll the die' : `Roll ${dice} dice`, icon: 'dice', run: () => rollDice(ids), primary });
+  }
+  return actions;
 }
 
 export const ALIGN_MODES: AlignMode[] = ['left', 'centerX', 'right', 'top', 'centerY', 'bottom'];

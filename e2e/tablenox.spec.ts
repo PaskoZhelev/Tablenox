@@ -13,7 +13,11 @@ import {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
+  // The object palette is pinned open by default; most tests open it themselves, so start with it unpinned.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('tablenox.ui', JSON.stringify({ palettePinned: false }));
+  });
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
@@ -449,6 +453,10 @@ test('roll-and-write: marks, stamps and text belong to the sheet and move with i
   await page.mouse.click(round.x, round.y);
   await page.keyboard.up('Control');
   await expect.poll(() => storeState<number>(page, '(s) => s.selectedIds.length')).toBe(3);
+  // The action bar has the quick actions only; Align and Distribute are in the menu.
+  const groupBar = page.getByRole('toolbar', { name: '3 objects actions' });
+  await expect(groupBar.getByRole('button', { name: 'Duplicate 3 objects' })).toBeVisible();
+  await expect(groupBar.getByRole('button', { name: /^(Align|Distribute)/ })).toHaveCount(0);
   await page.mouse.click(round.x, round.y, { button: 'right' });
   await page.getByRole('menuitem', { name: 'Align', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Align top edges' }).click();
@@ -1465,7 +1473,11 @@ test('play mode: Shift+drag box-selects movable pieces, which then drag together
   const dieIds = await storeState<string[]>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'die').map(o => o.id)");
   const ids = [...dieIds, 'pile-1'].sort();
   await expect.poll(() => storeState<string[]>(page, '(s) => [...s.selectedIds].sort()')).toEqual(ids);
-  await expect(page.locator('.selection-bar')).toHaveCount(0);
+  // The group gets its own action bar with the game actions.
+  const bar = page.getByRole('toolbar', { name: '3 objects actions' });
+  await expect(bar.getByRole('button', { name: 'Roll 2 dice' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Flip cards' })).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Form a pile' })).toHaveCount(0);
 
   // Dragging the pile (which normally deals its top card) moves the whole selection instead.
   const pos = (id: string) =>
@@ -1490,6 +1502,49 @@ test('play mode: Shift+drag box-selects movable pieces, which then drag together
   const empty = await worldToPage(page, -800, 0);
   await page.mouse.click(empty.x, empty.y);
   await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([]);
+});
+
+test('play mode: a right-click on a box selection keeps it and offers group actions such as Form a pile', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  const spots = [
+    { id: 'c1', x: -300, y: 100 },
+    { id: 'c2', x: -150, y: 150 },
+    { id: 'c3', x: 0, y: 200 },
+  ];
+  for (const c of spots) {
+    await storeState(
+      page,
+      `(s) => s.dispatch({ type: 'DrawCard', deckId: ${JSON.stringify(deckId)}, cardId: '${c.id}', position: { x: ${c.x}, y: ${c.y} }, faceUp: true })`,
+    );
+  }
+  const from = await worldToPage(page, -350, 50);
+  const to = await worldToPage(page, 250, 450);
+  await page.keyboard.down('Shift');
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect.poll(() => storeState<string[]>(page, '(s) => [...s.selectedIds].sort()')).toEqual(['c1', 'c2', 'c3']);
+  await expect(page.getByRole('toolbar', { name: '3 objects actions' }).getByRole('button', { name: 'Form a pile' })).toBeVisible();
+
+  // Right-click the middle card: the selection stays and its menu has the group's game actions.
+  const c2 = await worldToPage(page, -150 + 20, 150 + 20);
+  await page.mouse.click(c2.x, c2.y, { button: 'right' });
+  const menu = page.getByRole('menu', { name: '3 objects menu' });
+  await expect(menu).toBeVisible();
+  expect(await storeState<string[]>(page, '(s) => [...s.selectedIds].sort()')).toEqual(['c1', 'c2', 'c3']);
+  await expect(menu.getByRole('menuitem', { name: 'Duplicate 3 objects' })).toHaveCount(0);
+  const past = await storeState<number>(page, '(s) => s.history.past.length');
+  await menu.getByRole('menuitem', { name: 'Form a pile' }).click();
+
+  // One pile where the right-clicked card lay, as one undo step; it is selected.
+  await expect.poll(() => storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'card').length")).toBe(0);
+  expect(await obj(page, 'Pile', '({ n: o.cards.length, x: o.position.x, y: o.position.y })')).toEqual({ n: 3, x: -150, y: 150 });
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past + 1);
+  const pileId = await obj<string>(page, 'Pile', 'o.id');
+  expect(await storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([pileId]);
 });
 
 test('edit mode: holders show their cards, a clear outline and "Deck (X cards)" when they have a deck; the corner badge needs 2+ cards', async ({
@@ -1720,6 +1775,22 @@ test('custom dice: image faces, choose the shown face, roll within the custom fa
   await page.reload();
   await expect(page.getByTestId('table-canvas')).toBeVisible();
   await expect.poll(() => obj<number>(page, 'White die 1', 'o.faces.length')).toBe(8);
+});
+
+test('object palette: shown and pinned the first time Edit mode opens; closing it is remembered', async ({ page }) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await newGame(page, 'Palette');
+  const palette = page.getByTestId('object-palette');
+  await expect(palette).toBeVisible();
+  await expect(palette.getByRole('button', { name: 'Keep the palette open' })).toHaveAttribute('aria-pressed', 'true');
+  await palette.getByRole('menuitem', { name: 'Token' }).click();
+  await expect(palette).toBeVisible();
+  await palette.getByRole('button', { name: 'Close palette' }).click();
+  await expect(palette).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('table-canvas')).toBeVisible();
+  await expect(palette).toHaveCount(0);
 });
 
 test('object palette: add by click or by dragging a tile onto the table, pin it open; checkboxes toggle in Play mode and in automations', async ({
