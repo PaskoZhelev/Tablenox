@@ -1978,6 +1978,161 @@ test('automation: a Pick cards step lets the player choose cards when the button
   expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past);
 });
 
+test('automation: a Pick cards step can take cards chosen in Edit mode (e.g. a scenario set-up) without asking', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  await storeState(
+    page,
+    `(s) => {
+      s.dispatch({ type: 'AddObject', object: { id: 'btn-setup', kind: 'button', name: 'Setup', position: { x: 900, y: 500 }, width: 150, height: 52,
+        rotation: 0, zIndex: 99, locked: false, visible: true, label: 'Setup', color: '#3f8fd8', textColor: '#ffffff', steps: [] } });
+      s.setUi({ inspectorOpen: true });
+      s.select('btn-setup');
+    }`,
+  );
+  await page
+    .getByRole('complementary', { name: 'Properties' })
+    .getByRole('button', { name: /^Automations/ })
+    .click();
+  const panel = page.getByRole('complementary', { name: 'Automations' });
+  await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: 'Pick cards', exact: true }).click();
+  // New Pick steps have their cards chosen now; the holders come first.
+  await expect(panel.getByRole('combobox', { name: 'Cards are chosen' })).toHaveValue('edit');
+  await expect(panel.getByText('Pick holders on the table first, then choose their cards here.')).toBeVisible();
+  await pickStepObject(page, panel, 'Bonus deck');
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  const discardId = await obj<string>(page, 'Discard', 'o.id');
+  await expect(panel.getByTestId(`pick-cards-${deckId}`)).toHaveText('No cards chosen');
+
+  const dialog = page.getByRole('dialog', { name: 'Cards to take from Bonus deck' });
+  await panel.getByRole('button', { name: 'Choose cards from Bonus deck' }).click();
+  await expect(dialog.getByRole('list', { name: 'Cards' }).getByRole('button')).toHaveCount(12);
+  await dialog.getByRole('button', { name: /^3\. / }).click();
+  await dialog.getByRole('button', { name: /^2\. / }).click();
+  await dialog.getByRole('button', { name: 'Use 2 cards' }).click();
+  await expect(dialog).toHaveCount(0);
+  const chosen = await obj<string[]>(page, 'Bonus deck', 'o.initialCards.slice(1, 3).map(c => c.id)');
+  await expect.poll(() => obj(page, 'Setup', `o.steps[0].cards[${JSON.stringify(deckId)}]`)).toEqual(chosen);
+  await expect(panel.getByTestId(`pick-cards-${deckId}`)).toHaveText(/^2 of 12: /);
+  // Opening it again shows the choice; the step's summary counts the cards.
+  await panel.getByRole('button', { name: 'Choose cards from Bonus deck' }).click();
+  await expect(dialog.getByRole('button', { name: /^2\. / })).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('button', { name: /^1\. / })).toHaveAttribute('aria-pressed', 'false');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(panel.getByRole('list', { name: 'Button steps' })).toContainText('Pick 2 chosen cards from Bonus deck');
+  await storeState(
+    page,
+    `(s) => {
+      const b = s.history.present.objects.find(o => o.id === 'btn-setup');
+      s.dispatch({ type: 'UpdateObject', id: b.id, patch: { steps: [{ ...b.steps[0], targetIds: [${JSON.stringify(discardId)}], orientation: 'faceUp' }] } });
+    }`,
+  );
+
+  // Play mode: the click runs at once, no dialog, as one undo step.
+  await switchMode(page, 'play');
+  const past = await storeState<number>(page, '(s) => s.history.past.length');
+  await clickObject(page, 'Setup');
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(10);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect((await obj<string[]>(page, 'Discard', 'o.cards.map(c => c.id)')).sort()).toEqual([...chosen].sort());
+  expect(await obj<boolean[]>(page, 'Discard', 'o.cards.map(c => c.faceUp)')).toEqual([true, true]);
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past + 1);
+
+  // Switching the step to "chosen when the button runs" brings the dialog back.
+  await storeState(page, '(s) => s.undo()');
+  await switchMode(page, 'edit');
+  await storeState(page, "(s) => s.openAutomations('btn-setup')");
+  await panel.getByRole('button', { name: /^Pick 2 chosen cards/ }).click();
+  await panel.getByRole('combobox', { name: 'Cards are chosen' }).selectOption('run');
+  await expect(panel.getByRole('button', { name: 'Choose cards from Bonus deck' })).toHaveCount(0);
+  await expect.poll(() => obj(page, 'Setup', 'o.steps[0].choose')).toBe('run');
+  await switchMode(page, 'play');
+  await clickObject(page, 'Setup');
+  await expect(page.getByRole('dialog', { name: 'Setup: pick card(s) from Bonus deck' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
+test('holder menu set-up actions and keyboard shortcuts work in the browser', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  const deckId = await obj<string>(page, 'Bonus deck', 'o.id');
+  const menuAction = async (name: string) => {
+    const p = await objectScreenPos(page, 'Bonus deck');
+    await page.mouse.click(p.x, p.y, { button: 'right' });
+    await page.getByRole('menu', { name: 'Bonus deck menu' }).getByRole('menuitem', { name }).click();
+  };
+  const order = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
+  await menuAction('Flip all cards');
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([...order].reverse());
+  await menuAction('Spread cards out');
+  await expect.poll(() => obj(page, 'Bonus deck', 'o.layout')).toBe('spread');
+  await menuAction('Show cards stacked');
+  await expect.poll(() => obj(page, 'Bonus deck', 'o.layout')).toBe('stack');
+  const drawSide = await obj<string>(page, 'Bonus deck', 'o.drawSide');
+  await menuAction({ keep: 'Draws as they lie', faceUp: 'Draws face up', faceDown: 'Draws face down' }[drawSide]!);
+  await expect.poll(() => obj(page, 'Bonus deck', 'o.drawSide')).not.toBe(drawSide);
+  await menuAction('Cards go in as they are');
+  await expect.poll(() => obj(page, 'Bonus deck', 'o.putSide')).toBe('faceUp');
+  await menuAction('Send to back');
+  await expect
+    .poll(() =>
+      storeState<boolean>(
+        page,
+        `(s) => Math.min(...s.history.present.objects.map(o => o.zIndex)) === s.history.present.objects.find(o => o.id === ${JSON.stringify(deckId)}).zIndex`,
+      ),
+    )
+    .toBe(true);
+  await menuAction('Bring to front');
+  await expect
+    .poll(() =>
+      storeState<boolean>(
+        page,
+        `(s) => Math.max(...s.history.present.objects.map(o => o.zIndex)) === s.history.present.objects.find(o => o.id === ${JSON.stringify(deckId)}).zIndex`,
+      ),
+    )
+    .toBe(true);
+  await menuAction('Draw a card');
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(order.length - 1);
+  await menuAction('Gather & reset deck');
+  await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(order.length);
+
+  // Shortcuts on the selected holder: F flips it, Ctrl+D duplicates, Delete removes the copy, Ctrl+Z brings it back.
+  await storeState(page, `(s) => { s.select(${JSON.stringify(deckId)}); s.setSelectionBar(null); }`);
+  const flipped = await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)');
+  await page.keyboard.press('f');
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([...flipped].reverse());
+  const count = await storeState<number>(page, '(s) => s.history.present.objects.length');
+  await page.keyboard.press('Control+d');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(count + 1);
+  await page.keyboard.press('Delete');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(count);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(count + 1);
+  await page.keyboard.press('Control+y');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(count);
+  await page.keyboard.press('Control+a');
+  await expect.poll(() => storeState<number>(page, '(s) => s.selectedIds.length')).toBe(count);
+  await page.keyboard.press('Escape');
+  // Tools, zoom and help.
+  await page.keyboard.press('p');
+  await expect.poll(() => storeState(page, '(s) => s.tool')).toBe('pen');
+  await page.keyboard.press('Escape');
+  await expect.poll(() => storeState(page, '(s) => s.tool')).toBe('select');
+  await page.keyboard.press('0');
+  await expect.poll(() => storeState(page, '(s) => s.camera.scale')).toBe(1);
+  await page.keyboard.press('+');
+  await expect.poll(() => storeState<number>(page, '(s) => s.camera.scale')).toBeGreaterThan(1);
+  await page.keyboard.press('?');
+  const help = page.getByRole('dialog', { name: 'Controls & shortcuts' });
+  await expect(help).toBeVisible();
+  await help.press('Escape');
+  await expect(help).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('automation button: pick step objects on the table by clicking and Shift+drag; flip a holder', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await addSampleAndPlay(page);

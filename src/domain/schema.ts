@@ -77,6 +77,8 @@ export const stepSchema = z.discriminatedUnion('type', [
     type: z.literal('pick'),
     targetIds: objectIds,
     orientation: z.enum(['keep', 'faceUp', 'faceDown']),
+    choose: z.enum(['edit', 'run']).optional(),
+    cards: z.record(id, z.array(id).max(5000)).optional(),
   }),
   z.object({ id, objectIds, type: z.literal('roll') }),
   z.object({ id, objectIds, type: z.literal('counter'), mode: z.enum(['add', 'set']), amount: finite }),

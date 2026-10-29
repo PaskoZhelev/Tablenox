@@ -10,5 +10,11 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['src/tests/setup.ts'],
     pool: 'threads',
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/tests/**', 'src/**/*.d.ts', 'src/main.tsx'],
+      reporter: ['text', 'html'],
+    },
   },
 });

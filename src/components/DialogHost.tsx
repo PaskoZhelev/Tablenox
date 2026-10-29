@@ -37,12 +37,12 @@ function ItemFace({ item, back }: { item: PickableItem; back?: boolean }) {
 function PickBody({ dialog }: { dialog: PickRequest }) {
   const firstRef = useRef<HTMLButtonElement>(null);
   useEffect(() => firstRef.current?.focus(), []);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>(() => dialog.selectedIds?.filter((id) => dialog.items.some((c) => c.id === id)) ?? []);
   const [backs, setBacks] = useState(false);
   const hasBacks = dialog.items.some((c) => c.shape !== 'die' && (c.backColor !== undefined || c.backAssetId));
   const cancel = () => dialog.resolve(null);
   const confirm = () => {
-    if (selected.length === 0) return;
+    if (selected.length === 0 && !dialog.allowEmpty) return;
     const chosen = new Set(selected);
     dialog.resolve(dialog.items.filter((c) => chosen.has(c.id)).map((c) => c.id));
   };
@@ -132,7 +132,7 @@ function PickBody({ dialog }: { dialog: PickRequest }) {
             Cancel
           </button>
           {dialog.multiple && (
-            <button type="button" className="btn btn-primary" disabled={n === 0} onClick={confirm}>
+            <button type="button" className="btn btn-primary" disabled={n === 0 && !dialog.allowEmpty} onClick={confirm}>
               {`${dialog.confirmLabel ?? 'Pick'}${n > 0 ? ` ${n} card${n === 1 ? '' : 's'}` : ''}`}
             </button>
           )}

@@ -69,4 +69,28 @@ describe('pick dialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await expect(none).resolves.toBeNull();
   });
+
+  it('opens with a preselection and can confirm an empty choice when allowed', async () => {
+    render(<DialogHost />);
+    let result: Promise<string[] | null> | undefined;
+    act(() => {
+      result = pickManyDialog({
+        title: 'Cards',
+        listLabel: 'Cards',
+        items,
+        selectedIds: ['c2', 'gone', 'c0'],
+        allowEmpty: true,
+        confirmLabel: 'Use',
+      });
+    });
+    expect(screen.getByRole('button', { name: '1. Sun' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '3. Star' }).getAttribute('aria-pressed')).toBe('true');
+    const use = screen.getByRole('button', { name: /^Use/ }) as HTMLButtonElement;
+    expect(use.textContent).toBe('Use 2 cards');
+    fireEvent.click(screen.getByRole('button', { name: '1. Sun' }));
+    fireEvent.click(screen.getByRole('button', { name: '3. Star' }));
+    expect(use.disabled).toBe(false);
+    fireEvent.click(use);
+    await expect(result).resolves.toEqual([]);
+  });
 });

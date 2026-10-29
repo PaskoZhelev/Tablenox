@@ -345,15 +345,22 @@ export interface SortStep extends StepBase {
   by: SortBy;
 }
 
+/** When a Pick step's cards are chosen: set up in Edit mode (`edit`) or by the player when the button runs (`run`). */
+export type PickChoice = 'edit' | 'run';
+
 /**
- * Lets the player choose cards from holders / piles (`objectIds`) while the button runs, in the same dialog as
- * *Pick card(s)…*, then puts them onto the destinations (dealt in turn with several), or next to the holder
- * without one.
+ * Takes chosen cards from holders / piles (`objectIds`) and puts them onto the destinations (dealt in turn with
+ * several), or next to the holder without one. The cards are either set up with the step (`cards`) or chosen by
+ * the player while the button runs, in the same dialog as *Pick card(s)…*.
  */
 export interface PickStep extends StepBase {
   type: 'pick';
   targetIds: ObjectId[];
   orientation: StepOrientation;
+  /** Missing means `run` (steps from earlier builds). */
+  choose?: PickChoice;
+  /** `choose: 'edit'`: card definition ids per holder / pile id. Cards no longer in it when the button runs are skipped. */
+  cards?: Record<ObjectId, string[]>;
 }
 
 export interface RollStep extends StepBase {

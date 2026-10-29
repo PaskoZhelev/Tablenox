@@ -14,7 +14,7 @@ import {
   sortByZ,
   tokenCount,
 } from '../domain/objects';
-import { applyPick, canPick, describeObjects, planButtonRun, STEP_LABELS } from '../domain/buttons';
+import { applyPick, canPick, describeObjects, pickableCards, planButtonRun, STEP_LABELS, withPickCards } from '../domain/buttons';
 import { cardTextColor, standardDeck } from '../domain/cards';
 import {
   bagDrawCommand,
@@ -36,7 +36,18 @@ import {
 import { newId } from '../domain/ids';
 import { timerToggleCommand } from '../domain/timer';
 import type { Command } from '../domain/commands';
-import type { DeckObject, DrawSide, HolderLayout, HoverZoom, ObjectKind, SortBy, TabletopObject, TokenShape, Vec2 } from '../domain/types';
+import type {
+  CardDef,
+  DeckObject,
+  DrawSide,
+  HolderLayout,
+  HoverZoom,
+  ObjectKind,
+  SortBy,
+  TabletopObject,
+  TokenShape,
+  Vec2,
+} from '../domain/types';
 import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { pickDialog, pickManyDialog, promptDialog, toast, type PickableItem } from '../state/uiStore';
 import { screenToWorld } from '../domain/camera';
@@ -201,6 +212,39 @@ export async function runButton(id: string): Promise<void> {
 }
 
 /**
+ * Sets up the cards a Pick step takes from one of its holders / piles (Edit mode): shows the holder's cards
+ * with the current choice selected; confirming with nothing selected clears it.
+ */
+export async function chooseStepCards(buttonId: string, stepId: string, holderId: string): Promise<void> {
+  const button = find(buttonId);
+  const step = button?.kind === 'button' ? button.steps.find((st) => st.id === stepId) : undefined;
+  const deck = find(holderId);
+  if (step?.type !== 'pick' || deck?.kind !== 'deck') return;
+  const cards = pickableCards(deck);
+  if (cards.length === 0) return;
+  const chosen = await pickManyDialog({
+    title: `Cards to take from ${displayName(deck)}`,
+    message: 'Click the cards this step takes when the button runs (the ones still in the holder at that point).',
+    listLabel: 'Cards',
+    items: cardPickItems(deck, cards),
+    selectedIds: step.cards?.[holderId] ?? [],
+    allowEmpty: true,
+    confirmLabel: 'Use',
+  });
+  if (!chosen) return;
+  // Look the button up again: it may have changed while the dialog was open.
+  const now = find(buttonId);
+  const current = now?.kind === 'button' ? now.steps.find((st) => st.id === stepId) : undefined;
+  if (now?.kind !== 'button' || current?.type !== 'pick' || !current.objectIds.includes(holderId)) return;
+  const next = withPickCards(current, holderId, chosen);
+  useTableStore.getState().dispatch({
+    type: 'UpdateObject',
+    id: now.id,
+    patch: { steps: now.steps.map((st) => (st.id === stepId ? next : st)) },
+  });
+}
+
+/**
  * Pick mode: adds/removes table objects in the step being edited (its object list or a move step's destinations).
  * A single click on an object the step can't use explains why.
  */
@@ -287,10 +331,10 @@ export function flipDeck(id: string): void {
   if (find(id)?.kind === 'deck') useTableStore.getState().dispatch({ type: 'FlipDeck', id });
 }
 
-/** A holder's / pile's cards as picker items (fronts and backs). */
-export function cardPickItems(deck: DeckObject): PickableItem[] {
+/** A holder's / pile's cards (or the given ones of it) as picker items (fronts and backs). */
+export function cardPickItems(deck: DeckObject, cards: readonly CardDef[] = deck.cards): PickableItem[] {
   const objects = currentTable().objects;
-  return deck.cards.map((c) => {
+  return cards.map((c) => {
     const look = resolveCardLook(c, deck, ownerDeckOf(objects, c.id));
     return {
       id: c.id,

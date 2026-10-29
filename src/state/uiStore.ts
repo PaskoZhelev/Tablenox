@@ -50,6 +50,10 @@ export interface PickRequest {
   /** Clicks select several items, confirmed with a button (`confirmLabel`, e.g. "Take"). */
   multiple?: boolean;
   confirmLabel?: string;
+  /** `multiple`: items selected when the dialog opens. */
+  selectedIds?: string[];
+  /** `multiple`: the confirm button also works with nothing selected (e.g. to clear a choice). */
+  allowEmpty?: boolean;
   resolve: (ids: string[] | null) => void;
 }
 

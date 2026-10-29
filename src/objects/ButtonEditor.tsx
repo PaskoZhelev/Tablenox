@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '../components/Icon';
 import { CheckboxField, ColorField, NumberField, SelectField, TextField } from '../components/fields';
-import { focusObject, runButton } from '../canvas/actions';
+import { chooseStepCards, focusObject, runButton } from '../canvas/actions';
 import type { ObjectPatch } from '../domain/commands';
-import { buttonMaxFontSize, createStep, describeStep, MAX_STEPS, STEP_LABELS, STEP_TYPES, type PickField } from '../domain/buttons';
+import {
+  buttonMaxFontSize,
+  createStep,
+  describeStep,
+  MAX_STEPS,
+  pickableCards,
+  picksInEdit,
+  presetPickCards,
+  STEP_LABELS,
+  STEP_TYPES,
+  withPickHolders,
+  type PickField,
+} from '../domain/buttons';
 import { displayName, kindLabel } from '../domain/objects';
 import type { ButtonObject, ButtonStep, MoveStep, ObjectId, PickStep, StepType, TabletopObject } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
@@ -26,7 +38,7 @@ const STEP_ICONS: Record<StepType, IconName> = {
 
 const STEP_HINTS: Record<StepType, string> = {
   move: 'Moves objects onto a destination. A holder, pile or bag gives up its cards or pieces (the container itself stays); pieces lying on a listed holder move too. A bag destination takes cards, piles, tokens, dice and the like in. A bag gives up its top or bottom pieces: add a Shuffle step first to draw at random.',
-  pick: 'Lets the player choose cards when the button runs: every listed holder or pile shows its cards (fronts or backs) in a dialog, and the chosen ones go to the destination (dealt in turn with several), or next to the holder without one. Cancel stops the whole button.',
+  pick: 'Takes chosen cards from holders or piles and puts them onto the destination (dealt in turn with several), or next to the holder without one. Choose the cards now (e.g. for a scenario set-up button), or let the player choose them in a dialog when the button runs (Cancel stops the whole button). Only cards still in the holder at that point are taken: put a Recall step first to gather them.',
   recall:
     'Sends things back where they came from: cards to their holder, tokens to the stack they were taken from, pieces to their bag. A holder with its own card list gathers all its cards back (like "Gather & reset"); a token stack gathers its tokens; a bag takes back everything that came out of it.',
   rotate: 'Rotates objects about their centre.',
@@ -164,6 +176,49 @@ function TargetPicker({
   );
 }
 
+/** A Pick step's cards set up in Edit mode: per listed holder, the chosen cards and a button to change them. */
+function PickCardsSetup({ step, buttonId, allObjects }: { step: PickStep; buttonId: ObjectId; allObjects: TabletopObject[] }) {
+  if (step.objectIds.length === 0) return <p className="hint">Pick holders on the table first, then choose their cards here.</p>;
+  return (
+    <div className="field">
+      <span className="pick-heading">
+        <Icon name="card" size={14} /> Cards to take
+      </span>
+      <ul className="pick-cards" aria-label="Cards to take">
+        {step.objectIds.map((id) => {
+          const deck = allObjects.find((o) => o.id === id);
+          if (deck?.kind !== 'deck') return null;
+          const name = displayName(deck);
+          const all = pickableCards(deck);
+          const chosen = presetPickCards(step, deck);
+          const shown = chosen.slice(0, 4).map((c) => c.name || 'card');
+          const summary =
+            chosen.length === 0
+              ? 'No cards chosen'
+              : `${chosen.length} of ${all.length}: ${shown.join(', ')}${chosen.length > shown.length ? ` +${chosen.length - shown.length} more` : ''}`;
+          return (
+            <li key={id} className="pick-cards-row">
+              <span className="pick-cards-name">{name}</span>
+              <span className="pick-cards-summary" data-testid={`pick-cards-${id}`}>
+                {summary}
+              </span>
+              <button
+                type="button"
+                className="btn btn-small"
+                aria-label={`Choose cards from ${name}`}
+                disabled={all.length === 0}
+                onClick={() => chooseStepCards(buttonId, step.id, id)}
+              >
+                <Icon name="card" size={14} /> Choose cards…
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function StepFields({
   step,
   buttonId,
@@ -183,7 +238,7 @@ function StepFields({
       ids={step.objectIds}
       allObjects={objects}
       pick={pick}
-      onChange={(objectIds) => onChange({ ...step, objectIds })}
+      onChange={(objectIds) => onChange(step.type === 'pick' ? withPickHolders(step, objectIds) : { ...step, objectIds })}
     />
   );
   switch (step.type) {
@@ -230,6 +285,16 @@ function StepFields({
       return (
         <>
           {picker}
+          <SelectField
+            label="Cards are chosen"
+            value={step.choose ?? 'run'}
+            options={[
+              { value: 'edit', label: 'Now, with the step' },
+              { value: 'run', label: 'By the player when the button runs' },
+            ]}
+            onChange={(choose) => onChange({ ...step, choose })}
+          />
+          {picksInEdit(step) && <PickCardsSetup step={step} buttonId={buttonId} allObjects={objects} />}
           <TargetPicker step={step} allObjects={objects} pick={pick} onChange={(targetIds) => onChange({ ...step, targetIds })} />
           <SelectField
             label="Face of picked cards"

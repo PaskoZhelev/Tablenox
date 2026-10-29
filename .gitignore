@@ -26,6 +26,7 @@ dist-ssr
 # Test artifacts
 test-results
 playwright-report
+coverage
 
 solo_tabletop_design_spec.md
 IMPLEMENTATION_PLAN.md

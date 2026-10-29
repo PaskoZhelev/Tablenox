@@ -115,7 +115,7 @@ export function createStep(type: StepType): ButtonStep {
     case 'move':
       return { ...base, type, targetIds: [], deckMode: 'top', orientation: 'keep' };
     case 'pick':
-      return { ...base, type, targetIds: [], orientation: 'keep' };
+      return { ...base, type, targetIds: [], orientation: 'keep', choose: 'edit' };
     case 'rotate':
       return { ...base, type, mode: 'by', degrees: 90 };
     case 'flip':
@@ -189,7 +189,39 @@ export function applyPick(step: ButtonStep, field: PickField, ids: ObjectId[], h
     return targetIds === step.targetIds ? step : { ...step, targetIds };
   }
   const objectIds = pickInto(step.objectIds, ids, how);
-  return objectIds === step.objectIds ? step : { ...step, objectIds };
+  if (objectIds === step.objectIds) return step;
+  return step.type === 'pick' ? withPickHolders(step, objectIds) : { ...step, objectIds };
+}
+
+/** Whether a Pick step's cards are set up with the step (rather than chosen when the button runs). */
+export const picksInEdit = (step: PickStep) => step.choose === 'edit';
+
+/** A Pick step with a new holder list; cards set up for holders no longer listed are dropped. */
+export function withPickHolders(step: PickStep, objectIds: ObjectId[]): PickStep {
+  if (!step.cards) return { ...step, objectIds };
+  const kept = Object.entries(step.cards).filter(([holderId]) => objectIds.includes(holderId));
+  return { ...step, objectIds, cards: kept.length ? Object.fromEntries(kept) : undefined };
+}
+
+/** A Pick step with the cards set up for one holder (card definition ids; none = nothing set up for it). */
+export function withPickCards(step: PickStep, holderId: ObjectId, cardIds: readonly string[]): PickStep {
+  const { [holderId]: _old, ...rest } = step.cards ?? {};
+  const cards = cardIds.length ? { ...rest, [holderId]: [...new Set(cardIds)] } : rest;
+  return { ...step, cards: Object.keys(cards).length ? cards : undefined };
+}
+
+/**
+ * The cards a Pick step can be set up with for a holder / pile: a holder's definition (every card it owns,
+ * wherever it is now), otherwise the cards in it.
+ */
+export function pickableCards(deck: DeckObject): CardDef[] {
+  return !deck.isPile && deck.initialCards.length > 0 ? deck.initialCards : deck.cards;
+}
+
+/** The cards set up for `holderId` that it can still give (see `pickableCards`), in holder order. */
+export function presetPickCards(step: PickStep, deck: DeckObject): CardDef[] {
+  const wanted = new Set(step.cards?.[deck.id] ?? []);
+  return pickableCards(deck).filter((c) => wanted.has(c.id));
 }
 
 /** Kinds that never count as lying on a holder (surfaces and controls). */
@@ -472,17 +504,19 @@ function drawChosen(plan: Plan, deckId: ObjectId, picked: CardDef[], orientation
 }
 
 /**
- * Pick step: for each listed holder / pile the player chooses cards (`plan.picks`; an interactive run stops
- * here to ask). They go onto the destination (dealt in turn with several), or next to the holder (one pile).
+ * Pick step: takes chosen cards from each listed holder / pile: the ones set up with the step, or the ones the
+ * player chose while the button runs (`plan.picks`; an interactive run stops here to ask). They go onto the
+ * destination (dealt in turn with several), or next to the holder (one pile).
  */
 function planPick(plan: Plan, step: PickStep): void {
   const targets = step.targetIds.map((id) => plan.find(id)).filter((t): t is TabletopObject => !!t);
+  const preset = picksInEdit(step);
   let turn = 0;
   for (const id of step.objectIds) {
     const deck = plan.find(id);
     if (deck?.kind !== 'deck' || deck.cards.length === 0) continue;
     const key = pickKey(step.id, deck.id);
-    const chosen = plan.picks[key];
+    const chosen = preset ? (step.cards?.[deck.id] ?? []) : plan.picks[key];
     if (!chosen) {
       if (plan.interactive) throw new PickNeeded({ key, step, deck });
       continue;
@@ -736,7 +770,7 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: numbe
 /**
  * The command that runs a button's steps in order, or null when nothing would change. Randomness, the time
  * (`now`, for timers) and new object ids are decided here, so the returned command replays deterministically.
- * Pick steps use the cards in `picks`; holders without a choice are skipped.
+ * Pick steps chosen at run time use the cards in `picks`; holders without a choice are skipped.
  */
 export function planButton(
   state: TableState,
@@ -821,7 +855,10 @@ export function describeStep(state: TableState, step: ButtonStep): string {
     case 'pick': {
       const to = step.targetIds.length ? describeObjects(state, step.targetIds) : 'next to the holder';
       const side = { keep: '', faceUp: ' face up', faceDown: ' face down' }[step.orientation];
-      return `Pick cards from ${what} to ${to}${step.targetIds.length > 1 ? ' in turn' : ''}${side}`;
+      const inTurn = step.targetIds.length > 1 ? ' in turn' : '';
+      if (!picksInEdit(step)) return `Pick cards from ${what} to ${to}${inTurn}${side}`;
+      const n = step.objectIds.reduce((sum, id) => sum + (step.cards?.[id]?.length ?? 0), 0);
+      return `Pick ${n} chosen card${n === 1 ? '' : 's'} from ${what} to ${to}${inTurn}${side}`;
     }
     case 'roll':
       return `Roll ${what}`;
