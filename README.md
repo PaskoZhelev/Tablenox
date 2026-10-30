@@ -6,6 +6,9 @@ Each game is **one save**. Edit and Play mode work on the same document, and eve
 
 No account, no server and no cloud. Everything is stored in your browser (IndexedDB).
 
+## Link
+https://tablenox.pages.dev
+
 ## Screenshots
 ![Main Screen](screenshots/screenshot1.jpg)
 ![Game Screen](screenshots/screenshot2.jpg)
