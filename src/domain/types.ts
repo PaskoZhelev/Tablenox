@@ -115,6 +115,12 @@ export interface DeckObject extends BaseObject {
   individualBacks?: boolean;
   /** Piles are created by dropping a card on a card and disappear when empty. */
   isPile: boolean;
+  /**
+   * Holders only: where their cards are drawn among the cards of the other holders on the same board (higher = on
+   * top; missing = 0, then by `zIndex`). Raised when cards are dropped in or the holder is brought to the front, so
+   * what the player just moved isn't hidden under a neighbouring holder's cards. The zone itself keeps its `zIndex`.
+   */
+  cardsZ?: number;
   /** How the cards are shown. Missing means `stack`. */
   layout?: HolderLayout;
   /** Spreads only: where the cards sit along the holder (left / centre / right, or top / centre / bottom). Missing means `center`. */

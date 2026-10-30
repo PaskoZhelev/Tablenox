@@ -43,6 +43,7 @@ import {
   createObject,
   dieFaceCount,
   dieFaceLabel,
+  drawOrder,
   fixedInPlay,
   HOLDER_MARGIN,
   cardGroups,
@@ -853,26 +854,42 @@ describe('deck rules', () => {
     expect(z('pile-1')).toBeGreaterThan(z(token.id));
   });
 
-  it('a card dropped into a holder half under another holder comes above it, and so does a pile it forms', () => {
+  it('a card dropped into a holder half under another holder is drawn above its cards, the zones keep their order', () => {
     let s = tableOf(fixtureGame());
     const lower = { ...createObject('deck', { center: { x: 5000, y: 5000 }, zIndex: 1 }), id: 'lower', cards: [] };
     const upper = { ...createObject('deck', { center: { x: 5000 + lower.width / 2, y: 5000 }, zIndex: maxZ(s.objects) + 1 }), id: 'upper' };
     s = { ...s, objects: [...s.objects, lower, upper] };
     const at = (id: string) => sortByStacking(s.objects).findIndex((o) => o.id === id);
+    const drawn = (id: string, zone: boolean) => drawOrder(s.objects).findIndex((e) => e.id === id && e.zone === zone);
     expect(at('lower')).toBeLessThan(at('upper'));
-    const drawn = drawCardCommand(deckOf(s), { x: -3000, y: -3000 })!;
-    s = applyCommand(s, drawn);
-    const card = s.objects.find((o) => o.id === (drawn as { cardId: string }).cardId)!;
+    expect(drawn('lower', false)).toBeLessThan(drawn('upper', false));
+    const draw = drawCardCommand(deckOf(s), { x: -3000, y: -3000 })!;
+    s = applyCommand(s, draw);
+    const card = s.objects.find((o) => o.id === (draw as { cardId: string }).cardId)!;
     // Dropped on the uncovered part of the lower holder.
     const drop = resolveDrop(s, card.id, { x: lower.position.x + 10 - card.width / 2, y: lower.position.y + lower.height / 2 - card.height / 2 }, 'play');
     expect(drop).toMatchObject({ type: 'AddCardToDeck', deckId: 'lower', toFront: true });
     s = applyCommand(s, drop);
-    expect(at('lower')).toBeGreaterThan(at('upper'));
+    // The zones (and what lies above what for drops) are unchanged; the lower holder's cards are drawn on top.
+    expect(s.objects.find((o) => o.id === 'lower')!.zIndex).toBe(1);
+    expect(at('lower')).toBeLessThan(at('upper'));
+    expect(drawn('lower', true)).toBeLessThan(drawn('upper', true));
+    expect(drawn('upper', true)).toBeLessThan(drawn('lower', false));
+    expect(drawn('lower', false)).toBeGreaterThan(drawn('upper', false));
     // Automations (no toFront) leave the order alone.
-    const before = s.objects.find((o) => o.id === 'upper')!.zIndex;
+    const before = drawOrder(s.objects);
     const again = applyCommand(s, drawCardCommand(deckOf(s), { x: -3000, y: -3000 })!);
     const loose = again.objects.find((o) => o.kind === 'card' && !s.objects.some((x) => x.id === o.id))!;
-    expect(applyCommand(again, { type: 'AddCardToDeck', cardId: loose.id, deckId: 'upper' }).objects.find((o) => o.id === 'upper')!.zIndex).toBe(before);
+    const filled = applyCommand(again, { type: 'AddCardToDeck', cardId: loose.id, deckId: 'upper' });
+    expect(drawOrder(filled.objects).filter((e) => e.id === 'lower' || e.id === 'upper')).toEqual(
+      before.filter((e) => e.id === 'lower' || e.id === 'upper'),
+    );
+    // Bringing a holder to the front brings its cards too; sending it to the back sends them back.
+    s = applyCommand(s, { type: 'SetZIndex', id: 'upper', direction: 'front' });
+    expect(drawn('upper', false)).toBeGreaterThan(drawn('lower', false));
+    s = applyCommand(s, { type: 'SetZIndex', id: 'upper', direction: 'back' });
+    expect(s.objects.find((o) => o.id === 'upper')).not.toHaveProperty('cardsZ');
+    expect(drawn('upper', false)).toBeLessThan(drawn('lower', false));
 
     // A card dropped on a card lying under another card: the new pile is on top.
     const t = tableOf(fixtureGame());

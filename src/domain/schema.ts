@@ -118,6 +118,7 @@ const deckSchema = z.object({
   putSide: z.enum(['keep', 'faceUp', 'faceDown']).optional(),
   individualBacks: z.boolean().optional(),
   isPile: z.boolean(),
+  cardsZ: finite.optional(),
   layout: z.enum(['stack', 'spread']).optional(),
   spreadAlign: z.enum(['start', 'center', 'end']).optional(),
   color: color.optional(),

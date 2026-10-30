@@ -400,6 +400,105 @@ test('holders laid out on a board lie on it, under the pieces; cards put into th
   expect(await drawnAbove(page, 'Discard', 'Score sheet')).toBe(true);
 });
 
+test('a card put into a holder lying half under another shows above that holder and its cards; the zones keep their order', async ({
+  page,
+}) => {
+  await addSampleAndPlay(page);
+  // Upper lies half over Discard, away from everything else; two cards wait below them.
+  const { w, h, cw, ch } = await storeState<{ w: number; h: number; cw: number; ch: number }>(
+    page,
+    `(s) => {
+      const objects = s.history.present.objects;
+      const discard = objects.find(o => o.name === 'Discard');
+      const deck = objects.find(o => o.name === 'Bonus deck');
+      const top = Math.max(...objects.map(o => o.zIndex));
+      s.dispatch({ type: 'MoveObject', id: discard.id, position: { x: -4000, y: -4000 } });
+      s.dispatch({ type: 'AddObject', object: { ...discard, id: 'upper-holder', name: 'Upper', label: 'Upper', position: { x: -4000 + discard.width / 2, y: -4000 }, zIndex: top + 1, cards: [] } });
+      s.dispatch({ type: 'DrawCard', deckId: deck.id, cardId: 'card-1', position: { x: -4000, y: -3500 }, faceUp: true });
+      s.dispatch({ type: 'DrawCard', deckId: deck.id, cardId: 'card-2', position: { x: -3600, y: -3500 }, faceUp: true });
+      s.setCamera({ scale: 1, x: s.viewport.width / 2 - (-4000 + discard.width * 0.75), y: s.viewport.height / 2 + 3700 });
+      const card = window.__tablenoxStore.getState().history.present.objects.find(o => o.id === 'card-1');
+      return { w: discard.width, h: discard.height, cw: card.width, ch: card.height };
+    }`,
+  );
+  await page.waitForTimeout(300);
+  const discardId = await obj<string>(page, 'Discard', 'o.id');
+  /** Layer index of a holder's own node (its cards) or of its zone node. */
+  const layerIndex = (id: string, zone: boolean) =>
+    page.evaluate(
+      ([id, zone]) => {
+        type KNode = { id(): string; hasName(n: string): boolean; getAttr(a: string): unknown; getChildren(): KNode[] };
+        const layer = (window as unknown as { Konva: { stages: { getLayers(): KNode[] }[] } }).Konva.stages[0]
+          .getLayers()
+          .find((L) => L.getChildren().some((c) => c.hasName('object')))!;
+        return layer
+          .getChildren()
+          .findIndex((c) => (zone ? c.hasName('holder-zone') && c.getAttr('holderId') === id : c.hasName('object') && c.id() === id));
+      },
+      [id, zone] as const,
+    );
+  /** The object (holder id for a zone) Konva hits at world point (x, y). */
+  const hitAt = async (x: number, y: number) => {
+    const p = await worldToPage(page, x, y);
+    const box = (await page.getByTestId('table-canvas').boundingBox())!;
+    return page.evaluate((p) => {
+      type KNode = { id(): string; hasName(n: string): boolean; getAttr(a: string): unknown; getParent(): KNode | null };
+      const stage = (window as unknown as { Konva: { stages: { getIntersection(p: { x: number; y: number }): KNode | null }[] } }).Konva
+        .stages[0];
+      for (let n = stage.getIntersection(p); n; n = n.getParent()) {
+        if (n.hasName('object')) return n.id();
+        if (n.hasName('holder-zone')) return `zone:${n.getAttr('holderId')}`;
+      }
+      return null;
+    }, { x: p.x - box.x, y: p.y - box.y });
+  };
+  const dropInto = async (cardId: string, from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const a = await worldToPage(page, from.x + cw / 2, from.y + ch / 2);
+    const b = await worldToPage(page, to.x, to.y);
+    await drag(page, a, b.x - a.x, b.y - a.y);
+    await expect.poll(() => storeState(page, `(s) => s.history.present.objects.some(o => o.id === '${cardId}')`)).toBe(false);
+  };
+
+  // A card into Upper's free half, then one into Discard's free half: Discard's card is drawn above Upper's.
+  await dropInto('card-2', { x: -3600, y: -3500 }, { x: -4000 + w * 1.3, y: -4000 + h / 2 });
+  await dropInto('card-1', { x: -4000, y: -3500 }, { x: -4000 + w * 0.2, y: -4000 + h / 2 });
+  expect(await obj(page, 'Discard', 'o.cards.length')).toBe(1);
+  expect(await obj(page, 'Upper', 'o.cards.length')).toBe(1);
+  await expect.poll(() => layerIndex(discardId, false)).toBeGreaterThan(await layerIndex('upper-holder', false));
+  // The zones keep their order (Upper's over Discard's), both under the cards.
+  expect(await layerIndex(discardId, true)).toBeLessThan(await layerIndex('upper-holder', true));
+  expect(await layerIndex('upper-holder', true)).toBeLessThan(await layerIndex('upper-holder', false));
+  expect(await obj(page, 'Upper', 'o.zIndex')).toBeGreaterThan(await obj<number>(page, 'Discard', 'o.zIndex'));
+
+  // Presses go to what is drawn there: Upper's card where it shows inside Discard's zone, Discard's card, empty zones.
+  const discardCardRight = -4000 + w / 2 + cw / 2;
+  const upperCardLeft = -4000 + w - cw / 2;
+  const shows = Math.max(discardCardRight, upperCardLeft) + 4;
+  expect(shows).toBeLessThan(-4000 + w);
+  expect(await hitAt(shows, -4000 + h / 2)).toBe('upper-holder');
+  expect(await hitAt(-4000 + w / 2, -4000 + h / 2)).toBe(discardId);
+  expect(await hitAt(-4000 + 3, -4000 + h / 2)).toBe(`zone:${discardId}`);
+  // Drawing from there takes Upper's card.
+  const from = await worldToPage(page, shows, -4000 + h / 2);
+  await drag(page, from, 0, 300);
+  await expect.poll(() => obj<number>(page, 'Upper', 'o.cards.length')).toBe(0);
+  expect(await obj(page, 'Discard', 'o.cards.length')).toBe(1);
+
+  // Edit mode: pressing a holder's empty zone drags the holder, and the zone moves with it.
+  await switchMode(page, 'edit');
+  const edge = await worldToPage(page, -4000 + 3, -4000 + h / 2);
+  await drag(page, edge, -200, 0);
+  await expect.poll(() => obj<number>(page, 'Discard', 'o.position.x')).toBeLessThan(-4150);
+  const zoneAndHolder = await page.evaluate((id) => {
+    type KNode = { x(): number; y(): number; id(): string; hasName(n: string): boolean; getAttr(a: string): unknown };
+    const stage = (window as unknown as { Konva: { stages: { find(f: (n: KNode) => boolean): KNode[] }[] } }).Konva.stages[0];
+    const [zone] = stage.find((n) => n.hasName('holder-zone') && n.getAttr('holderId') === id);
+    const [holder] = stage.find((n) => n.hasName('object') && n.id() === id);
+    return [zone.x(), zone.y(), holder.x(), holder.y()];
+  }, discardId);
+  expect(zoneAndHolder.slice(0, 2)).toEqual(zoneAndHolder.slice(2));
+});
+
 test('writing: pen aligns after zoom, erase/undo/redo, typed numbers persist', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await addSampleAndPlay(page);

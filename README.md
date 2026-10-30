@@ -6,6 +6,11 @@ Each game is **one save**. Edit and Play mode work on the same document, and eve
 
 No account, no server and no cloud. Everything is stored in your browser (IndexedDB).
 
+## Screenshots
+![Main Screen](screenshots/screenshot1.jpg)
+![Game Screen](screenshots/screenshot2.jpg)
+![Editor Screen](screenshots/screenshot3.jpg)
+
 ## Features
 
 - **Library**: create, play, edit, rename, duplicate, delete, export and import games. Each game shows a sharp thumbnail of its table and when it was created and last played (opened in Play mode). **Search** games by title (case and accents ignored), **sort** them (last changed, last played, newest first, name) and switch between **grid and list view**; the sort order and view are remembered. Includes a built-in sample roll-and-write game.
@@ -193,4 +198,12 @@ docs/adr/         architecture decision records
 
 The `domain/` folder has no React or Konva dependencies. All mutations go through named commands (`src/domain/commands.ts`), and their random outcomes (shuffle order, die value) are computed before dispatch, so reloading never re-rolls.
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) and [docs/ACCEPTANCE_CHECKLIST.md](docs/ACCEPTANCE_CHECKLIST.md).
+See [docs/adr/README.md](docs/adr/README.md) (design decisions) and [docs/ACCEPTANCE_CHECKLIST.md](docs/ACCEPTANCE_CHECKLIST.md).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE). Games you build and the images you upload are your own; Tablenox stores them only in your browser.

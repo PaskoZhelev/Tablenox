@@ -271,10 +271,71 @@ export function HolderZoneShape({
   return <Rect x={x} y={y} width={w} height={h} cornerRadius={cornerRadius} {...style} />;
 }
 
-export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
-  const count = o.cards.length;
+/**
+ * A holder's zone: fill, dashed / solid outline, label and (Edit mode) its deck size. Drawn by its own node under the
+ * cards of every holder on the same board (`HolderZoneNode`); `ghost` draws it invisible and not hittable, so the
+ * holder's own node keeps its full size (for the Transformer).
+ */
+export function HolderZoneVisual({ o, mode, ghost }: { o: DeckObject; mode: Mode; ghost?: boolean }) {
   const w = o.width;
   const h = o.height;
+  const edit = mode === 'edit';
+  const zone = o.color ?? DEFAULT_HOLDER_COLOR;
+  const labelBelow = o.labelPosition === 'below';
+  const strokeOpacity = o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY;
+  const showBadge = o.cards.length > 1;
+  // Edit mode: a holder with its own card list (a deck) says so below the zone (under its label when that is below).
+  const deckSize = edit ? o.initialCards.length : 0;
+  return (
+    <Group opacity={ghost ? 0 : 1} listening={!ghost}>
+      <HolderZoneShape shape={o.zoneShape} w={w} h={h} fill={zone} opacity={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY} />
+      <HolderZoneShape
+        shape={o.zoneShape}
+        w={w}
+        h={h}
+        stroke={o.strokeColor ?? zone}
+        strokeWidth={2}
+        dash={o.strokeStyle === 'solid' ? undefined : [10, 6]}
+        opacity={edit ? Math.max(strokeOpacity, EDIT_MIN_STROKE_OPACITY) : strokeOpacity}
+      />
+      {o.label && (
+        <Text
+          x={4}
+          y={labelBelow ? h + 4 : -20}
+          width={Math.max(0, w - 8 - (!labelBelow && showBadge ? 44 : 0))}
+          text={o.label}
+          ellipsis
+          wrap="none"
+          fontFamily={FONT}
+          fontSize={14}
+          fontStyle="bold"
+          fill={zone}
+        />
+      )}
+      {deckSize > 0 && (
+        <Text
+          name="deck-info"
+          x={4}
+          y={h + 4 + (labelBelow && o.label ? 18 : 0)}
+          width={Math.max(0, w - 8)}
+          text={`Deck (${deckSize} ${deckSize === 1 ? 'card' : 'cards'})`}
+          ellipsis
+          wrap="none"
+          fontFamily={FONT}
+          fontSize={12}
+          fontStyle="italic"
+          fill={zone}
+          listening={false}
+        />
+      )}
+    </Group>
+  );
+}
+
+/** `zone`: `shown` draws the holder's zone too (previews); `ghost` leaves it to its own node (the table). */
+export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: Mode; zone?: 'shown' | 'ghost' }) {
+  const count = o.cards.length;
+  const w = o.width;
   // Only the decks owning the cards shown here matter (their card size and back), so other table changes don't
   // re-render every holder and pile.
   const owners = useTableStore(
@@ -286,13 +347,7 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   const objects: TabletopObject[] = owners;
   const gapAt = useTableStore((s) => (s.dropTargetId === o.id ? s.dropIndex : null));
   const holder = !o.isPile;
-  const edit = mode === 'edit';
   const showBadge = count > 1;
-  const zone = o.color ?? DEFAULT_HOLDER_COLOR;
-  const labelBelow = o.labelPosition === 'below';
-  const strokeOpacity = o.strokeOpacity ?? DEFAULT_HOLDER_STROKE_OPACITY;
-  // Edit mode: a holder with its own card list (a deck) says so below the zone (under its label when that is below).
-  const deckSize = holder && edit ? o.initialCards.length : 0;
   const { slots, gap } = spreadLayout(objects, o, gapAt);
   const turn = cardRotationOf(o);
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
@@ -317,50 +372,7 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   }, [preload]);
   return (
     <>
-      {holder && (
-        <>
-          <HolderZoneShape shape={o.zoneShape} w={w} h={h} fill={zone} opacity={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY} />
-          <HolderZoneShape
-            shape={o.zoneShape}
-            w={w}
-            h={h}
-            stroke={o.strokeColor ?? zone}
-            strokeWidth={2}
-            dash={o.strokeStyle === 'solid' ? undefined : [10, 6]}
-            opacity={edit ? Math.max(strokeOpacity, EDIT_MIN_STROKE_OPACITY) : strokeOpacity}
-          />
-          {o.label && (
-            <Text
-              x={4}
-              y={labelBelow ? h + 4 : -20}
-              width={Math.max(0, w - 8 - (!labelBelow && showBadge ? 44 : 0))}
-              text={o.label}
-              ellipsis
-              wrap="none"
-              fontFamily={FONT}
-              fontSize={14}
-              fontStyle="bold"
-              fill={zone}
-            />
-          )}
-          {deckSize > 0 && (
-            <Text
-              name="deck-info"
-              x={4}
-              y={h + 4 + (labelBelow && o.label ? 18 : 0)}
-              width={Math.max(0, w - 8)}
-              text={`Deck (${deckSize} ${deckSize === 1 ? 'card' : 'cards'})`}
-              ellipsis
-              wrap="none"
-              fontFamily={FONT}
-              fontSize={12}
-              fontStyle="italic"
-              fill={zone}
-              listening={false}
-            />
-          )}
-        </>
-      )}
+      {holder && <HolderZoneVisual o={o} mode={mode} ghost={zone === 'ghost'} />}
       {stacked && !shapedStack && (
         <Group
           x={slots[0].x + slots[0].width / 2 + STACK_EDGE}
@@ -1169,12 +1181,15 @@ export function ObjectVisual({
   onStep,
   onTimer,
   pressed,
+  holderZone,
 }: {
   o: TabletopObject;
   mode: Mode;
   onStep?: (d: 1 | -1) => void;
   onTimer?: (action: TimerAction) => void;
   pressed?: boolean;
+  /** Holders: whether their zone is drawn here (`shown`, default) or by its own node (`ghost`). */
+  holderZone?: 'shown' | 'ghost';
 }) {
   switch (o.kind) {
     case 'board':
@@ -1184,7 +1199,7 @@ export function ObjectVisual({
     case 'card':
       return <CardObjectVisual o={o} />;
     case 'deck':
-      return <DeckVisual o={o} mode={mode} />;
+      return <DeckVisual o={o} mode={mode} zone={holderZone} />;
     case 'token':
       return <TokenVisual o={o} />;
     case 'counter':

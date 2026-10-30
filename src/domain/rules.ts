@@ -267,7 +267,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   if (!obj || opts.free || obj.kind === 'board' || obj.kind === 'bag' || isHolder(obj)) return move;
 
   const center = objectCenter({ ...obj, position });
-  // What the cards go into comes to the front, as the cards would if dropped on the table.
+  // What the cards go into comes to the front (a holder: its cards), as the cards would if dropped on the table.
   const toFront = true;
 
   if (obj.kind === 'card') {

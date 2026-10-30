@@ -7,8 +7,11 @@ import {
   cardSizeOf,
   dieFaceCount,
   cardPutInto,
+  cardsZOf,
   drawnFaceUp,
   homeDeckMap,
+  isHolder,
+  maxCardsZ,
   maxZ,
   ownerDeckOf,
   resolveCardLook,
@@ -88,8 +91,9 @@ export type Command =
   | { type: 'FlipDeckCard'; deckId: string; cardId: string }
   /**
    * Puts a table card into a deck/pile, on top or at `index` (0 = top; spread holders). `asDefinition` also adds
-   * it to the deck's Reset definition. `toFront` (on these four commands): the holder/pile that receives the cards
-   * comes above every other object, so what the player just moved isn't drawn under a neighbouring holder or card.
+   * it to the deck's Reset definition. `toFront` (on these four commands, set for the player's drops): a holder that
+   * receives the cards draws them above every other holder's cards (its zone keeps its place, see `drawOrder`); a pile
+   * that receives them comes above every other object.
    */
   | { type: 'AddCardToDeck'; cardId: string; deckId: string; asDefinition?: boolean; index?: number; toFront?: boolean }
   /** Drops a card onto another card, creating a pile in the target's place. */
@@ -147,9 +151,20 @@ function mapObject(state: TableState, id: string, fn: (o: TabletopObject) => Tab
   return changed ? { ...state, objects } : state;
 }
 
-/** `next` with `id` lifted above every other object, when `next` is a real change of `prev` (e.g. a card was put in). */
+/** Puts the cards of holder `id` above those of every other holder (its zone keeps its place). */
+function raiseCards(state: TableState, id: string): TableState {
+  const top = maxCardsZ(state.objects.filter((o) => o.id !== id));
+  return mapObject(state, id, (o) => (o.kind !== 'deck' || o.isPile || cardsZOf(o) > top ? o : { ...o, cardsZ: top + 1 }));
+}
+
+/**
+ * `next` with what received cards (`id`) brought to the front, when `next` is a real change of `prev`: a holder's
+ * cards go above every other holder's cards (its zone stays where it is), a pile comes above every other object.
+ */
 function raisedAfter(prev: TableState, next: TableState, id: string, toFront: boolean | undefined): TableState {
   if (!toFront || next === prev) return next;
+  const target = findObject(next, id);
+  if (target && isHolder(target)) return raiseCards(next, id);
   const top = maxZ(next.objects.filter((o) => o.id !== id));
   return mapObject(next, id, (o) => (o.zIndex > top ? o : { ...o, zIndex: top + 1 }));
 }
@@ -508,13 +523,15 @@ function applyOne(state: TableState, cmd: Command): TableState {
       const z = cmd.toFront ? maxZ(state.objects) : 0;
       // An object sharing the top level with another one isn't on top yet: it is lifted above it.
       const tied = !!cmd.toFront && state.objects.filter((o) => o.zIndex === z).length > 1;
-      return mapObject(state, cmd.id, (o) => {
+      const moved = mapObject(state, cmd.id, (o) => {
         const samePos = o.position.x === cmd.position.x && o.position.y === cmd.position.y;
         const isTop = !cmd.toFront || (o.zIndex === z && !tied);
         const rotation = cmd.rotation === undefined ? o.rotation : ((cmd.rotation % 360) + 360) % 360;
         if (samePos && isTop && rotation === o.rotation) return o;
         return { ...o, position: { ...cmd.position }, zIndex: isTop ? o.zIndex : z + 1, rotation };
       });
+      // A holder brought to the front brings its cards along.
+      return cmd.toFront ? raiseCards(moved, cmd.id) : moved;
     }
 
     case 'TransformObject':
@@ -536,19 +553,41 @@ function applyOne(state: TableState, cmd: Command): TableState {
         annotations: withoutMarksOn(state.annotations, new Set([cmd.id])),
       };
 
-    case 'SetZIndex':
-      return setZIndex(state, cmd.id, cmd.direction);
+    case 'SetZIndex': {
+      const next = setZIndex(state, cmd.id, cmd.direction);
+      // A holder's cards follow it to the front / back.
+      if (cmd.direction === 'front') return raiseCards(next, cmd.id);
+      if (cmd.direction !== 'back') return next;
+      return mapObject(next, cmd.id, (o) => {
+        if (o.kind !== 'deck' || o.cardsZ === undefined) return o;
+        const { cardsZ: _cardsZ, ...rest } = o;
+        return rest;
+      });
+    }
 
     case 'RaiseObjects': {
-      // The objects go above all others, keeping their order among themselves.
+      // The objects go above all others, keeping their order among themselves (holders: their cards too).
       const ids = new Set(cmd.ids);
       const members = state.objects.filter((o) => ids.has(o.id)).sort((a, b) => a.zIndex - b.zIndex);
       if (members.length === 0) return state;
       const top = maxZ(state.objects.filter((o) => !ids.has(o.id)));
-      if (members.every((m, i) => m.zIndex > top && (i === 0 || m.zIndex > members[i - 1].zIndex))) return state;
+      const holders = members.filter(isHolder).sort((a, b) => cardsZOf(a) - cardsZOf(b) || a.zIndex - b.zIndex);
+      const cardsTop = maxCardsZ(state.objects.filter((o) => !ids.has(o.id)));
+      const zOk = members.every((m, i) => m.zIndex > top && (i === 0 || m.zIndex > members[i - 1].zIndex));
+      const cardsOk = holders.every((h, i) => cardsZOf(h) > cardsTop && (i === 0 || cardsZOf(h) > cardsZOf(holders[i - 1])));
+      if (zOk && cardsOk) return state;
       let z = top;
-      const zById = new Map(members.map((m) => [m.id, ++z]));
-      return { ...state, objects: state.objects.map((o) => (zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)! } : o)) };
+      const zById = new Map(zOk ? [] : members.map((m) => [m.id, ++z]));
+      let c = cardsTop;
+      const cardsById = new Map(cardsOk ? [] : holders.map((h) => [h.id, ++c]));
+      return {
+        ...state,
+        objects: state.objects.map((o) => {
+          if (!zById.has(o.id) && !cardsById.has(o.id)) return o;
+          const out = zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)! } : { ...o };
+          return cardsById.has(o.id) ? { ...out, cardsZ: cardsById.get(o.id)! } : out;
+        }),
+      };
     }
 
     case 'ToggleLock':

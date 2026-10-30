@@ -39,7 +39,7 @@ export async function clickObject(page: Page, name: string): Promise<{ x: number
   const box = (await page.getByTestId('table-canvas').boundingBox())!;
   const hit = () =>
     page.evaluate((name) => {
-      type KNode = { id(): string; getParent(): KNode | null };
+      type KNode = { id(): string; getAttr(a: string): unknown; getParent(): KNode | null };
       const w = window as unknown as {
         __tablenoxStore: { getState(): StoreState };
         Konva: { stages: { getIntersection(p: { x: number; y: number }): KNode | null }[] };
@@ -51,7 +51,8 @@ export async function clickObject(page: Page, name: string): Promise<{ x: number
       const c = s.camera;
       const p = { x: (o.position.x + o.width / 2) * c.scale + c.x, y: (o.position.y + o.height / 2) * c.scale + c.y };
       let n = w.Konva.stages[0].getIntersection(p);
-      while (n && n.id() !== o.id) n = n.getParent();
+      // A holder's empty zone is drawn by its own node, which stands for the holder.
+      while (n && n.id() !== o.id && n.getAttr('holderId') !== o.id) n = n.getParent();
       return n ? p : null;
     }, name);
   const found: { p: { x: number; y: number } | null } = { p: null };

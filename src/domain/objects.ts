@@ -521,15 +521,26 @@ function inBox(p: Vec2, o: TabletopObject): boolean {
   return Math.abs(lx) <= o.width / 2 && Math.abs(ly) <= o.height / 2;
 }
 
-const rankCache = new WeakMap<TabletopObject[], Map<string, number>>();
+const rankCache = new WeakMap<TabletopObject[], { ranks: Map<string, number>; draw: DrawEntry[] }>();
 
-/**
- * Where each object is drawn, from the bottom (0) up. Everything follows `zIndex`, except holders: a holder lies
- * right above the board (or image) under its centre that is below it, and under every other piece, so cards,
- * tokens and the like are never covered by a holder, while a holder laid out on a board stays on it. A holder on
- * the bare table lies below everything.
- */
-export function stackingRanks(objects: TabletopObject[]): Map<string, number> {
+/** One Konva node of the objects layer: an object, or the zone (outline, fill, label) of holder `id`. */
+export interface DrawEntry {
+  id: string;
+  zone: boolean;
+}
+
+/** A holder's card order: its `cardsZ` (missing = 0), then its `zIndex`. */
+export function cardsZOf(o: TabletopObject): number {
+  return o.kind === 'deck' ? (o.cardsZ ?? 0) : 0;
+}
+
+const byCardsZ = (a: TabletopObject, b: TabletopObject) => cardsZOf(a) - cardsZOf(b) || a.zIndex - b.zIndex;
+
+export function maxCardsZ(objects: TabletopObject[]): number {
+  return objects.reduce((m, o) => (isHolder(o) ? Math.max(m, cardsZOf(o)) : m), 0);
+}
+
+function stackingLayout(objects: TabletopObject[]): { ranks: Map<string, number>; draw: DrawEntry[] } {
   const cached = rankCache.get(objects);
   if (cached) return cached;
   const byZ = sortByZ(objects);
@@ -547,8 +558,36 @@ export function stackingRanks(objects: TabletopObject[]): Map<string, number> {
   const order = [...(holdersOn.get(null) ?? [])];
   for (const o of rest) order.push(o, ...(holdersOn.get(o.id) ?? []));
   const ranks = new Map(order.map((o, i) => [o.id, i]));
-  rankCache.set(objects, ranks);
-  return ranks;
+  // Drawn: the zones of the holders on a board (by zIndex), then all their cards (by card order) above every zone.
+  const group = (holders: TabletopObject[] = []): DrawEntry[] => [
+    ...holders.map((h) => ({ id: h.id, zone: true })),
+    ...[...holders].sort(byCardsZ).map((h) => ({ id: h.id, zone: false })),
+  ];
+  const draw = group(holdersOn.get(null));
+  for (const o of rest) draw.push({ id: o.id, zone: false }, ...group(holdersOn.get(o.id)));
+  const layout = { ranks, draw };
+  rankCache.set(objects, layout);
+  return layout;
+}
+
+/**
+ * Where each object is drawn, from the bottom (0) up. Everything follows `zIndex`, except holders: a holder lies
+ * right above the board (or image) under its centre that is below it, and under every other piece, so cards,
+ * tokens and the like are never covered by a holder, while a holder laid out on a board stays on it. A holder on
+ * the bare table lies below everything. Among the holders of one board this is the order of their zones (see
+ * `drawOrder` for their cards).
+ */
+export function stackingRanks(objects: TabletopObject[]): Map<string, number> {
+  return stackingLayout(objects).ranks;
+}
+
+/**
+ * The objects layer from the bottom up, as `stackingRanks`, except that the holders of one board draw their zones
+ * first (by `zIndex`) and then their cards above all of those zones (by `cardsZOf`), so a card the player put in a
+ * holder isn't hidden under the zone or the cards of a holder lying over it.
+ */
+export function drawOrder(objects: TabletopObject[]): DrawEntry[] {
+  return stackingLayout(objects).draw;
 }
 
 /** Compares objects of `all` by where they are drawn: negative when `a` lies below `b`. */

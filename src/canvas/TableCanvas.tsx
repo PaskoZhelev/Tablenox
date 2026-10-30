@@ -7,14 +7,24 @@ import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { anchorStroke, simplifyPoints, straightLinePoints, strokeHitAt, textHitAt } from '../domain/annotations';
 import { panBy, pinchBy, screenToWorld, worldToScreen, zoomBy, type PinchPoint } from '../domain/camera';
 import { newId } from '../domain/ids';
-import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByStacking, sortByZ, tokenCount } from '../domain/objects';
+import {
+  drawOrder,
+  fixedInPlay,
+  isHolder,
+  movableInPlay,
+  ownerDeckOf,
+  resolveCardLook,
+  sortByStacking,
+  sortByZ,
+  tokenCount,
+} from '../domain/objects';
 import { objectBounds, snapToGrid } from '../domain/geometry';
 import { stampStroke } from '../domain/stamps';
-import type { TabletopObject, Vec2 } from '../domain/types';
+import type { DeckObject, TabletopObject, Vec2 } from '../domain/types';
 import { AnnotationLayer } from '../drawing/AnnotationLayer';
 import { focusTextEditor, startEditingText } from '../drawing/textEditing';
 import { TextEditorOverlay } from '../drawing/TextEditorOverlay';
-import { ObjectNode } from '../objects/ObjectNode';
+import { HOLDER_ID_ATTR, HOLDER_ZONE_NAME, HolderZoneNode, ObjectNode } from '../objects/ObjectNode';
 import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { ContextMenu, SelectionBar } from './SelectionBar';
 import { getGroupActions, getObjectActions, hasObjectControls } from './objectActions';
@@ -73,6 +83,11 @@ function findObjectNode(target: Konva.Node): Konva.Node | null {
   let n: Konva.Node | null = target;
   while (n && !(n.getType() === 'Stage')) {
     if (n.hasName('object')) return n;
+    // A holder's zone is drawn by its own node; it stands for the holder.
+    if (n.hasName(HOLDER_ZONE_NAME)) {
+      const id = n.getAttr(HOLDER_ID_ATTR);
+      return n.getLayer()?.findOne((m: Konva.Node) => m.id() === id && m.hasName('object')) ?? null;
+    }
     n = n.getParent();
   }
   return null;
@@ -180,24 +195,29 @@ export function TableCanvas() {
   }, [tool]);
 
   const sorted = useMemo(() => sortByStacking(objects).filter((o) => o.visible || mode === 'edit'), [objects, mode]);
+  const holders = useMemo(() => sorted.filter((o): o is DeckObject => isHolder(o)), [sorted]);
 
   // A dragged object is lifted to the top of the layer in Konva directly, which react-konva doesn't know about; its
   // later reorders would then be made against the wrong neighbours (a card dropped on a token could land under it).
-  // So after every change the layer is put back in table order, keeping objects still being dragged on top.
+  // So after every change the layer is put back in table order (`drawOrder`: holder zones under their cards), keeping
+  // objects still being dragged on top.
   useLayoutEffect(() => {
     const layer = objectsLayerRef.current;
     if (!layer) return;
     const children: Konva.Node[] = [...layer.getChildren()];
     const byId = new Map(children.filter((n) => n.hasName('object')).map((n) => [n.id(), n]));
-    const ordered = sorted.map((o) => byId.get(o.id)).filter((n): n is Konva.Node => !!n);
+    const zoneById = new Map(children.filter((n) => n.hasName(HOLDER_ZONE_NAME)).map((n) => [n.getAttr(HOLDER_ID_ATTR) as string, n]));
+    const ordered = drawOrder(objects)
+      .map((e) => (e.zone ? zoneById : byId).get(e.id))
+      .filter((n): n is Konva.Node => !!n);
     const inPlace = ordered.filter((n) => !n.getAttr(LIFTED_ATTR));
     const lifted = ordered.filter((n) => n.getAttr(LIFTED_ATTR));
-    const others = children.filter((n) => !n.hasName('object'));
+    const others = children.filter((n) => !n.hasName('object') && !n.hasName(HOLDER_ZONE_NAME));
     const want = [...inPlace, ...others, ...lifted];
     if (want.length === children.length && want.every((n, i) => children[i] === n)) return;
     for (const n of want) n.moveToTop();
     layer.batchDraw();
-  }, [sorted, draggingId]);
+  }, [sorted, objects, draggingId]);
   const selected = useMemo(() => objects.find((o) => o.id === selectedId) ?? null, [objects, selectedId]);
   const transformable = useMemo(() => {
     if (tool !== 'select' || picking) return [];
@@ -984,6 +1004,9 @@ export function TableCanvas() {
             </Layer>
           )}
           <Layer ref={objectsLayerRef}>
+            {holders.map((o) => (
+              <HolderZoneNode key={`zone:${o.id}`} o={o} mode={mode} dropTarget={o.id === dropTargetId} />
+            ))}
             {sorted.map((o) => (
               <ObjectNode
                 key={o.id}

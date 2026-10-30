@@ -8,7 +8,7 @@ import { isMarkAnchor } from '../domain/annotations';
 import { screenToWorld, worldToScreen } from '../domain/camera';
 import { snapPosition } from '../domain/geometry';
 import { SheetMarks } from '../drawing/AnnotationLayer';
-import type { Mode, TabletopObject } from '../domain/types';
+import type { DeckObject, Mode, TabletopObject } from '../domain/types';
 import { currentTable, useTableStore } from '../state/tableStore';
 import {
   dropObject,
@@ -25,7 +25,7 @@ import {
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
 import { LIFTED_ATTR } from '../canvas/stageRegistry';
-import { HolderZoneShape, ObjectVisual } from './visuals';
+import { HolderZoneShape, HolderZoneVisual, ObjectVisual } from './visuals';
 
 interface Props {
   object: TabletopObject;
@@ -332,12 +332,13 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       <Group ref={liftRef} name="lift" x={o.width / 2} y={o.height / 2} offsetX={o.width / 2} offsetY={o.height / 2}>
         {lifted && (
           <Group ref={shadowRef} name="lift-shadow" x={LIFT.shadowX} y={LIFT.shadowY} opacity={LIFT.shadowOpacity} listening={false}>
-            <ObjectVisual o={o} mode={mode} />
+            <ObjectVisual o={o} mode={mode} holderZone="ghost" />
           </Group>
         )}
         <ObjectVisual
           o={o}
           mode={mode}
+          holderZone="ghost"
           pressed={pressed}
           onStep={(d) => (useTableStore.getState().picking ? pickOnTable([o.id], 'toggle') : incrementCounter(o.id, d))}
           onTimer={(a) => {
@@ -396,3 +397,62 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
 }
 
 export const ObjectNode = memo(ObjectNodeImpl);
+
+export const HOLDER_ZONE_NAME = 'holder-zone';
+/** The attribute of a zone node naming its holder. */
+export const HOLDER_ID_ATTR = 'holderId';
+
+const FOLLOWED_ATTRS = ['x', 'y', 'rotation', 'scaleX', 'scaleY'] as const;
+
+/**
+ * A holder's zone (fill, outline, label), drawn under the cards of every holder on the same board while the holder's
+ * own node (`ObjectNode`, drawing its cards) lies above them all (see `drawOrder`). Presses on the zone act on the
+ * holder: they are handed to its node, and `findObjectNode` in `TableCanvas` resolves the zone to it. The zone follows
+ * the holder's node while that is dragged or transformed.
+ */
+function HolderZoneNodeImpl({ o, mode, dropTarget }: { o: DeckObject; mode: Mode; dropTarget: boolean }) {
+  const ref = useRef<Konva.Group>(null);
+
+  useEffect(() => {
+    const zone = ref.current;
+    const holder = zone?.getLayer()?.findOne((n: Konva.Node) => n.id() === o.id && n.hasName('object'));
+    if (!zone || !holder) return;
+    const follow = () => {
+      zone.setAttrs(Object.fromEntries(FOLLOWED_ATTRS.map((a) => [a, holder.getAttr(a) ?? (a.startsWith('scale') ? 1 : 0)])));
+    };
+    holder.on(FOLLOWED_ATTRS.map((a) => `${a}Change.holderZone`).join(' '), follow);
+    return () => {
+      holder.off('.holderZone');
+    };
+  }, [o.id]);
+
+  const holderNode = (e: KonvaEventObject<Event>) =>
+    e.target.getLayer()?.findOne((n: Konva.Node) => n.id() === o.id && n.hasName('object'));
+  // Handing the press over starts Konva's drag of the holder (Edit mode) just as a press on the holder itself would.
+  const press = (e: KonvaEventObject<MouseEvent | TouchEvent>) => holderNode(e)?.fire(e.type, e, false);
+  const hover = () => useTableStore.getState().setHover(o.id, null);
+
+  return (
+    <Group
+      ref={ref}
+      id={`zone:${o.id}`}
+      name={HOLDER_ZONE_NAME}
+      {...{ [HOLDER_ID_ATTR]: o.id }}
+      x={o.position.x + o.width / 2}
+      y={o.position.y + o.height / 2}
+      offsetX={o.width / 2}
+      offsetY={o.height / 2}
+      rotation={o.rotation}
+      opacity={dropTarget && !isSpread(o) ? 0.45 : o.visible ? 1 : 0.35}
+      onMouseDown={press}
+      onTouchStart={press}
+      onMouseEnter={hover}
+      onMouseMove={hover}
+      onMouseLeave={() => useTableStore.getState().setHover(null)}
+    >
+      <HolderZoneVisual o={o} mode={mode} />
+    </Group>
+  );
+}
+
+export const HolderZoneNode = memo(HolderZoneNodeImpl);
