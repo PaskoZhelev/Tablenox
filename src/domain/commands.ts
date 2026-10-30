@@ -65,6 +65,8 @@ export type Command =
   | { type: 'TransformObject'; id: string; position: Vec2; width: number; height: number; rotation: number }
   | { type: 'DeleteObject'; id: string }
   | { type: 'SetZIndex'; id: string; direction: ZOrderDirection }
+  /** Brings objects above all others, keeping their order among themselves (e.g. a selection dropped together). */
+  | { type: 'RaiseObjects'; ids: string[] }
   | { type: 'ToggleLock'; id: string }
   | { type: 'FlipCard'; id: string }
   | { type: 'ShuffleDeck'; id: string; order: number[] }
@@ -496,9 +498,11 @@ function applyOne(state: TableState, cmd: Command): TableState {
 
     case 'MoveObject': {
       const z = cmd.toFront ? maxZ(state.objects) : 0;
+      // An object sharing the top level with another one isn't on top yet: it is lifted above it.
+      const tied = !!cmd.toFront && state.objects.filter((o) => o.zIndex === z).length > 1;
       return mapObject(state, cmd.id, (o) => {
         const samePos = o.position.x === cmd.position.x && o.position.y === cmd.position.y;
-        const isTop = !cmd.toFront || o.zIndex === z;
+        const isTop = !cmd.toFront || (o.zIndex === z && !tied);
         const rotation = cmd.rotation === undefined ? o.rotation : ((cmd.rotation % 360) + 360) % 360;
         if (samePos && isTop && rotation === o.rotation) return o;
         return { ...o, position: { ...cmd.position }, zIndex: isTop ? o.zIndex : z + 1, rotation };
@@ -526,6 +530,18 @@ function applyOne(state: TableState, cmd: Command): TableState {
 
     case 'SetZIndex':
       return setZIndex(state, cmd.id, cmd.direction);
+
+    case 'RaiseObjects': {
+      // The objects go above all others, keeping their order among themselves.
+      const ids = new Set(cmd.ids);
+      const members = state.objects.filter((o) => ids.has(o.id)).sort((a, b) => a.zIndex - b.zIndex);
+      if (members.length === 0) return state;
+      const top = maxZ(state.objects.filter((o) => !ids.has(o.id)));
+      if (members.every((m, i) => m.zIndex > top && (i === 0 || m.zIndex > members[i - 1].zIndex))) return state;
+      let z = top;
+      const zById = new Map(members.map((m) => [m.id, ++z]));
+      return { ...state, objects: state.objects.map((o) => (zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)! } : o)) };
+    }
 
     case 'ToggleLock':
       return mapObject(state, cmd.id, (o) => ({ ...o, locked: !o.locked }));

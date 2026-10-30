@@ -1,6 +1,6 @@
 import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
-import { objectCenter } from './geometry';
+import { objectCenter, pointInHolderShape } from './geometry';
 import {
   bagAccepts,
   bagItemWeight,
@@ -10,6 +10,8 @@ import {
   homeDeckMap,
   isHolder,
   ownerDeckOf,
+  raisedWhenMoved,
+  stackingComparator,
   resolveCardLook,
   sameTokenLook,
   tokenCount,
@@ -17,16 +19,19 @@ import {
 import { randomInt, shuffledIndices, secureRandomSource, type RandomSource } from './random';
 import type { BagObject, CardObject, DeckObject, DieObject, HoverZoom, Mode, TableState, TabletopObject, TokenObject, Vec2 } from './types';
 
-/** Kinds that stay at their stacking level when moved (they are surfaces other pieces lie on). */
-const BACKGROUND_KINDS = new Set<TabletopObject['kind']>(['board', 'deck', 'bag']);
+/** Surfaces and containers other pieces lie on or go into (not pieces that can cover a token stack). */
+const isSurface = (o: TabletopObject) => o.kind === 'board' || o.kind === 'bag' || isHolder(o);
 
-function topmostContaining<T extends TabletopObject>(objects: T[], p: Vec2): T | undefined {
-  return objects.filter((o) => o.visible && pointInObject(p, o)).sort((a, b) => b.zIndex - a.zIndex)[0];
+/** The top-most (as drawn among `all`) of `objects` containing `p`. */
+function topmostContaining<T extends TabletopObject>(all: TabletopObject[], objects: T[], p: Vec2): T | undefined {
+  const cmp = stackingComparator(all);
+  return objects.filter((o) => o.visible && pointInObject(p, o)).sort((a, b) => cmp(b, a))[0];
 }
 
 /** The holder, pile, bag or card a dragged card would join if released with its centre at `center`. */
 export function findDropTarget(state: TableState, cardId: string, center: Vec2): DeckObject | CardObject | BagObject | undefined {
   return topmostContaining(
+    state.objects,
     state.objects.filter(
       (o): o is DeckObject | CardObject | BagObject => o.id !== cardId && (o.kind === 'deck' || o.kind === 'card' || o.kind === 'bag'),
     ),
@@ -34,10 +39,16 @@ export function findDropTarget(state: TableState, cardId: string, center: Vec2):
   );
 }
 
-/** The holder, pile or bag a dragged pile would merge into if released with its centre at `center`. */
-export function findPileTarget(state: TableState, pileId: string, center: Vec2): DeckObject | BagObject | undefined {
+/**
+ * The holder, pile, bag or loose card a dragged pile would join if released with its centre at `center` (on a card,
+ * the card goes to the bottom of the pile).
+ */
+export function findPileTarget(state: TableState, pileId: string, center: Vec2): DeckObject | CardObject | BagObject | undefined {
   return topmostContaining(
-    state.objects.filter((o): o is DeckObject | BagObject => o.id !== pileId && (o.kind === 'deck' || o.kind === 'bag')),
+    state.objects,
+    state.objects.filter(
+      (o): o is DeckObject | CardObject | BagObject => o.id !== pileId && (o.kind === 'deck' || o.kind === 'card' || o.kind === 'bag'),
+    ),
     center,
   );
 }
@@ -49,7 +60,8 @@ export function findTokenTarget(state: TableState, id: string, center: Vec2): To
   const token = state.objects.find((o) => o.id === id);
   if (token?.kind !== 'token') return undefined;
   const top = topmostContaining(
-    state.objects.filter((o) => o.id !== id && !BACKGROUND_KINDS.has(o.kind)),
+    state.objects,
+    state.objects.filter((o) => o.id !== id && !isSurface(o)),
     center,
   );
   return top?.kind === 'token' && sameTokenLook(top, token) ? top : undefined;
@@ -75,6 +87,7 @@ export function findHoverTarget(state: TableState, id: string, center: Vec2): Ta
 /** The holder (or, for pieces a bag accepts, the bag) lying under `center`, other than `obj` itself. */
 function topmostSurface(objects: TabletopObject[], obj: TabletopObject, center: Vec2): DeckObject | BagObject | undefined {
   return topmostContaining(
+    objects,
     objects.filter((o): o is DeckObject | BagObject => o.id !== obj.id && (isHolder(o) || (o.kind === 'bag' && bagAccepts(obj)))),
     center,
   );
@@ -89,11 +102,13 @@ function rotateVec(v: Vec2, degrees: number): Vec2 {
   return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos };
 }
 
-/** True when `p` lies inside the (possibly rotated) object. */
+/** True when `p` lies inside the (possibly rotated) object; for a shaped holder, inside its shape. */
 export function pointInObject(p: Vec2, o: TabletopObject): boolean {
   const c = objectCenter(o);
   const local = rotateVec({ x: p.x - c.x, y: p.y - c.y }, -o.rotation);
-  return Math.abs(local.x) <= o.width / 2 && Math.abs(local.y) <= o.height / 2;
+  if (Math.abs(local.x) > o.width / 2 || Math.abs(local.y) > o.height / 2) return false;
+  if (o.kind !== 'deck' || o.isPile || !o.zoneShape || o.zoneShape === 'rectangle') return true;
+  return pointInHolderShape({ x: local.x + o.width / 2, y: local.y + o.height / 2 }, o.zoneShape, o.width, o.height);
 }
 
 /** `p` in the object's own, unrotated frame (origin at its top-left corner). */
@@ -248,7 +263,7 @@ export interface DropOptions {
  */
 export function resolveDrop(state: TableState, id: string, position: Vec2, mode: Mode, opts: DropOptions = {}): Command {
   const obj = state.objects.find((o) => o.id === id);
-  const move: Command = { type: 'MoveObject', id, position, toFront: !!obj && !BACKGROUND_KINDS.has(obj.kind) };
+  const move: Command = { type: 'MoveObject', id, position, toFront: !!obj && raisedWhenMoved(obj, mode) };
   if (!obj || opts.free || obj.kind === 'board' || obj.kind === 'bag' || isHolder(obj)) return move;
 
   const center = objectCenter({ ...obj, position });
@@ -273,6 +288,8 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   if (isPile(obj)) {
     const target = findPileTarget(state, id, center);
     if (target?.kind === 'bag') return { type: 'BagPut', bagId: target.id, objectId: id };
+    // A pile dropped on a loose card takes it in at the bottom, lying where the card lay.
+    if (target?.kind === 'card') return { type: 'FormPile', ids: [target.id, id], pileId: newId() };
     if (target)
       return {
         type: 'MergePileIntoDeck',
@@ -290,7 +307,14 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
 
   const surface = topmostSurface(state.objects, obj, center);
   if (surface?.kind === 'bag') return { type: 'BagPut', bagId: surface.id, objectId: id };
-  return surface?.alignRotation ? { ...move, rotation: surface.rotation } : move;
+  if (!surface) return move;
+  const rotation = surface.alignRotation ? { rotation: surface.rotation } : {};
+  if (surface.snapToCenter !== false) {
+    // A slot: the piece is centred on the holder.
+    const c = objectCenter(surface);
+    return { ...move, position: { x: Math.round(c.x - obj.width / 2), y: Math.round(c.y - obj.height / 2) }, ...rotation };
+  }
+  return { ...move, ...rotation };
 }
 
 export function defaultDrawPosition(deck: DeckObject): Vec2 {

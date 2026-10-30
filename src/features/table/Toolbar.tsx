@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import { fitToScene, zoomIn, zoomOut, zoomReset } from '../../canvas/actions';
+import { isLightColor } from '../../canvas/colors';
 import { PALETTE_COLORS } from '../../domain/objects';
 import { STAMP_LABELS, STAMP_SHAPES, STAMP_SIZES, stampStroke, type StampShape } from '../../domain/stamps';
 import { useTableStore, type Tool } from '../../state/tableStore';
@@ -16,6 +17,10 @@ const TOOLS: { tool: Tool; label: string; icon: IconName; key: string }[] = [
 ];
 
 const PEN_WIDTHS = [2, 4, 8, 14];
+const FONT_SIZES = [12, 16, 20, 28, 36, 48, 64, 96];
+const MIN_STAMP_SIZE = 4;
+const MAX_SIZE = 400;
+const MIN_FONT_SIZE = 6;
 
 /** Small preview of a stamp shape for its button. */
 function StampPreview({ shape, color }: { shape: StampShape; color: string }) {
@@ -26,6 +31,69 @@ function StampPreview({ shape, color }: { shape: StampShape; color: string }) {
     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden="true">
       <path d={d} fill="none" stroke={color} strokeWidth={s.width} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** A preset size, or "Custom…" with a number field for any size from `min` to `max` (px). */
+function SizePicker({
+  label,
+  value,
+  presets,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  presets: number[];
+  min: number;
+  max: number;
+  onChange: (size: number) => void;
+}) {
+  const [customPicked, setCustomPicked] = useState(false);
+  const custom = customPicked || !presets.includes(value);
+  // While typing, the text as entered (it may be out of range for a moment); otherwise the current size.
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <div className="size-picker">
+      <label className="inline-select">
+        <span className="sr-only">{label}</span>
+        <select
+          value={custom ? 'custom' : String(value)}
+          onChange={(e) => {
+            if (e.target.value === 'custom') return setCustomPicked(true);
+            setCustomPicked(false);
+            onChange(Number(e.target.value));
+          }}
+        >
+          {presets.map((s) => (
+            <option key={s} value={s}>
+              {s}px
+            </option>
+          ))}
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+      {custom && (
+        <label className="size-custom">
+          <input
+            type="number"
+            aria-label={`${label} (custom, px)`}
+            min={min}
+            max={max}
+            step={1}
+            value={draft ?? String(value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              const n = Math.round(Number(e.target.value));
+              if (e.target.value.trim() !== '' && n >= min && n <= max) onChange(n);
+            }}
+            onBlur={() => setDraft(null)}
+          />
+          <span>px</span>
+        </label>
+      )}
+    </div>
   );
 }
 
@@ -91,7 +159,7 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
               <button
                 key={shape}
                 type="button"
-                className={`width-btn stamp-btn ${stamp.shape === shape ? 'is-active' : ''}`}
+                className={`width-btn stamp-btn ${isLightColor(stamp.color) ? 'on-dark' : 'on-light'} ${stamp.shape === shape ? 'is-active' : ''}`}
                 aria-label={`Stamp: ${STAMP_LABELS[shape]}`}
                 aria-pressed={stamp.shape === shape}
                 title={STAMP_LABELS[shape]}
@@ -101,16 +169,14 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <label className="inline-select">
-            <span className="sr-only">Stamp size</span>
-            <select value={stamp.size} onChange={(e) => setStamp({ size: Number(e.target.value) })}>
-              {STAMP_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}px
-                </option>
-              ))}
-            </select>
-          </label>
+          <SizePicker
+            label="Stamp size"
+            value={stamp.size}
+            presets={STAMP_SIZES}
+            min={MIN_STAMP_SIZE}
+            max={MAX_SIZE}
+            onChange={(size) => setStamp({ size })}
+          />
         </>
       ) : tool === 'pen' ? (
         <div className="swatches">
@@ -135,18 +201,25 @@ function ToolOptions({ onClose }: { onClose: () => void }) {
           >
             Highlight
           </button>
+          <button
+            type="button"
+            className={`chip ${pen.straight ? 'is-active' : ''}`}
+            aria-pressed={pen.straight}
+            title="Straight line: drag from one end of the line to the other"
+            onClick={() => setPen({ straight: !pen.straight })}
+          >
+            Straight line
+          </button>
         </div>
       ) : (
-        <label className="inline-select">
-          <span className="sr-only">Font size</span>
-          <select value={textStyle.fontSize} onChange={(e) => setTextStyle({ fontSize: Number(e.target.value) })}>
-            {[12, 16, 20, 28, 36, 48, 64, 96].map((s) => (
-              <option key={s} value={s}>
-                {s}px
-              </option>
-            ))}
-          </select>
-        </label>
+        <SizePicker
+          label="Font size"
+          value={textStyle.fontSize}
+          presets={FONT_SIZES}
+          min={MIN_FONT_SIZE}
+          max={MAX_SIZE}
+          onChange={(fontSize) => setTextStyle({ fontSize })}
+        />
       )}
     </div>
   );

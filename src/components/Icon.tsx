@@ -31,6 +31,8 @@ const paths: Record<string, string> = {
   edit: 'M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z',
   trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6',
   copy: 'M20 9h-9a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-9a2 2 0 00-2-2zM5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1',
+  clipboard: 'M9 2h6v4H9zM15 4h2a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h2',
+  paste: 'M9 2h6v4H9zM15 4h2a2 2 0 012 2v4M9 4H7a2 2 0 00-2 2v14a2 2 0 002 2h4M13 12h8v10h-8z',
   plus: 'M12 5v14M5 12h14',
   minus: 'M5 12h14',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 018 0v4',

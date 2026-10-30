@@ -26,6 +26,9 @@ export function describeStorageError(err: unknown): string {
 /** Assets newer than this are never garbage-collected, to protect uploads that have not been autosaved yet. */
 const GC_GRACE_MS = 2 * 60 * 1000;
 
+/** Settings key of the copied objects (`persistence/clipboard.ts`); their images are kept like a game's. */
+export const CLIPBOARD_KEY = 'clipboard';
+
 export interface RepositoryOptions {
   /** Shrinks large uploads; injectable for tests. */
   resize?: ImageResizer;
@@ -46,12 +49,21 @@ export function createRepository(database: TablenoxDB = db, options: RepositoryO
   async function referencedAssetIds(): Promise<Set<string>> {
     const refs = new Set<string>();
     await database.games.each((g) => collectAssetIds(g.objects).forEach((id) => refs.add(id)));
+    // Objects copied for pasting into another game keep their images too, even after the game they came from is deleted.
+    const copied = (await database.settings.get(CLIPBOARD_KEY))?.value as { objects?: unknown } | undefined;
+    if (Array.isArray(copied?.objects)) {
+      try {
+        collectAssetIds(copied.objects as Game['objects']).forEach((id) => refs.add(id));
+      } catch {
+        // Not a valid clipboard: it can't be pasted, so it keeps nothing.
+      }
+    }
     return refs;
   }
 
-  /** Deletes assets that no game references. Returns the number removed. */
+  /** Deletes assets that no game (or the clipboard) references. Returns the number removed. */
   async function collectGarbage(now = Date.now()): Promise<number> {
-    return database.transaction('rw', database.games, database.assets, async () => {
+    return database.transaction('rw', database.games, database.assets, database.settings, async () => {
       const refs = await referencedAssetIds();
       const orphans: string[] = [];
       await database.assets.each((a) => {

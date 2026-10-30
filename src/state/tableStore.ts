@@ -109,7 +109,8 @@ export interface TableStoreState {
   selectedIds: string[];
   tool: Tool;
   spaceHeld: boolean;
-  pen: { color: string; width: number; opacity: number };
+  /** `straight`: the pen draws straight lines from where the press starts to where it ends. */
+  pen: { color: string; width: number; opacity: number; straight: boolean };
   textStyle: { color: string; fontSize: number };
   stamp: { shape: StampShape; color: string; size: number };
   eraserRadius: number;
@@ -250,7 +251,7 @@ export const useTableStore = create<TableStore>()((set, get) => ({
   ...transient,
   mode: 'play',
   viewport: { width: 0, height: 0 },
-  pen: { color: '#1f4fd1', width: 4, opacity: 1 },
+  pen: { color: '#1f4fd1', width: 4, opacity: 1, straight: false },
   textStyle: { color: '#1f4fd1', fontSize: 28 },
   stamp: { shape: 'check', color: '#1f4fd1', size: DEFAULT_STAMP_SIZE },
   eraserRadius: 10,

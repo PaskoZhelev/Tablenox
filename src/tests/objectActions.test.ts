@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { drawFromDeck } from '../canvas/actions';
+import { readClipboard } from '../persistence/clipboard';
 import {
   DRAW_SIDE_LABELS,
   getGroupActions,
@@ -51,7 +52,7 @@ beforeEach(() => {
 });
 
 describe('holder actions', () => {
-  it('Play mode offers game actions only; Edit mode adds the set-up actions', () => {
+  it('Play mode offers game actions only; Edit mode adds the set-up actions', async () => {
     load('play');
     const deck = named('Deck');
     expect(ids(actionsOf(deck.id))).toEqual(['draw', 'shuffle', 'flipdeck', 'draw-top', 'draw-bottom', 'pick-card', 'sort', 'reset']);
@@ -74,8 +75,11 @@ describe('holder actions', () => {
       'front',
       'back',
       'duplicate',
+      'copy',
       'delete',
     ]);
+    run(deck.id, 'copy');
+    await vi.waitFor(async () => expect((await readClipboard())?.objects.map((o) => o.id)).toEqual([deck.id]));
     // An empty holder without a deck has no card actions.
     expect(ids(actionsOf(named('Holder').id, 'play'))).toEqual([]);
     expect(hasObjectControls(named('Holder'))).toBe(true);
@@ -233,22 +237,32 @@ describe('card, token, die, bag and control actions', () => {
 });
 
 describe('group actions (Edit mode)', () => {
-  it('duplicates, locks / unlocks and deletes a selection', () => {
+  it('duplicates, copies, locks / unlocks and deletes a selection', async () => {
     load('edit');
     const picked = objects()
       .filter((o) => o.kind === 'die' || o.kind === 'counter')
       .map((o) => o.id);
     const group = () => getGroupActions(picked, currentTable());
-    expect(group().map((a) => a.label)).toEqual(['Duplicate 2 objects', 'Lock all', 'Delete 2 objects', 'Align', 'Roll the die']);
+    const act = (id: string) => group().find((a) => a.id === id)!;
+    expect(group().map((a) => a.label)).toEqual([
+      'Duplicate 2 objects',
+      'Copy 2 objects (paste in any game)',
+      'Lock all',
+      'Delete 2 objects',
+      'Align',
+      'Roll the die',
+    ]);
     const before = objects().length;
-    group()[0].run();
+    act('duplicate').run();
     expect(objects()).toHaveLength(before + 2);
-    group()[1].run();
+    act('copy').run();
+    await vi.waitFor(async () => expect((await readClipboard())?.objects.map((o) => o.id).sort()).toEqual([...picked].sort()));
+    act('lock').run();
     expect(picked.every((id) => get(id).locked)).toBe(true);
-    expect(group()[1].label).toBe('Unlock all');
-    group()[1].run();
+    expect(act('lock').label).toBe('Unlock all');
+    act('lock').run();
     expect(picked.some((id) => get(id).locked)).toBe(false);
-    group()[2].run();
+    act('delete').run();
     expect(picked.map(get).filter(Boolean)).toEqual([]);
   });
 

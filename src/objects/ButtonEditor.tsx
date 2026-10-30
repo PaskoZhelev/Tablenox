@@ -45,7 +45,7 @@ const STEP_HINTS: Record<StepType, string> = {
   flip: 'Flips cards. A holder or pile turns its cards over as a whole; loose cards lying on a listed holder flip too. Random turns each card (or holder) over or not at random.',
   shuffle: 'Shuffles the cards in holders and piles, and the pieces in bags.',
   sort: 'Orders the cards in holders and piles: in the original deck order, by card name, or turns their current order around.',
-  roll: 'Rolls dice (a holder stands for the dice lying on it).',
+  roll: 'Rolls dice, or turns them to a chosen face (a holder stands for the dice lying on it).',
   counter: 'Changes counters, within their minimum and maximum (a holder stands for the counters lying on it).',
   check: 'Checks, unchecks or toggles checkboxes. A board or holder stands for every checkbox lying on it (e.g. to clear a sheet).',
   timer:
@@ -451,8 +451,39 @@ function StepFields({
           />
         </>
       );
-    case 'shuffle':
     case 'roll':
+      return (
+        <>
+          {picker}
+          <SelectField
+            label="Dice"
+            value={step.mode ?? 'roll'}
+            options={[
+              { value: 'roll', label: 'Roll' },
+              { value: 'set', label: 'Set to a face' },
+            ]}
+            onChange={(mode) =>
+              onChange(mode === 'set' ? { ...step, mode, value: step.value ?? 1 } : { ...step, mode: undefined, value: undefined })
+            }
+          />
+          {step.mode === 'set' && (
+            <>
+              <NumberField
+                label="Face"
+                value={step.value ?? 1}
+                min={1}
+                max={1000}
+                onCommit={(value) => onChange({ ...step, value: Math.max(1, Math.round(value ?? 1)) })}
+              />
+              <p className="hint">
+                The face number: the value for a numbered die, the position in the list for a die with custom faces. A die with fewer faces
+                shows its last one.
+              </p>
+            </>
+          )}
+        </>
+      );
+    case 'shuffle':
       return picker;
   }
 }

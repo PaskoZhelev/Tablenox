@@ -53,6 +53,43 @@ export function useAssetImage(id: string | undefined): HTMLImageElement | undefi
   return state.id === id ? state.img : resolved.get(id);
 }
 
+/** Side of the grid an image is sampled on to look for transparent areas. */
+const SHAPE_PROBE = 48;
+/** Share of see-through samples from which an image counts as irregularly shaped (rounded corners alone stay below it). */
+const SHAPED_RATIO = 0.01;
+
+const shapedCache = new WeakMap<HTMLImageElement, boolean>();
+
+/** True when a noticeable part of the image is transparent (a hexagon, a circle…), so it is not a plain rectangle. */
+export function isShapedImage(img: HTMLImageElement): boolean {
+  const cached = shapedCache.get(img);
+  if (cached !== undefined) return cached;
+  let shaped = false;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = SHAPE_PROBE;
+    canvas.height = SHAPE_PROBE;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, SHAPE_PROBE, SHAPE_PROBE);
+      const { data } = ctx.getImageData(0, 0, SHAPE_PROBE, SHAPE_PROBE);
+      let clear = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i] < 128) clear++;
+      shaped = clear / (SHAPE_PROBE * SHAPE_PROBE) >= SHAPED_RATIO;
+    }
+  } catch {
+    shaped = false;
+  }
+  shapedCache.set(img, shaped);
+  return shaped;
+}
+
+/** Whether the asset is an irregularly shaped image (see `isShapedImage`); false while it loads. */
+export function useShapedImage(id: string | undefined): boolean {
+  const img = useAssetImage(id);
+  return img ? isShapedImage(img) : false;
+}
+
 /**
  * Screen pixels per world unit for images drawn below this provider (e.g. the hover preview). Without one, the
  * table camera's scale is used.

@@ -318,6 +318,88 @@ test('dragging a card over another card highlights it; dropping makes a pile; Sh
   expect(pile).toEqual({ isPile: true, n: 2 });
 });
 
+/** Whether the object named `upper` is drawn above the one named `lower` on the canvas (Konva node order). */
+const drawnAbove = (page: Page, upper: string, lower: string) =>
+  page.evaluate(
+    ([u, l]) => {
+      type KNode = { id(): string; hasName(n: string): boolean; getChildren(): KNode[] };
+      const w = window as unknown as {
+        __tablenoxStore: { getState(): { history: { present: { objects: { id: string; name: string }[] } } } };
+        Konva: { stages: { getLayers(): KNode[] }[] };
+      };
+      const objects = w.__tablenoxStore.getState().history.present.objects;
+      const layer = w.Konva.stages[0].getLayers().find((L) => L.getChildren().some((c) => c.hasName('object')))!;
+      const kids = layer.getChildren();
+      const at = (name: string) => kids.findIndex((c) => c.id() === objects.find((o) => o.name === name)!.id);
+      return at(u) > at(l);
+    },
+    [upper, lower],
+  );
+
+test('a dropped object always lies on top of the object it is put on (cards on tokens and tokens on cards)', async ({ page }) => {
+  await addSampleAndPlay(page);
+  /** Whether `upper` is drawn above `lower` on the canvas, and above it in the saved order. */
+  const above = async (upper: string, lower: string) => ({
+    drawn: await drawnAbove(page, upper, lower),
+    stored: (await obj<number>(page, upper, 'o.zIndex')) > (await obj<number>(page, lower, 'o.zIndex')),
+  });
+  const deckPos = await objectScreenPos(page, 'Bonus deck');
+  await page.mouse.click(deckPos.x, deckPos.y);
+  await page.getByRole('toolbar', { name: 'Bonus deck actions' }).getByRole('button', { name: 'Draw a card' }).click();
+  const card = await storeState<string>(page, "(s) => s.history.present.objects.find(o => o.kind === 'card').name");
+
+  // The marker is moved twice; the second time it is already on top, so its stacking order doesn't change.
+  await drag(page, await objectScreenPos(page, 'Marker'), -200, 0, { shift: true });
+  await drag(page, await objectScreenPos(page, 'Marker'), 0, -30, { shift: true });
+  await expect.poll(() => above('Marker', card)).toEqual({ drawn: true, stored: true });
+
+  // A card dropped partly over the marker (leaving its middle free) lies on it…
+  const scale = await storeState<number>(page, '(s) => s.camera.scale');
+  const cardW = await obj<number>(page, card, 'o.width');
+  const markerW = await obj<number>(page, 'Marker', 'o.width');
+  const markerAt = await objectScreenPos(page, 'Marker');
+  const cardAt = await objectScreenPos(page, card);
+  await drag(page, cardAt, markerAt.x + (markerW / 4 + cardW / 2) * scale - cardAt.x, markerAt.y - cardAt.y);
+  await expect.poll(() => above(card, 'Marker')).toEqual({ drawn: true, stored: true });
+
+  // …and the marker, picked up by its middle and dropped on the card, lies on the card.
+  await drag(page, await objectScreenPos(page, 'Marker'), 20, 10);
+  await expect.poll(() => above('Marker', card)).toEqual({ drawn: true, stored: true });
+});
+
+test('holders laid out on a board lie on it, under the pieces; cards put into them show above the board', async ({ page }) => {
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  // Sent to the back, the Discard holder is drawn below the board.
+  const discardAt = await objectScreenPos(page, 'Discard');
+  await page.mouse.click(discardAt.x, discardAt.y, { button: 'right' });
+  await page.getByRole('menu', { name: 'Discard menu' }).getByRole('menuitem', { name: 'Send to back' }).click();
+  await expect.poll(() => drawnAbove(page, 'Score sheet', 'Discard')).toBe(true);
+
+  // Moved onto the board, it lies on it.
+  const board = await obj<{ position: { x: number; y: number }; width: number; height: number }>(page, 'Score sheet', 'o');
+  const target = await worldToPage(page, board.position.x + board.width * 0.3, board.position.y + board.height * 0.55);
+  await drag(page, await objectScreenPos(page, 'Discard'), target.x - discardAt.x, target.y - discardAt.y);
+  await expect.poll(() => drawnAbove(page, 'Discard', 'Score sheet')).toBe(true);
+
+  // In Play mode a card dropped into it shows above the board, and a token dropped on it lies above the holder.
+  await switchMode(page, 'play');
+  expect(await drawnAbove(page, 'Discard', 'Score sheet')).toBe(true);
+  const deckPos = await objectScreenPos(page, 'Bonus deck');
+  await page.mouse.click(deckPos.x, deckPos.y);
+  await page.getByRole('toolbar', { name: 'Bonus deck actions' }).getByRole('button', { name: 'Draw a card' }).click();
+  const card = await storeState<string>(page, "(s) => s.history.present.objects.find(o => o.kind === 'card').name");
+  const cardAt = await objectScreenPos(page, card);
+  const holderAt = await objectScreenPos(page, 'Discard');
+  await drag(page, cardAt, holderAt.x - cardAt.x, holderAt.y - cardAt.y);
+  await expect.poll(() => obj<number>(page, 'Discard', 'o.cards.length')).toBe(1);
+  expect(await drawnAbove(page, 'Discard', 'Score sheet')).toBe(true);
+  const markerAt = await objectScreenPos(page, 'Marker');
+  await drag(page, markerAt, holderAt.x + 20 - markerAt.x, holderAt.y + 20 - markerAt.y);
+  await expect.poll(() => drawnAbove(page, 'Marker', 'Discard')).toBe(true);
+  expect(await drawnAbove(page, 'Discard', 'Score sheet')).toBe(true);
+});
+
 test('writing: pen aligns after zoom, erase/undo/redo, typed numbers persist', async ({ page }) => {
   const errors = collectConsoleErrors(page);
   await addSampleAndPlay(page);
@@ -673,6 +755,28 @@ test('dragging the count badge lifts the whole stack out of the holder; the hold
   await drag(page, { x: box.x + pileHandle.x, y: box.y + pileHandle.y }, deckPos.x - pilePos.x, deckPos.y - pilePos.y);
   await expect.poll(() => obj<number>(page, 'Bonus deck', 'o.cards.length')).toBe(12);
   expect(await obj(page, 'Bonus deck', 'o.position')).toEqual(before);
+
+  // A card goes to the bottom of the deck: lift the stack by its badge and drop it on the card.
+  await page.mouse.click(deckPos.x, deckPos.y);
+  await page.getByRole('toolbar', { name: 'Bonus deck actions' }).getByRole('button', { name: 'Draw a card' }).click();
+  const card = await storeState<{ name: string; position: { x: number; y: number } }>(
+    page,
+    "(s) => s.history.present.objects.find(o => o.kind === 'card')",
+  );
+  const cardAt = await objectScreenPos(page, card.name);
+  const badge = await handleOf(deckId);
+  await page.mouse.move(box.x + badge.x, box.y + badge.y);
+  await page.mouse.down();
+  await page.mouse.move(cardAt.x - 40, cardAt.y + 40, { steps: 5 });
+  await page.mouse.move(cardAt.x, cardAt.y, { steps: 5 });
+  await expect.poll(() => storeState(page, '(s) => s.dropTargetId')).not.toBe(null);
+  await page.mouse.up();
+  const merged = await storeState<{ position: { x: number; y: number }; bottom: string; n: number } | undefined>(
+    page,
+    "(s) => { const p = s.history.present.objects.find(o => o.kind === 'deck' && o.isPile); return p && { position: p.position, bottom: p.cards.at(-1).name, n: p.cards.length }; }",
+  );
+  expect(merged).toEqual({ position: card.position, bottom: card.name, n: 12 });
+  expect(await storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'card').length")).toBe(0);
 });
 
 test('holders fade under dragged objects; dragging never opens the action bar; face-up cards stay face up in a face-down deck', async ({
@@ -2019,7 +2123,7 @@ test('automation button: configure, reorder and edit steps; run in Play mode as 
     await pickStepObject(page, panel, pick);
   };
   await addStep('Change counter', 'Round');
-  await addStep('Roll dice', 'White die 1');
+  await addStep('Roll or set dice', 'White die 1');
   await expect(panel.locator('.step-item')).toHaveCount(2);
 
   // Reorder: the die roll moves in front of the counter change.
@@ -2380,7 +2484,7 @@ test('automation button: pick step objects on the table by clicking and Shift+dr
   expect(await storeState(page, '(s) => s.selectedId')).toBe(deckId);
 
   // Step 3: Shift+drag a box around both dice.
-  await addStep('Roll dice');
+  await addStep('Roll or set dice');
   await panel.getByRole('button', { name: 'Pick on table' }).click();
   const from = await worldToPage(page, 540, -545);
   const to = await worldToPage(page, 750, -415);
@@ -2508,4 +2612,153 @@ test('phone: one-row top bar, tap shows the action bar, long-press opens the men
   await expect(page.getByRole('button', { name: 'Close' })).toBeInViewport();
   expect(errors).toEqual([]);
   await context.close();
+});
+
+test('drawing tools: straight pen lines, custom stamp and text sizes, stamp shapes readable in every colour', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  const sheet = await obj<{ position: { x: number; y: number } }>(page, 'Score sheet', 'o');
+  const lastStroke = () =>
+    storeState<{ points: number[]; straight?: boolean; width: number }>(page, '(s) => s.history.present.annotations.strokes.at(-1)');
+
+  // Pen with "Straight line": a wobbly drag becomes one straight segment from the press to the release.
+  await page.keyboard.press('p');
+  const pen = page.getByLabel('Pen options');
+  await pen.getByRole('button', { name: 'Straight line' }).click();
+  await expect(pen.getByRole('button', { name: 'Straight line' })).toHaveAttribute('aria-pressed', 'true');
+  const from = await worldToPage(page, sheet.position.x + 100, sheet.position.y + 200);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 40, from.y + 30, { steps: 4 });
+  await page.mouse.move(from.x + 120, from.y - 10, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await lastStroke())?.points.length).toBe(4);
+  expect((await lastStroke()).straight).toBe(true);
+
+  // Stamp shape buttons get a light background for dark colours (black included) and a dark one for light colours.
+  await page.keyboard.press('m');
+  const stamps = page.getByLabel('Stamp options');
+  await stamps.getByRole('button', { name: 'Colour #2b2b2b' }).click();
+  await expect(stamps.getByRole('button', { name: 'Stamp: Cross' })).toHaveClass(/on-light/);
+  await stamps.getByRole('button', { name: 'Colour #e8c547' }).click();
+  await expect(stamps.getByRole('button', { name: 'Stamp: Cross' })).toHaveClass(/on-dark/);
+
+  // A custom stamp size.
+  await stamps.getByRole('button', { name: 'Stamp: Cross' }).click();
+  await stamps.getByRole('combobox', { name: 'Stamp size', exact: true }).selectOption('custom');
+  await stamps.getByLabel('Stamp size (custom, px)').fill('100');
+  await expect.poll(() => storeState(page, '(s) => s.stamp.size')).toBe(100);
+  const at = await worldToPage(page, sheet.position.x + 300, sheet.position.y + 300);
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(async () => (await lastStroke()).width).toBe(12);
+
+  // A custom font size for the Text tool.
+  await page.keyboard.press('t');
+  const text = page.getByLabel('Text options');
+  await text.getByRole('combobox', { name: 'Font size', exact: true }).selectOption('custom');
+  await text.getByLabel('Font size (custom, px)').fill('150');
+  await expect.poll(() => storeState(page, '(s) => s.textStyle.fontSize')).toBe(150);
+  // Back to a preset.
+  await text.getByRole('combobox', { name: 'Font size', exact: true }).selectOption('48');
+  await expect.poll(() => storeState(page, '(s) => s.textStyle.fontSize')).toBe(48);
+  await expect(text.getByLabel('Font size (custom, px)')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('automation sets a die to a face; holders can be circles or hexagons and work as slots that centre pieces', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+
+  // A Roll or set dice step set to face 5.
+  await page.getByRole('button', { name: 'Add object' }).click();
+  await page.getByRole('menuitem', { name: 'Automation button' }).click();
+  await page.getByRole('button', { name: 'Properties panel' }).click();
+  const props = page.getByRole('complementary', { name: 'Properties' });
+  await props.getByRole('button', { name: /^Automations/ }).click();
+  const panel = page.getByRole('complementary', { name: 'Automations' });
+  await panel.getByRole('group', { name: 'Add a step' }).getByRole('button', { name: 'Roll or set dice', exact: true }).click();
+  await pickStepObject(page, panel, 'White die 1');
+  await panel.getByLabel('Dice').selectOption('set');
+  const face = panel.getByRole('spinbutton', { name: 'Face' });
+  await face.fill('5');
+  await face.press('Enter');
+  await expect.poll(() => obj(page, 'Button', 'o.steps[0]')).toMatchObject({ type: 'roll', mode: 'set', value: 5 });
+  await expect(panel.getByRole('button', { name: 'Set White die 1 to face 5' })).toBeVisible();
+  await face.blur();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+
+  // The Discard holder becomes a round slot.
+  await page.keyboard.press('Shift+F');
+  await clickObject(page, 'Discard');
+  await expect(props).toBeVisible();
+  await props.getByLabel('Holder shape').selectOption('circle');
+  await expect.poll(() => obj(page, 'Discard', 'o.zoneShape')).toBe('circle');
+  await props.getByRole('button', { name: 'Even out the shape' }).click();
+  await expect.poll(() => obj(page, 'Discard', 'o.width')).toBe(220);
+  await props.getByLabel('Snap pieces to the centre (slot)').check();
+  await expect.poll(() => obj(page, 'Discard', 'o.snapToCenter !== false')).toBe(true);
+  await page.getByRole('button', { name: 'Properties panel', exact: true }).click();
+
+  await switchMode(page, 'play');
+  await clickObject(page, 'Button');
+  await expect.poll(() => obj(page, 'White die 1', 'o.value')).toBe(5);
+  expect(await obj(page, 'White die 1', 'o.rollCount')).toBe(0);
+
+  // A token dropped inside the circle, off-centre, snaps to its centre; Shift+drop places it freely.
+  const discard = await obj<{ position: { x: number; y: number }; width: number; height: number }>(page, 'Discard', 'o');
+  const centre = { x: discard.position.x + discard.width / 2, y: discard.position.y + discard.height / 2 };
+  const markerCentre = () =>
+    obj<{ x: number; y: number }>(page, 'Marker', '({ x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 })');
+  const start = await objectScreenPos(page, 'Marker');
+  const target = await worldToPage(page, centre.x + 40, centre.y + 50);
+  await drag(page, start, target.x - start.x, target.y - start.y);
+  await expect.poll(async () => Math.round((await markerCentre()).x)).toBe(Math.round(centre.x));
+  expect(Math.round((await markerCentre()).y)).toBe(Math.round(centre.y));
+  const again = await objectScreenPos(page, 'Marker');
+  await drag(page, again, 30, 40, { shift: true });
+  await expect.poll(async () => Math.round((await markerCentre()).y)).not.toBe(Math.round(centre.y));
+
+  // Hexagon outlines too.
+  await switchMode(page, 'edit');
+  await clickObject(page, 'Discard');
+  await page.getByRole('button', { name: 'Properties panel', exact: true }).click();
+  await props.getByLabel('Holder shape').selectOption('hexagonFlat');
+  await expect.poll(() => obj(page, 'Discard', 'o.zoneShape')).toBe('hexagonFlat');
+  expect(errors).toEqual([]);
+});
+
+test('copy objects in one game and paste them into another (also after a reload)', async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  await addSampleAndPlay(page);
+  await switchMode(page, 'edit');
+  await clickObject(page, 'Marker');
+  await page.keyboard.press('Control+c');
+  await expect(page.getByText('Copied “Marker”')).toBeVisible();
+  const marker = await obj<{ id: string; color: string; shape: string }>(page, 'Marker', 'o');
+
+  // A new game (a full page load): Ctrl+V brings the token in, selected, centred in the view.
+  await newGame(page, 'Second game');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(0);
+  await page.keyboard.press('Control+v');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(1);
+  const pasted = await obj<{ id: string; color: string; shape: string; position: { x: number; y: number } }>(page, 'Marker', 'o');
+  expect(pasted).toMatchObject({ color: marker.color, shape: marker.shape });
+  expect(pasted.id).not.toBe(marker.id);
+  expect(await storeState(page, '(s) => s.selectedId')).toBe(pasted.id);
+
+  // The More menu pastes too; a second paste in the same view lands a little further on. One undo removes it.
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Paste copied objects/ }).click();
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(2);
+  const second = await storeState<{ x: number; y: number }>(page, '(s) => s.history.present.objects[1].position');
+  expect(second).toEqual({ x: pasted.position.x + 24, y: pasted.position.y + 24 });
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(1);
+  await waitSaved(page);
+  await page.reload();
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(1);
+  expect(errors).toEqual([]);
 });

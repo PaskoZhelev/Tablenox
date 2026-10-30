@@ -45,6 +45,18 @@ export function simplifyPoints(points: number[], minDist: number): number[] {
   return out.map((v) => Math.round(v * 100) / 100);
 }
 
+/**
+ * A straight pen line from the first to the last point (rounded like `simplifyPoints`); a line shorter than
+ * `minLength` is a dot at its start.
+ */
+export function straightLinePoints(points: number[], minLength: number): number[] {
+  const [x0, y0] = points;
+  const x1 = points[points.length - 2];
+  const y1 = points[points.length - 1];
+  const line = Math.hypot(x1 - x0, y1 - y0) >= minLength ? [x0, y0, x1, y1] : [x0, y0];
+  return line.map((v) => Math.round(v * 100) / 100);
+}
+
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 type Frame = Pick<TabletopObject, 'position' | 'width' | 'height' | 'rotation'>;

@@ -1,5 +1,5 @@
 import type { Rect } from './camera';
-import type { Annotations, TabletopObject, Vec2 } from './types';
+import type { Annotations, HolderShape, TabletopObject, Vec2 } from './types';
 
 export function objectCenter(o: Pick<TabletopObject, 'position' | 'width' | 'height'>): Vec2 {
   return { x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 };
@@ -51,6 +51,68 @@ export function sceneBounds(objects: TabletopObject[], annotations?: Annotations
 
 export function pointInRect(p: Vec2, r: Rect): boolean {
   return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}
+
+/** Sides and the angle of the first corner (degrees, 0 = right, clockwise) of the polygon holder shapes. */
+const POLYGONS: Partial<Record<HolderShape, { sides: number; start: number }>> = {
+  hexagon: { sides: 6, start: -90 },
+  hexagonFlat: { sides: 6, start: 0 },
+  octagon: { sides: 8, start: -67.5 },
+  triangle: { sides: 3, start: -90 },
+  diamond: { sides: 4, start: -90 },
+};
+
+/**
+ * Corners (x,y pairs) of a polygon holder shape stretched to fill a `w` x `h` box (origin at its top-left), or
+ * null for the shapes that aren't polygons (rectangle, circle).
+ */
+export function holderShapePoints(shape: HolderShape | undefined, w: number, h: number): number[] | null {
+  const poly = shape && POLYGONS[shape];
+  if (!poly) return null;
+  const { corners, minX, maxX, minY, maxY } = unitPolygon(poly.sides, poly.start);
+  // + 0 turns -0 into 0.
+  const round = (v: number) => Math.round(v * 100) / 100 + 0;
+  return corners.flatMap((c) => [round(((c.x - minX) / (maxX - minX)) * w), round(((c.y - minY) / (maxY - minY)) * h)]);
+}
+
+function unitPolygon(sides: number, start: number) {
+  const corners = Array.from({ length: sides }, (_, i) => {
+    const a = ((start + (i * 360) / sides) * Math.PI) / 180;
+    return { x: Math.cos(a), y: Math.sin(a) };
+  });
+  const xs = corners.map((c) => c.x);
+  const ys = corners.map((c) => c.y);
+  return { corners, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+/** Width / height of a box in which the shape is regular (not stretched): 1 for a circle, about 0.87 for a hexagon… */
+export function holderShapeAspect(shape: HolderShape | undefined): number | null {
+  if (!shape || shape === 'rectangle') return null;
+  const poly = POLYGONS[shape];
+  if (!poly) return 1;
+  const { minX, maxX, minY, maxY } = unitPolygon(poly.sides, poly.start);
+  return (maxX - minX) / (maxY - minY);
+}
+
+/** Whether `p` (in the box's own frame, origin at its top-left) lies inside a holder shape filling a `w` x `h` box. */
+export function pointInHolderShape(p: Vec2, shape: HolderShape | undefined, w: number, h: number): boolean {
+  if (p.x < 0 || p.y < 0 || p.x > w || p.y > h) return false;
+  if (shape === 'circle') {
+    const dx = (p.x - w / 2) / (w / 2);
+    const dy = (p.y - h / 2) / (h / 2);
+    return dx * dx + dy * dy <= 1 + 1e-9;
+  }
+  const pts = holderShapePoints(shape, w, h);
+  if (!pts) return true;
+  // Even-odd ray casting; points on an edge count as inside.
+  let inside = false;
+  for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+    const a = { x: pts[i], y: pts[i + 1] };
+    const b = { x: pts[j], y: pts[j + 1] };
+    if (distanceToSegment(p, a, b) < 1e-6) return true;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
 }
 
 export function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {

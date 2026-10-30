@@ -1,4 +1,5 @@
 import { newId } from './ids';
+import { objectCenter } from './geometry';
 import type {
   BagItem,
   BagObject,
@@ -8,6 +9,8 @@ import type {
   DeckObject,
   DieFace,
   DieObject,
+  HolderShape,
+  Mode,
   ObjectKind,
   ObjectOfKind,
   TabletopObject,
@@ -89,6 +92,16 @@ export const DEFAULT_BAG_COLOR = '#8b6b43';
 export const DEFAULT_HOLDER_COLOR = '#8a8f98';
 export const DEFAULT_HOLDER_FILL_OPACITY = 0;
 export const DEFAULT_HOLDER_STROKE_OPACITY = 0.3;
+
+export const HOLDER_SHAPE_LABELS: Record<HolderShape, string> = {
+  rectangle: 'Rectangle',
+  circle: 'Circle / oval',
+  hexagon: 'Hexagon (point at the top)',
+  hexagonFlat: 'Hexagon (flat top)',
+  octagon: 'Octagon',
+  triangle: 'Triangle',
+  diamond: 'Diamond',
+};
 
 /** Number of tokens in a token stack. */
 export function tokenCount(t: TokenObject): number {
@@ -492,6 +505,71 @@ export function createDieFace(partial: Partial<DieFace> = {}): DieFace {
 
 export function sortByZ(objects: TabletopObject[]): TabletopObject[] {
   return [...objects].sort((a, b) => a.zIndex - b.zIndex);
+}
+
+/** Boards and images are what holders are laid out on. */
+const isHolderBase = (o: TabletopObject) => o.kind === 'board' || o.kind === 'image';
+
+/** True when `p` lies inside the (possibly rotated) box of `o`. */
+function inBox(p: Vec2, o: TabletopObject): boolean {
+  const c = objectCenter(o);
+  const r = (-o.rotation * Math.PI) / 180;
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  const lx = dx * Math.cos(r) - dy * Math.sin(r);
+  const ly = dx * Math.sin(r) + dy * Math.cos(r);
+  return Math.abs(lx) <= o.width / 2 && Math.abs(ly) <= o.height / 2;
+}
+
+const rankCache = new WeakMap<TabletopObject[], Map<string, number>>();
+
+/**
+ * Where each object is drawn, from the bottom (0) up. Everything follows `zIndex`, except holders: a holder lies
+ * right above the board (or image) under its centre that is below it, and under every other piece, so cards,
+ * tokens and the like are never covered by a holder, while a holder laid out on a board stays on it. A holder on
+ * the bare table lies below everything.
+ */
+export function stackingRanks(objects: TabletopObject[]): Map<string, number> {
+  const cached = rankCache.get(objects);
+  if (cached) return cached;
+  const byZ = sortByZ(objects);
+  const rest = byZ.filter((o) => !isHolder(o));
+  const bases = rest.filter(isHolderBase);
+  const holdersOn = new Map<string | null, TabletopObject[]>();
+  for (const h of byZ) {
+    if (!isHolder(h)) continue;
+    const c = objectCenter(h);
+    let base: TabletopObject | undefined;
+    for (const b of bases) if (b.zIndex <= h.zIndex && inBox(c, b)) base = b;
+    const key = base?.id ?? null;
+    holdersOn.set(key, [...(holdersOn.get(key) ?? []), h]);
+  }
+  const order = [...(holdersOn.get(null) ?? [])];
+  for (const o of rest) order.push(o, ...(holdersOn.get(o.id) ?? []));
+  const ranks = new Map(order.map((o, i) => [o.id, i]));
+  rankCache.set(objects, ranks);
+  return ranks;
+}
+
+/** Compares objects of `all` by where they are drawn: negative when `a` lies below `b`. */
+export function stackingComparator(all: TabletopObject[]): (a: TabletopObject, b: TabletopObject) => number {
+  const ranks = stackingRanks(all);
+  return (a, b) => (ranks.get(a.id) ?? a.zIndex) - (ranks.get(b.id) ?? b.zIndex);
+}
+
+/** `objects` (some or all of `all`) from the bottom to the top of the table, as drawn. */
+export function sortByStacking(objects: TabletopObject[], all: TabletopObject[] = objects): TabletopObject[] {
+  return [...objects].sort(stackingComparator(all));
+}
+
+/**
+ * Whether picking up and moving `o` brings it to the front, on top of whatever it is put on. Holders do too (so a
+ * holder moved onto a board lies on it; they are still drawn under the pieces, see `stackingRanks`). Boards keep
+ * their level in Edit mode and in automations (moving a map doesn't hide the pieces on it), but a board a player
+ * lifts in Play mode comes to the front like any piece.
+ */
+export function raisedWhenMoved(o: TabletopObject, mode?: Mode): boolean {
+  return o.kind !== 'board' || mode === 'play';
 }
 
 /** All asset IDs referenced by a list of objects. */

@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, renderHook } from '@testing-library/react';
 import { useTableShortcuts } from '../features/table/tableCommands';
+import { viewportCenterWorld } from '../canvas/actions';
+import { readClipboard } from '../persistence/clipboard';
 import type { DeckObject, Mode, TabletopObject } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import { fixtureGame, tableOf } from './fixtures';
@@ -145,6 +147,37 @@ describe('keyboard shortcuts', () => {
     s().setMode('play');
     press('g');
     expect(s().ui.snapToGrid).toBe(false);
+  });
+
+  it('Edit mode: Ctrl+C copies the selection, Ctrl+V pastes it (also into another game) in the middle of the view', async () => {
+    load('edit');
+    const label = ofKind<TabletopObject & { text: string }>('label');
+    s().dispatch({ type: 'UpdateObject', id: label.id, patch: { text: 'Copied note' } });
+    s().select(label.id);
+    press('c', { ctrlKey: true });
+    await vi.waitFor(async () => expect((await readClipboard())?.objects[0].id).toBe(label.id));
+
+    // Another game: the copy arrives with a new id, selected, centred in the view, as one undo step.
+    load('edit');
+    const n = objects().length;
+    press('v', { ctrlKey: true });
+    await vi.waitFor(() => expect(objects()).toHaveLength(n + 1));
+    const pasted = get<TabletopObject & { text: string }>(s().selectedId!);
+    expect(pasted).toMatchObject({ kind: 'label', text: 'Copied note' });
+    expect(pasted.id).not.toBe(label.id);
+    const view = viewportCenterWorld();
+    expect(Math.abs(pasted.position.x + pasted.width / 2 - view.x)).toBeLessThanOrEqual(1);
+    expect(s().history.past).toHaveLength(1);
+    // Pasting again in the same view puts the next copy a little further on.
+    press('v', { ctrlKey: true });
+    await vi.waitFor(() => expect(objects()).toHaveLength(n + 2));
+    expect(get(s().selectedId!).position.x).toBe(pasted.position.x + 24);
+
+    // Play mode neither copies nor pastes.
+    s().setMode('play');
+    press('v', { ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(objects()).toHaveLength(n + 2);
   });
 
   it('setup keys do nothing in Play mode', () => {

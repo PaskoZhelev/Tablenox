@@ -52,6 +52,9 @@ import {
   ownerDeckOf,
   remapAssetIds,
   resolveCardLook,
+  maxZ,
+  sortByStacking,
+  sortByZ,
   tokenCount,
   withFrontAsBack,
 } from '../domain/objects';
@@ -771,8 +774,139 @@ describe('deck rules', () => {
     });
     s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { alignRotation: false } });
     expect(resolveDrop(s, token.id, { x: hc.x - token.width / 2, y: hc.y - token.height / 2 }, 'play')).not.toHaveProperty('rotation');
-    // A holder dropped on another holder just moves.
-    expect(resolveDrop(s, deckOf(s).id, { ...holder.position }, 'edit')).toMatchObject({ type: 'MoveObject', toFront: false });
+    // A holder dropped on another holder just moves (to the front, so it lies above it).
+    expect(resolveDrop(s, deckOf(s).id, { ...holder.position }, 'edit')).toMatchObject({ type: 'MoveObject', toFront: true });
+  });
+
+  it('a slot holder centres the pieces dropped on it (Shift places freely); cards still go in', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { snapToCenter: true } });
+    const token = byKind(s, 'token');
+    const hc = { x: holder.position.x + holder.width / 2, y: holder.position.y + holder.height / 2 };
+    const near = { x: holder.position.x + 4, y: holder.position.y + 6 };
+    const centred = { x: Math.round(hc.x - token.width / 2), y: Math.round(hc.y - token.height / 2) };
+    expect(resolveDrop(s, token.id, near, 'play')).toMatchObject({ type: 'MoveObject', id: token.id, position: centred });
+    expect(resolveDrop(s, token.id, near, 'edit')).toMatchObject({ position: centred });
+    expect(resolveDrop(s, token.id, near, 'play', { free: true })).toMatchObject({ position: near });
+    const card = byKind(s, 'card') as CardObject;
+    expect(resolveDrop(s, card.id, { x: hc.x - card.width / 2, y: hc.y - card.height / 2 }, 'play')).toMatchObject({
+      type: 'AddCardToDeck',
+      deckId: holder.id,
+    });
+  });
+
+  it('holders snap pieces to the centre by default, unless the slot setting is switched off', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    const token = byKind(s, 'token');
+    const hc = { x: holder.position.x + holder.width / 2, y: holder.position.y + holder.height / 2 };
+    const near = { x: holder.position.x + 4, y: holder.position.y + 6 };
+    const centred = { x: Math.round(hc.x - token.width / 2), y: Math.round(hc.y - token.height / 2) };
+    expect(resolveDrop(s, token.id, near, 'play')).toMatchObject({ position: centred });
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { snapToCenter: false } });
+    expect(resolveDrop(s, token.id, near, 'play')).toMatchObject({ position: near });
+  });
+
+  it('a holder lies on the board under it but below every piece, whatever their zIndex', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    const board = byKind(s, 'board');
+    const token = byKind(s, 'token');
+    const top = maxZ(s.objects);
+    const at = (id: string) => sortByStacking(s.objects).findIndex((o) => o.id === id);
+    // The holder is moved onto the board (it comes to the front): it lies above the board, below the token.
+    s = { ...s, objects: s.objects.map((o) => (o.id === board.id ? { ...o, zIndex: top + 1 } : o.id === token.id ? { ...o, zIndex: 0 } : o)) };
+    s = applyCommand(s, resolveDrop(s, holder.id, { x: board.position.x + 20, y: board.position.y + 20 }, 'edit'));
+    s = applyCommand(s, { type: 'MoveObject', id: token.id, position: { x: board.position.x + 30, y: board.position.y + 30 } });
+    expect(at(holder.id)).toBeGreaterThan(at(board.id));
+    // The token has the lowest zIndex: it lies under the board.
+    expect(at(token.id)).toBeLessThan(at(board.id));
+    // A token lying on the board above it is drawn above the holder, even when the holder has the higher zIndex.
+    const boardZ = s.objects.find((o) => o.id === board.id)!.zIndex;
+    s = { ...s, objects: s.objects.map((o) => (o.id === token.id ? { ...o, zIndex: boardZ + 0.5 } : o)) };
+    expect(s.objects.find((o) => o.id === holder.id)!.zIndex).toBeGreaterThan(s.objects.find((o) => o.id === token.id)!.zIndex);
+    expect(at(token.id)).toBeGreaterThan(at(holder.id));
+    // Off any board, a holder lies below everything but other holders.
+    s = applyCommand(s, { type: 'MoveObject', id: holder.id, position: { x: -9000, y: -9000 }, toFront: true });
+    const pieces = s.objects.filter((o) => !(o.kind === 'deck' && !o.isPile));
+    expect(at(holder.id)).toBeLessThan(Math.min(...pieces.map((o) => at(o.id))));
+  });
+
+  it('a dropped piece lands on top of what it is put on, also when it shares the top level or is a pile', () => {
+    let s = tableOf(fixtureGame());
+    const token = byKind(s, 'token');
+    const die = byKind(s, 'die');
+    const top = maxZ(s.objects);
+    // Two pieces tied at the top: the one moved goes above the other.
+    s = { ...s, objects: s.objects.map((o) => (o.id === token.id || o.id === die.id ? { ...o, zIndex: top } : o)) };
+    s = applyCommand(s, resolveDrop(s, token.id, die.position, 'play'));
+    const z = (id: string) => s.objects.find((o) => o.id === id)!.zIndex;
+    expect(z(token.id)).toBeGreaterThan(z(die.id));
+    // A pile moved onto a token comes to the front too.
+    s = applyCommand(s, { type: 'TakeStack', deckId: deckOf(s).id, pileId: 'pile-1', position: { x: -2000, y: -2000 } });
+    expect(s.objects.find((o) => o.id === 'pile-1')).toMatchObject({ kind: 'deck', isPile: true });
+    s = { ...s, objects: s.objects.map((o) => (o.id === 'pile-1' ? { ...o, zIndex: 0 } : o)) };
+    const drop = resolveDrop(s, 'pile-1', token.position, 'play');
+    expect(drop).toMatchObject({ type: 'MoveObject', toFront: true });
+    s = applyCommand(s, drop);
+    expect(z('pile-1')).toBeGreaterThan(z(token.id));
+  });
+
+  it('a board comes to the front when a player lifts it in Play mode, but keeps its level in Edit mode', () => {
+    const s = tableOf(fixtureGame());
+    const board = byKind(s, 'board');
+    expect(resolveDrop(s, board.id, { x: 5, y: 5 }, 'play')).toMatchObject({ toFront: true });
+    expect(resolveDrop(s, board.id, { x: 5, y: 5 }, 'edit')).toMatchObject({ toFront: false });
+    expect(resolveDrop(s, holderOf(s).id, { x: 5, y: 5 }, 'play')).toMatchObject({ toFront: true });
+  });
+
+  it('RaiseObjects brings a selection above everything, keeping its own order', () => {
+    let s = tableOf(fixtureGame());
+    const [a, b] = sortByZ(s.objects);
+    s = applyCommand(s, { type: 'RaiseObjects', ids: [b.id, a.id] });
+    const z = (id: string) => s.objects.find((o) => o.id === id)!.zIndex;
+    const others = s.objects.filter((o) => o.id !== a.id && o.id !== b.id);
+    expect(z(a.id)).toBeGreaterThan(maxZ(others));
+    expect(z(b.id)).toBeGreaterThan(z(a.id));
+    expect(applyCommand(s, { type: 'RaiseObjects', ids: [a.id, b.id] })).toBe(s);
+  });
+
+  it('a pile dropped on a loose card takes it in at the bottom, lying where the card lay (Shift places freely)', () => {
+    let s = tableOf(fixtureGame());
+    const card = byKind(s, 'card') as CardObject;
+    s = applyCommand(s, { type: 'TakeStack', deckId: deckOf(s).id, pileId: 'pile-1', position: { x: -2000, y: -2000 } });
+    const pile = s.objects.find((o) => o.id === 'pile-1') as DeckObject;
+    const onCard = { x: card.position.x + card.width / 2 - pile.width / 2, y: card.position.y + card.height / 2 - pile.height / 2 };
+    expect(findHoverTarget(s, pile.id, { x: card.position.x + card.width / 2, y: card.position.y + card.height / 2 })?.id).toBe(card.id);
+    expect(resolveDrop(s, pile.id, onCard, 'play', { free: true })).toMatchObject({ type: 'MoveObject' });
+    const drop = resolveDrop(s, pile.id, onCard, 'play');
+    expect(drop).toMatchObject({ type: 'FormPile', ids: [card.id, pile.id] });
+    s = applyCommand(s, drop);
+    const merged = s.objects.find((o): o is DeckObject => o.kind === 'deck' && o.isPile)!;
+    expect(s.objects.some((o) => o.id === card.id || o.id === pile.id)).toBe(false);
+    expect(merged.position).toEqual(card.position);
+    expect(merged.cards.slice(0, -1).map((c) => c.id)).toEqual(pile.cards.map((c) => c.id));
+    expect(merged.cards.at(-1)).toMatchObject({ name: card.name, faceText: card.faceText });
+  });
+
+  it('a shaped holder only catches drops inside its shape', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    s = applyCommand(s, {
+      type: 'UpdateObject',
+      id: holder.id,
+      patch: { zoneShape: 'circle', snapToCenter: true, width: 200, height: 200 },
+    });
+    const token = byKind(s, 'token');
+    const at = (x: number, y: number) => ({ x: holder.position.x + x - token.width / 2, y: holder.position.y + y - token.height / 2 });
+    // Centre in the box corner, outside the circle: an ordinary move.
+    expect(resolveDrop(s, token.id, at(15, 15), 'play')).toMatchObject({ position: at(15, 15) });
+    // Inside the circle: snapped to its centre.
+    expect(resolveDrop(s, token.id, at(100, 20), 'play')).toMatchObject({ position: at(100, 100) });
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { zoneShape: 'hexagon' } });
+    expect(resolveDrop(s, token.id, at(10, 20), 'play')).toMatchObject({ position: at(10, 20) });
+    expect(resolveDrop(s, token.id, at(10, 100), 'play')).toMatchObject({ position: at(100, 100) });
   });
 
   it('a spread holder lays its cards out (top card right-most) and lets any card be drawn', () => {

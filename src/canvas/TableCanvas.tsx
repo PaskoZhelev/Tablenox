@@ -4,10 +4,10 @@ import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Box as TransformBox } from 'konva/lib/shapes/Transformer';
 import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
-import { anchorStroke, simplifyPoints, strokeHitAt, textHitAt } from '../domain/annotations';
+import { anchorStroke, simplifyPoints, straightLinePoints, strokeHitAt, textHitAt } from '../domain/annotations';
 import { panBy, pinchBy, screenToWorld, worldToScreen, zoomBy, type PinchPoint } from '../domain/camera';
 import { newId } from '../domain/ids';
-import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByZ, tokenCount } from '../domain/objects';
+import { fixedInPlay, movableInPlay, ownerDeckOf, resolveCardLook, sortByStacking, sortByZ, tokenCount } from '../domain/objects';
 import { objectBounds, snapToGrid } from '../domain/geometry';
 import { stampStroke } from '../domain/stamps';
 import type { TabletopObject, Vec2 } from '../domain/types';
@@ -32,7 +32,7 @@ import type { Command } from '../domain/commands';
 import { resetDoubleClick } from './doubleClick';
 import { Grid } from './Grid';
 import { isLightColor } from './colors';
-import { notifyStageLeaving, registerStage } from './stageRegistry';
+import { LIFTED_ATTR, notifyStageLeaving, registerStage } from './stageRegistry';
 import { pickOnTable } from './actions';
 import { pickedIds } from '../domain/buttons';
 import { allowTaps, LONG_PRESS_MS, LONG_PRESS_SLOP, suppressTaps, tapsSuppressed, TOUCH_DRAG_DISTANCE } from './touch';
@@ -49,7 +49,7 @@ type Gesture =
       /** Started in pick mode: never changes the selection. */
       pick?: boolean;
     }
-  | { kind: 'pen'; points: number[] }
+  | { kind: 'pen'; points: number[]; straight: boolean }
   | { kind: 'erase'; strokeIds: Set<string>; textIds: Set<string> }
   | { kind: 'deck'; deckId: string; start: Vec2; index: number | 'all' }
   /** Play mode: a press on a bag; dragging draws a random piece out of it. */
@@ -104,6 +104,7 @@ export function TableCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const trRef = useRef<Konva.Transformer>(null);
+  const objectsLayerRef = useRef<Konva.Layer>(null);
   const liveLineRef = useRef<Konva.Line>(null);
   const eraserRef = useRef<Konva.Circle>(null);
   const stampGhostRef = useRef<Konva.Line>(null);
@@ -136,6 +137,7 @@ export function TableCanvas() {
   const gridSize = useTableStore((s) => s.ui.gridSize);
   const tableColor = useTableStore((s) => s.doc?.tableColor);
   const dropTargetId = useTableStore((s) => s.dropTargetId);
+  const draggingId = useTableStore((s) => s.draggingId);
   const editingId = useTableStore((s) => s.editingText?.id);
   const pen = useTableStore((s) => s.pen);
   const picking = useTableStore((s) => s.picking);
@@ -177,7 +179,25 @@ export function TableCanvas() {
     }
   }, [tool]);
 
-  const sorted = useMemo(() => sortByZ(objects).filter((o) => o.visible || mode === 'edit'), [objects, mode]);
+  const sorted = useMemo(() => sortByStacking(objects).filter((o) => o.visible || mode === 'edit'), [objects, mode]);
+
+  // A dragged object is lifted to the top of the layer in Konva directly, which react-konva doesn't know about; its
+  // later reorders would then be made against the wrong neighbours (a card dropped on a token could land under it).
+  // So after every change the layer is put back in table order, keeping objects still being dragged on top.
+  useLayoutEffect(() => {
+    const layer = objectsLayerRef.current;
+    if (!layer) return;
+    const children: Konva.Node[] = [...layer.getChildren()];
+    const byId = new Map(children.filter((n) => n.hasName('object')).map((n) => [n.id(), n]));
+    const ordered = sorted.map((o) => byId.get(o.id)).filter((n): n is Konva.Node => !!n);
+    const inPlace = ordered.filter((n) => !n.getAttr(LIFTED_ATTR));
+    const lifted = ordered.filter((n) => n.getAttr(LIFTED_ATTR));
+    const others = children.filter((n) => !n.hasName('object'));
+    const want = [...inPlace, ...others, ...lifted];
+    if (want.length === children.length && want.every((n, i) => children[i] === n)) return;
+    for (const n of want) n.moveToTop();
+    layer.batchDraw();
+  }, [sorted, draggingId]);
   const selected = useMemo(() => objects.find((o) => o.id === selectedId) ?? null, [objects, selectedId]);
   const transformable = useMemo(() => {
     if (tool !== 'select' || picking) return [];
@@ -261,7 +281,7 @@ export function TableCanvas() {
         const line = liveLineRef.current;
         line?.points([]);
         line?.getLayer()?.batchDraw();
-        const points = simplifyPoints(g.points, 0.75 / s.camera.scale);
+        const points = g.straight ? straightLinePoints(g.points, 1 / s.camera.scale) : simplifyPoints(g.points, 0.75 / s.camera.scale);
         if (points.length >= 2) {
           // A stroke started on a sheet belongs to it (and moves with it).
           const stroke = anchorStroke(currentTable().objects, {
@@ -270,6 +290,7 @@ export function TableCanvas() {
             color: s.pen.color,
             width: s.pen.width,
             opacity: s.pen.opacity,
+            ...(g.straight ? { straight: true } : {}),
           });
           s.dispatch({ type: 'AddStroke', stroke });
         }
@@ -382,7 +403,8 @@ export function TableCanvas() {
 
     switch (s.tool) {
       case 'pen':
-        gesture.current = { kind: 'pen', points: [world.x, world.y] };
+        gesture.current = { kind: 'pen', points: [world.x, world.y], straight: s.pen.straight };
+        liveLineRef.current?.tension(s.pen.straight ? 0 : 0.35);
         liveLineRef.current?.points([world.x, world.y, world.x + 0.01, world.y]);
         liveLineRef.current?.getLayer()?.batchDraw();
         return;
@@ -699,9 +721,14 @@ export function TableCanvas() {
         break;
       }
       case 'pen': {
-        const n = g.points.length;
-        if (Math.hypot(world.x - g.points[n - 2], world.y - g.points[n - 1]) * s.camera.scale < 1) return;
-        g.points.push(world.x, world.y);
+        if (g.straight) {
+          // Straight line: from where the press started to the pointer.
+          g.points = [g.points[0], g.points[1], world.x, world.y];
+        } else {
+          const n = g.points.length;
+          if (Math.hypot(world.x - g.points[n - 2], world.y - g.points[n - 1]) * s.camera.scale < 1) return;
+          g.points.push(world.x, world.y);
+        }
         liveLineRef.current?.points(g.points);
         liveLineRef.current?.getLayer()?.batchDraw();
         break;
@@ -956,7 +983,7 @@ export function TableCanvas() {
               <Grid camera={camera} width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} spacing={gridSize} />
             </Layer>
           )}
-          <Layer>
+          <Layer ref={objectsLayerRef}>
             {sorted.map((o) => (
               <ObjectNode
                 key={o.id}

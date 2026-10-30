@@ -372,6 +372,22 @@ describe('automation buttons', () => {
     expect(get<DieObject>(run(s0, { ...button, steps: [step('roll', [holder.id])] }), die.id).rollCount).toBe(1);
   });
 
+  it('sets dice to a chosen face, kept within each die, without rolling them', () => {
+    const { state, button, die, holder } = setup();
+    const set = run(state, { ...button, steps: [step('roll', [die.id], { mode: 'set', value: 4 })] });
+    expect(get<DieObject>(set, die.id)).toMatchObject({ value: 4, rollCount: die.rollCount });
+    const d20 = { ...die, sides: 20 as const, value: 1 };
+    const s1 = { ...state, objects: state.objects.map((o) => (o.id === die.id ? onHolder(d20, holder) : o)) };
+    expect(get<DieObject>(run(s1, { ...button, steps: [step('roll', [holder.id], { mode: 'set', value: 17 })] }), die.id).value).toBe(17);
+    const capped = run(state, { ...button, steps: [step('roll', [die.id], { mode: 'set', value: 99 })] });
+    expect(get<DieObject>(capped, die.id).value).toBe(6);
+    const same = { ...button, steps: [step('roll', [die.id], { mode: 'set', value: die.value })] };
+    expect(planButton(state, same, seededSource(1), 0)).toBeNull();
+    expect(parseGame({ ...fixtureGame(), objects: [{ ...button, steps: same.steps }] }).objects[0]).toMatchObject({
+      steps: [{ mode: 'set', value: die.value }],
+    });
+  });
+
   it('changes counters: add and set, within their limits', () => {
     const { state, button, counter } = setup();
     const add = run(state, { ...button, steps: [step('counter', [counter.id], { mode: 'add', amount: 4 })] });
@@ -516,6 +532,7 @@ describe('automation buttons', () => {
       `Move ${deck.name} to ${holder.name}, ${deck.name} in turn`,
     );
     expect(describeStep(state, step('roll', []))).toBe('Roll nothing selected');
+    expect(describeStep(state, step('roll', [], { mode: 'set', value: 3 }))).toBe('Set nothing selected to face 3');
   });
 });
 

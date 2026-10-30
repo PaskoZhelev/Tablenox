@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_ASSET_BYTES, sha256Hex, sniffImageMime } from '../persistence/assetValidation';
 import { TablenoxDB } from '../persistence/db';
 import { downscaleImage } from '../persistence/imageResize';
-import { createRepository, describeStorageError } from '../persistence/repository';
+import { CLIPBOARD_KEY, createRepository, describeStorageError } from '../persistence/repository';
+import { parseClipboard, readClipboard, writeClipboard } from '../persistence/clipboard';
+import { copyObjects } from '../domain/clipboard';
 import { fixtureGame, JPEG_BYTES, PNG_BYTES, pngFile, SVG_BYTES } from './fixtures';
 
 let db: TablenoxDB;
@@ -41,6 +43,22 @@ describe('repository', () => {
     await repo.deleteGame(b.id);
     expect(await repo.collectGarbage(LATER)).toBe(1);
     expect(await repo.getAsset(assetId)).toBeUndefined();
+  });
+
+  it('copied objects keep their images after the game they came from is deleted, until something else is copied', async () => {
+    const assetId = await repo.addAsset(pngFile());
+    const g = fixtureGame(assetId);
+    await repo.saveGame(g);
+    await writeClipboard(copyObjects(g.objects, [g.objects[0].id], new Date().toISOString())!, repo);
+    await repo.deleteGame(g.id);
+    expect(await repo.collectGarbage(LATER)).toBe(0);
+    expect((await readClipboard(repo))?.objects[0]).toMatchObject({ kind: 'board', assetId });
+    await writeClipboard(copyObjects(g.objects, [g.objects[6].id], new Date(Date.now() + 1000).toISOString())!, repo);
+    expect(await repo.collectGarbage(LATER)).toBe(1);
+    // Anything stored under the key that isn't a clipboard is ignored.
+    await repo.setSetting(CLIPBOARD_KEY, { objects: [{ bogus: true }] });
+    expect(await repo.collectGarbage(LATER)).toBe(0);
+    expect(parseClipboard(await repo.getSetting(CLIPBOARD_KEY))).toBeNull();
   });
 
   it('does not garbage-collect fresh uploads that are not saved yet', async () => {

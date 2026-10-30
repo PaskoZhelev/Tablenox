@@ -3,8 +3,8 @@ import { useEffect, useRef } from 'react';
 const ROWS: [string, string][] = [
   ['Drag', 'Move a card, token, die… (locked objects, and boards / holders in Play mode, pan the view instead)'],
   ['Drag onto a card / holder', 'A card joins the holder, or makes a pile with the card; the target fades while you hover'],
-  ['Drag a pile onto a holder / pile', 'Put all its cards on top'],
-  ['Shift + drop', 'Place freely, without stacking, snapping into a holder or snapping to the grid'],
+  ['Drag a pile onto a holder / pile / card', 'Put all its cards on top (on a loose card: the card goes to the bottom of the pile)'],
+  ['Shift + drop', 'Place freely, without stacking, snapping into a holder or slot, or snapping to the grid'],
   ['Drag from a holder', 'Take its top card (stacked) or the card you grab (spread out) (Play mode)'],
   [
     'Right-click a holder',
@@ -44,7 +44,11 @@ const ROWS: [string, string][] = [
     'Pen · Stamp · Text on a sheet',
     'Marks made on a board or image belong to it: they move, turn and resize with it and go when it is deleted; elsewhere they stay on the table',
   ],
-  ['M · click', 'Stamp a tick, cross, circle, dot, slash or star where you click (shape, colour and size in the tool options)'],
+  [
+    'M · click',
+    'Stamp a tick, cross, circle, dot, slash or star where you click (shape, colour and size, also a custom size, in the tool options)',
+  ],
+  ['P · Straight line', 'Pen tool option: each drag draws a straight line from where you press to where you let go'],
   ['Drag a text mark · double-click it', 'Move it (onto a sheet or off it) · edit it'],
   [
     'F / S / R / L',
@@ -58,6 +62,10 @@ const ROWS: [string, string][] = [
   ['G', 'Snap to grid on / off (Edit mode): dragged, resized and added objects line up with the grid; spacing in the More menu → Grid'],
   ['Arrow keys', 'Nudge the selection by 1 (Shift: 10; with Snap to grid: one grid step) (Edit mode)'],
   ['Delete · Ctrl+D · Ctrl+A', 'Delete · duplicate · select all (Edit mode; works on every selected object)'],
+  [
+    'Ctrl+C · Ctrl+V',
+    'Copy the selection · paste the last copy in the middle of the view, in this game or another one, also in another tab (Edit mode; Paste is also in the More menu)',
+  ],
   ['Esc', 'Stop picking · close the text editor, menu or palette · deselect · back to the Select tool'],
   ['?', 'This list'],
 ];

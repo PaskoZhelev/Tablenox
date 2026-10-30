@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_TIMER_SECONDS, MAX_TOKEN_STACK, SCHEMA_VERSION, TOKEN_SHAPES, type Game, type TabletopObject } from './types';
+import { HOLDER_SHAPES, MAX_TIMER_SECONDS, MAX_TOKEN_STACK, SCHEMA_VERSION, TOKEN_SHAPES, type Game, type TabletopObject } from './types';
 
 const finite = z.number().refine(Number.isFinite, 'Must be a finite number');
 const positive = finite.refine((n) => n > 0, 'Must be positive');
@@ -80,7 +80,13 @@ export const stepSchema = z.discriminatedUnion('type', [
     choose: z.enum(['edit', 'run']).optional(),
     cards: z.record(id, z.array(id).max(5000)).optional(),
   }),
-  z.object({ id, objectIds, type: z.literal('roll') }),
+  z.object({
+    id,
+    objectIds,
+    type: z.literal('roll'),
+    mode: z.enum(['roll', 'set']).optional(),
+    value: z.number().int().min(1).max(1000).optional(),
+  }),
   z.object({ id, objectIds, type: z.literal('counter'), mode: z.enum(['add', 'set']), amount: finite }),
   z.object({ id, objectIds, type: z.literal('check'), mode: z.enum(['toggle', 'check', 'uncheck']) }),
   z.object({ id, objectIds, type: z.literal('timer'), mode: z.enum(['start', 'pause', 'toggle', 'reset', 'restart']) }),
@@ -119,6 +125,8 @@ const deckSchema = z.object({
   fillOpacity: z.number().min(0).max(1).optional(),
   strokeOpacity: z.number().min(0).max(1).optional(),
   strokeStyle: z.enum(['dashed', 'solid']).optional(),
+  zoneShape: z.enum(HOLDER_SHAPES).optional(),
+  snapToCenter: z.boolean().optional(),
   cardRotation: z.number().min(0).lt(360).optional(),
   cardTurn: z.number().min(0).lt(360).optional(),
   label: z.string().max(500).optional(),

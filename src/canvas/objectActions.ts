@@ -6,6 +6,7 @@ import { ALIGN_LABELS, DISTRIBUTE_LABELS, type AlignMode } from '../domain/align
 import { useTableStore } from '../state/tableStore';
 import {
   alignObjects,
+  copyObjects,
   cycleDrawSide,
   cyclePutSide,
   deleteObject,
@@ -109,6 +110,13 @@ export function getGroupActions(ids: string[], table: TableState, mode: Mode = '
       run: () => duplicateObjects(ids),
       primary: true,
       shortcut: 'Ctrl+D',
+    },
+    {
+      id: 'copy',
+      label: `Copy ${objs.length} objects (paste in any game)`,
+      icon: 'clipboard',
+      run: () => void copyObjects(ids),
+      shortcut: 'Ctrl+C',
     },
     {
       id: 'lock',
@@ -379,6 +387,13 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
   actions.push({ id: 'front', label: 'Bring to front', icon: 'front', run: () => setZOrder(o.id, 'front') });
   actions.push({ id: 'back', label: 'Send to back', icon: 'backward', run: () => setZOrder(o.id, 'back') });
   actions.push({ id: 'duplicate', label: 'Duplicate', icon: 'copy', run: () => duplicateObject(o.id), shortcut: 'Ctrl+D' });
+  actions.push({
+    id: 'copy',
+    label: 'Copy (paste in any game)',
+    icon: 'clipboard',
+    run: () => void copyObjects([o.id]),
+    shortcut: 'Ctrl+C',
+  });
   actions.push({ id: 'delete', label: 'Delete', icon: 'trash', run: () => deleteObject(o.id), danger: true, shortcut: 'Del' });
   return actions;
 }

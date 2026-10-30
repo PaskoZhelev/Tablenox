@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { Dropdown } from '../../components/Dropdown';
 import { clampGridSize, MAX_GRID_SIZE, MIN_GRID_SIZE } from '../../domain/geometry';
+import { pasteObjects } from '../../canvas/actions';
 import { useTableStore } from '../../state/tableStore';
 import { usePaletteToggle } from './paletteItems';
 
@@ -305,6 +306,20 @@ export function TopBar({
               <Icon name="eraser" size={16} /> Clear all pen &amp; text marks…
             </button>
             <TableColorPicker />
+            {mode === 'edit' && (
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                title="Paste the objects last copied (Ctrl+C), in this game or another one"
+                onClick={() => {
+                  close();
+                  void pasteObjects();
+                }}
+              >
+                <Icon name="paste" size={16} /> Paste copied objects <kbd>Ctrl+V</kbd>
+              </button>
+            )}
             {mode === 'edit' && <GridSettings />}
             <button
               type="button"

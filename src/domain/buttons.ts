@@ -1,7 +1,7 @@
 import { applyCommand, type Command } from './commands';
 import { objectCenter } from './geometry';
 import { newId } from './ids';
-import { bagAccepts, bagCount, bagItemWeight, displayName, drawnFaceUp, homeDeckMap, isHolder, sortByZ } from './objects';
+import { bagAccepts, bagCount, bagItemWeight, dieFaceCount, displayName, drawnFaceUp, homeDeckMap, isHolder, raisedWhenMoved, sortByStacking, stackingComparator } from './objects';
 import { randomInt, secureRandomSource, type RandomSource } from './random';
 import {
   bagOf,
@@ -27,6 +27,7 @@ import type {
   CheckStep,
   CounterStep,
   DeckObject,
+  DieObject,
   FlipMode,
   FlipStep,
   MoveStep,
@@ -34,6 +35,7 @@ import type {
   ObjectKind,
   PickStep,
   RecallStep,
+  RollStep,
   RotateStep,
   SortStep,
   StepOrientation,
@@ -54,7 +56,7 @@ export const STEP_LABELS: Record<StepType, string> = {
   flip: 'Flip',
   shuffle: 'Shuffle',
   sort: 'Sort',
-  roll: 'Roll dice',
+  roll: 'Roll or set dice',
   counter: 'Change counter',
   check: 'Check boxes',
   timer: 'Timer',
@@ -239,14 +241,15 @@ export function resolveTargets(state: TableState, ids: readonly ObjectId[]): Tab
     seen.add(o.id);
     out.push(o);
   };
-  const sorted = sortByZ(state.objects);
+  const sorted = sortByStacking(state.objects);
+  const cmp = stackingComparator(state.objects);
   for (const id of ids) {
     const o = state.objects.find((x) => x.id === id);
     if (!o) continue;
     add(o);
     if (isHolder(o)) {
       sorted
-        .filter((m) => !NOT_HOLDER_CONTENT.has(m.kind) && !isHolder(m) && m.zIndex > o.zIndex && pointInObject(objectCenter(m), o))
+        .filter((m) => !NOT_HOLDER_CONTENT.has(m.kind) && !isHolder(m) && cmp(m, o) > 0 && pointInObject(objectCenter(m), o))
         .forEach(add);
     }
   }
@@ -330,20 +333,19 @@ function moveCardsToDeck(plan: Plan, source: DeckObject, target: DeckObject, cou
   for (const cardId of addOrder) plan.emit({ type: 'AddCardToDeck', cardId, deckId: target.id });
 }
 
-const BACKGROUND_KINDS = new Set<TabletopObject['kind']>(['board', 'deck', 'bag']);
-
 /** Top-most card or pile lying on `target`, other than `exceptId`: where further cards are stacked. */
 function stackTop(plan: Plan, target: TabletopObject, exceptId: string): TabletopObject | undefined {
+  const cmp = stackingComparator(plan.state.objects);
   return plan.state.objects
     .filter(
       (o) =>
         (o.kind === 'card' || (o.kind === 'deck' && o.isPile)) &&
         o.id !== exceptId &&
         o.id !== target.id &&
-        o.zIndex > target.zIndex &&
+        cmp(o, target) > 0 &&
         pointInObject(objectCenter(o), target),
     )
-    .sort((a, b) => b.zIndex - a.zIndex)[0];
+    .sort((a, b) => cmp(b, a))[0];
 }
 
 /**
@@ -364,7 +366,7 @@ function placeOnto(plan: Plan, target: TabletopObject, id: string, rotation: num
   }
   const c = objectCenter(target);
   const position = { x: Math.round(c.x - item.width / 2), y: Math.round(c.y - item.height / 2) };
-  plan.emit({ type: 'MoveObject', id, position, toFront: !BACKGROUND_KINDS.has(item.kind), rotation });
+  plan.emit({ type: 'MoveObject', id, position, toFront: raisedWhenMoved(item), rotation });
 }
 
 /**
@@ -662,6 +664,22 @@ function planFlip(plan: Plan, step: FlipStep, random: RandomSource): void {
   }
 }
 
+/** The face a Set step turns `die` to: the step's value, kept within the die's faces. */
+export function setDieFace(die: DieObject, value: number | undefined): number {
+  return Math.min(dieFaceCount(die), Math.max(1, Math.round(value ?? 1)));
+}
+
+function planRoll(plan: Plan, step: RollStep, random: RandomSource): void {
+  for (const o of resolveTargets(plan.state, step.objectIds)) {
+    if (o.kind !== 'die') continue;
+    if (step.mode !== 'set') plan.emit(rollDieCommand(o, random));
+    else {
+      const value = setDieFace(o, step.value);
+      if (value !== o.value) plan.emit({ type: 'UpdateObject', id: o.id, patch: { value } });
+    }
+  }
+}
+
 function planCounter(plan: Plan, step: CounterStep): void {
   for (const o of resolveTargets(plan.state, step.objectIds)) {
     if (o.kind === 'counter')
@@ -677,8 +695,9 @@ function planSort(plan: Plan, step: SortStep): void {
 
 /** Checkboxes lying on a board (above it, centre inside it). */
 function checkboxesOn(state: TableState, board: TabletopObject): CheckboxObject[] {
+  const cmp = stackingComparator(state.objects);
   return state.objects.filter(
-    (o): o is CheckboxObject => o.kind === 'checkbox' && o.zIndex > board.zIndex && pointInObject(objectCenter(o), board),
+    (o): o is CheckboxObject => o.kind === 'checkbox' && cmp(o, board) > 0 && pointInObject(objectCenter(o), board),
   );
 }
 
@@ -756,8 +775,7 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: numbe
     case 'sort':
       return planSort(plan, step);
     case 'roll':
-      for (const o of resolveTargets(plan.state, step.objectIds)) if (o.kind === 'die') plan.emit(rollDieCommand(o, random));
-      return;
+      return planRoll(plan, step, random);
     case 'counter':
       return planCounter(plan, step);
     case 'check':
@@ -861,7 +879,7 @@ export function describeStep(state: TableState, step: ButtonStep): string {
       return `Pick ${n} chosen card${n === 1 ? '' : 's'} from ${what} to ${to}${inTurn}${side}`;
     }
     case 'roll':
-      return `Roll ${what}`;
+      return step.mode === 'set' ? `Set ${what} to face ${step.value ?? 1}` : `Roll ${what}`;
     case 'counter':
       return step.mode === 'add' ? `Change ${what} by ${step.amount}` : `Set ${what} to ${step.amount}`;
     case 'check':

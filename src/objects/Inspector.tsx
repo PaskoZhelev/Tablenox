@@ -43,13 +43,14 @@ import {
   displayName,
   fixedInPlay,
   hasPlayMovable,
+  HOLDER_SHAPE_LABELS,
   kindLabel,
   cardGroups,
   MAX_CARD_COPIES,
   moveCardGroup,
   setAllCardCopies,
   setCardCopies,
-  sortByZ,
+  sortByStacking,
   tokenCount,
   withFrontAsBack,
 } from '../domain/objects';
@@ -70,6 +71,7 @@ import {
 } from '../domain/rules';
 import {
   DIE_SIDES,
+  HOLDER_SHAPES,
   HOVER_ZOOM_SIZES,
   MAX_TOKEN_STACK,
   MAX_TIMER_SECONDS,
@@ -83,6 +85,7 @@ import {
   type HoverZoom,
   type TabletopObject,
 } from '../domain/types';
+import { holderShapeAspect } from '../domain/geometry';
 import { useTableStore } from '../state/tableStore';
 import { confirmDialog, promptDialog } from '../state/uiStore';
 import { loadAssetImage } from './useAssetImage';
@@ -145,10 +148,41 @@ function RotationAnglesField({ o, update }: { o: TabletopObject; update: Update 
   );
 }
 
-/** The look of a holder's zone: fill and outline. */
+/** The look of a holder's zone: shape, fill and outline. */
 function HolderLookFields({ o, update }: { o: DeckObject; update: Update }) {
+  const dispatch = useTableStore((s) => s.dispatch);
+  const aspect = holderShapeAspect(o.zoneShape);
+  // Width that makes the shape regular at the holder's height.
+  const evenWidth = aspect === null ? null : Math.max(4, Math.round(o.height * aspect));
   return (
     <>
+      <SelectField
+        label="Holder shape"
+        value={o.zoneShape ?? 'rectangle'}
+        options={HOLDER_SHAPES.map((value) => ({ value, label: HOLDER_SHAPE_LABELS[value] }))}
+        onChange={(zoneShape) => update({ zoneShape: zoneShape === 'rectangle' ? undefined : zoneShape })}
+      />
+      {evenWidth !== null && Math.abs(evenWidth - o.width) > 1 && (
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn btn-small"
+            title="Change the width so the shape isn't stretched (keeps the height and the centre)"
+            onClick={() =>
+              dispatch({
+                type: 'TransformObject',
+                id: o.id,
+                position: { x: Math.round(o.position.x + (o.width - evenWidth) / 2), y: o.position.y },
+                width: evenWidth,
+                height: o.height,
+                rotation: o.rotation,
+              })
+            }
+          >
+            Even out the shape
+          </button>
+        </div>
+      )}
       <ColorField label="Holder colour" value={o.color ?? DEFAULT_HOLDER_COLOR} onChange={(color) => update({ color }, `color:${o.id}`)} />
       <OpacityField
         label="Holder opacity"
@@ -1104,10 +1138,16 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               checked={!!o.alignRotation}
               onChange={(alignRotation) => update({ alignRotation })}
             />
+            <CheckboxField
+              label="Snap pieces to the centre (slot)"
+              checked={o.snapToCenter !== false}
+              onChange={(snapToCenter) => update({ snapToCenter: snapToCenter ? undefined : false })}
+            />
             <p className="hint">
               Cards dropped on a holder go into it. A holder with its own card list (above) is a deck. A spread runs along the holder's
               longer side: left to right when it is wider than tall, top to bottom otherwise. Cards that don't fill it sit at the chosen
-              alignment.
+              alignment. With <em>Snap pieces to the centre</em>, tokens, dice and other pieces dropped on the holder are centred on it
+              (Shift+drag places them freely); its shape is set under <em>Object</em>.
             </p>
           </Section>
           <DeckEditor o={o} update={update} part="settings" />
@@ -1297,7 +1337,7 @@ function mainImageOf(o: TabletopObject): string | undefined {
 export function ObjectList() {
   const objects = useTableStore((s) => s.history.present.objects);
   const selectedIds = useTableStore((s) => s.selectedIds);
-  const sorted = sortByZ(objects).reverse();
+  const sorted = sortByStacking(objects).reverse();
   if (sorted.length === 0) return <p className="hint">The table is empty. Add objects from the palette on the left.</p>;
   return (
     <ul className="object-list" aria-label="Objects (top first)">

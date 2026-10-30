@@ -3,7 +3,7 @@ import Konva from 'konva';
 import { Group, Rect } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { cardIndexAt, findHoverTarget, isSpread, spreadInsertIndex } from '../domain/rules';
-import { isHolder } from '../domain/objects';
+import { isHolder, raisedWhenMoved, sortByStacking } from '../domain/objects';
 import { isMarkAnchor } from '../domain/annotations';
 import { screenToWorld, worldToScreen } from '../domain/camera';
 import { snapPosition } from '../domain/geometry';
@@ -24,9 +24,8 @@ import {
 } from '../canvas/actions';
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
-import { ObjectVisual } from './visuals';
-
-const BACKGROUND_KINDS = new Set(['board', 'deck', 'bag']);
+import { LIFTED_ATTR } from '../canvas/stageRegistry';
+import { HolderZoneShape, ObjectVisual } from './visuals';
 
 interface Props {
   object: TabletopObject;
@@ -53,6 +52,21 @@ function inGroupSelection(id: string): boolean {
 // All members of one group drag share a coalesce key, so the whole move is a single undo step.
 let groupDragKey = '';
 let groupDragSeq = 0;
+/** The group drag whose members were already brought to the front (once, by the first member that lands). */
+let groupRaisedKey = '';
+
+function liftToTop(node: Konva.Node | undefined): void {
+  if (!node) return;
+  node.setAttr(LIFTED_ATTR, true);
+  node.moveToTop();
+}
+
+/** The selected objects that come to the front when the selection is moved, bottom first. */
+function raisedMembers(ids: readonly string[], mode: Mode): string[] {
+  const set = new Set(ids);
+  const all = currentTable().objects;
+  return sortByStacking(all.filter((x) => set.has(x.id) && raisedWhenMoved(x, mode)), all).map((x) => x.id);
+}
 
 /** Shuffle animation: quick, a few side-to-side swings that die out. */
 const SHUFFLE = { ms: 450, halfWaves: 4, maxShift: 18, tilt: 4 };
@@ -154,9 +168,15 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     const s = useTableStore.getState();
     lift();
     if (inGroupSelection(o.id)) {
-      if (!s.draggingId) groupDragKey = `group-drag:${++groupDragSeq}`;
+      if (!s.draggingId) {
+        groupDragKey = `group-drag:${++groupDragSeq}`;
+        // The selection is lifted above everything else while it moves, keeping its own order.
+        const layer = e.target.getLayer();
+        const nodes = new Map((layer?.getChildren((n) => n.hasName('object')) ?? []).map((n) => [n.id(), n]));
+        for (const m of raisedMembers(s.selectedIds, s.mode)) liftToTop(nodes.get(m));
+      }
     } else {
-      if (!BACKGROUND_KINDS.has(o.kind)) e.target.moveToTop();
+      if (raisedWhenMoved(o, s.mode)) liftToTop(e.target);
       s.select(o.id);
     }
     if (!s.draggingId) s.setDragging(o.id);
@@ -176,6 +196,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
 
   const onDragEnd = (e: KonvaEventObject<DragEvent>) => {
     const node = e.target as unknown as Konva.Group;
+    node.setAttr(LIFTED_ATTR, false);
     const free = !!(e.evt as MouseEvent | undefined)?.shiftKey;
     const s = useTableStore.getState();
     land();
@@ -184,6 +205,10 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     const position = { x: Math.round(node.x() - o.width / 2), y: Math.round(node.y() - o.height / 2) };
     if (inGroupSelection(o.id)) {
       s.dispatch({ type: 'MoveObject', id: o.id, position }, { coalesceKey: groupDragKey });
+      if (groupRaisedKey !== groupDragKey) {
+        groupRaisedKey = groupDragKey;
+        s.dispatch({ type: 'RaiseObjects', ids: raisedMembers(s.selectedIds, s.mode) }, { coalesceKey: groupDragKey });
+      }
     } else {
       dropObject(o.id, position, free);
     }
@@ -353,11 +378,12 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
         />
       )}
       {dropTarget && (
-        <Rect
+        <HolderZoneShape
+          shape={o.kind === 'deck' && !o.isPile ? o.zoneShape : undefined}
           x={-10}
           y={-10}
-          width={o.width + 20}
-          height={o.height + 20}
+          w={o.width + 20}
+          h={o.height + 20}
           stroke="#f4c542"
           strokeWidth={4}
           cornerRadius={6}

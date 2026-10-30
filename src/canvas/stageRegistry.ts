@@ -10,6 +10,12 @@ export function getStage(): Konva.Stage | null {
   return stage;
 }
 
+/**
+ * Konva attribute marking an object node lifted to the top of its layer while it is dragged. The table canvas keeps
+ * such nodes on top when it puts the layer back in table order.
+ */
+export const LIFTED_ATTR = 'liftedToTop';
+
 /** Width of library thumbnails in pixels: twice the size they are shown at, so they stay sharp on high-DPI screens. */
 export const THUMBNAIL_WIDTH = 640;
 

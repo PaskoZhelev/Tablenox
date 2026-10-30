@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
-import { Circle, Group, Image as KImage, Line, Path, Rect, RegularPolygon, Star, Text } from 'react-konva';
+import { Circle, Ellipse, Group, Image as KImage, Line, Path, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import { cardTextColor } from '../domain/cards';
 import {
   bagCount,
@@ -16,6 +16,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { cardRotationOf, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
+import { holderShapePoints } from '../domain/geometry';
 import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
 import { beep } from './beep';
 import type {
@@ -27,6 +28,7 @@ import type {
   CounterObject,
   DeckObject,
   DieObject,
+  HolderShape,
   ImageObject,
   LabelObject,
   Mode,
@@ -37,7 +39,7 @@ import type {
 } from '../domain/types';
 import { useTableStore } from '../state/tableStore';
 import { tapsSuppressed } from '../canvas/touch';
-import { loadAssetImage, useAssetImage, useCrispImage } from './useAssetImage';
+import { loadAssetImage, useAssetImage, useCrispImage, useShapedImage } from './useAssetImage';
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /** A card image that is still loading. */
@@ -101,11 +103,20 @@ interface CardFaceProps {
   backColor: string;
 }
 
-function CardBack({ w, h, backAssetId, backColor }: Pick<CardFaceProps, 'w' | 'h' | 'backAssetId' | 'backColor'>) {
+/** Shadow under a card; an irregularly shaped card casts it from its image, so it follows the shape. */
+const CARD_SHADOW = { shadowColor: '#000', shadowBlur: 6, shadowOpacity: 0.25, shadowOffsetY: 2 };
+
+function CardBack({
+  w,
+  h,
+  backAssetId,
+  backColor,
+  shaped,
+}: Pick<CardFaceProps, 'w' | 'h' | 'backAssetId' | 'backColor'> & { shaped?: boolean }) {
   const img = useCrispImage(backAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) {
-    return <KImage image={img} width={w} height={h} cornerRadius={r} />;
+    return shaped ? <KImage image={img} width={w} height={h} {...CARD_SHADOW} /> : <KImage image={img} width={w} height={h} cornerRadius={r} />;
   }
   // A back image that is still loading: a plain card, not the default back design, so it never flashes up.
   if (backAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
@@ -127,10 +138,19 @@ function CardBack({ w, h, backAssetId, backColor }: Pick<CardFaceProps, 'w' | 'h
   );
 }
 
-function CardFront({ w, h, faceAssetId, faceText, faceColor }: Pick<CardFaceProps, 'w' | 'h' | 'faceAssetId' | 'faceText' | 'faceColor'>) {
+function CardFront({
+  w,
+  h,
+  faceAssetId,
+  faceText,
+  faceColor,
+  shaped,
+}: Pick<CardFaceProps, 'w' | 'h' | 'faceAssetId' | 'faceText' | 'faceColor'> & { shaped?: boolean }) {
   const img = useCrispImage(faceAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
-  if (img) return <KImage image={img} width={w} height={h} cornerRadius={r} />;
+  if (img) {
+    return shaped ? <KImage image={img} width={w} height={h} {...CARD_SHADOW} /> : <KImage image={img} width={w} height={h} cornerRadius={r} />;
+  }
   if (faceAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
   const color = cardTextColor(faceText);
   const short = faceText.length <= 4;
@@ -179,6 +199,8 @@ function CardFront({ w, h, faceAssetId, faceText, faceColor }: Pick<CardFaceProp
 
 export function CardVisual(p: CardFaceProps) {
   const r = Math.min(p.w, p.h) * 0.07;
+  const shaped = useShapedImage(p.faceUp ? p.faceAssetId : p.backAssetId);
+  if (shaped) return p.faceUp ? <CardFront {...p} shaped /> : <CardBack {...p} shaped />;
   return (
     <>
       <Rect
@@ -186,10 +208,7 @@ export function CardVisual(p: CardFaceProps) {
         height={p.h}
         cornerRadius={r}
         fill="#fff"
-        shadowColor="#000"
-        shadowBlur={6}
-        shadowOpacity={0.25}
-        shadowOffsetY={2}
+        {...CARD_SHADOW}
       />
       {p.faceUp ? <CardFront {...p} /> : <CardBack {...p} />}
       <Rect width={p.w} height={p.h} cornerRadius={r} stroke="rgba(0,0,0,0.25)" strokeWidth={1} listening={false} />
@@ -218,6 +237,40 @@ const STACK_EDGE = 1.5;
 /** Edit mode draws holder outlines at least this opaque, so faint (Play-mode) outlines stay visible over the grid. */
 const EDIT_MIN_STROKE_OPACITY = 0.85;
 
+/**
+ * A holder's zone shape filling a `w` x `h` box at `x`,`y` (rounded rectangle, circle / ellipse or polygon), with
+ * whatever fill / stroke props it is given.
+ */
+export function HolderZoneShape({
+  shape,
+  x = 0,
+  y = 0,
+  w,
+  h,
+  cornerRadius = 10,
+  ...style
+}: {
+  shape: HolderShape | undefined;
+  x?: number;
+  y?: number;
+  w: number;
+  h: number;
+  cornerRadius?: number;
+  name?: string;
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  dash?: number[];
+  opacity?: number;
+  strokeScaleEnabled?: boolean;
+  listening?: boolean;
+}) {
+  if (shape === 'circle') return <Ellipse x={x + w / 2} y={y + h / 2} radiusX={w / 2} radiusY={h / 2} {...style} />;
+  const points = holderShapePoints(shape, w, h);
+  if (points) return <Line x={x} y={y} points={points} closed lineJoin="round" {...style} />;
+  return <Rect x={x} y={y} width={w} height={h} cornerRadius={cornerRadius} {...style} />;
+}
+
 export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   const count = o.cards.length;
   const w = o.width;
@@ -245,6 +298,8 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
   const lookOf = (i: number) => resolveCardLook(o.cards[i], o, ownerDeckOf(objects, o.cards[i].id));
+  // The edge drawn under a stack is a rectangle, so it is left out for irregularly shaped cards.
+  const shapedStack = useShapedImage(stacked ? lookOf(0).backAssetId : undefined);
   // Decode the images that can come to the top (a shuffle, sort, draw or flip) before they are needed: the side every
   // card lies on, plus the other side of the top and bottom cards. Otherwise a newly shown card is blank for a moment.
   const preload = [
@@ -264,11 +319,11 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
     <>
       {holder && (
         <>
-          <Rect width={w} height={h} cornerRadius={10} fill={zone} opacity={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY} />
-          <Rect
-            width={w}
-            height={h}
-            cornerRadius={10}
+          <HolderZoneShape shape={o.zoneShape} w={w} h={h} fill={zone} opacity={o.fillOpacity ?? DEFAULT_HOLDER_FILL_OPACITY} />
+          <HolderZoneShape
+            shape={o.zoneShape}
+            w={w}
+            h={h}
             stroke={o.strokeColor ?? zone}
             strokeWidth={2}
             dash={o.strokeStyle === 'solid' ? undefined : [10, 6]}
@@ -306,7 +361,7 @@ export function DeckVisual({ o, mode }: { o: DeckObject; mode: Mode }) {
           )}
         </>
       )}
-      {stacked && (
+      {stacked && !shapedStack && (
         <Group
           x={slots[0].x + slots[0].width / 2 + STACK_EDGE}
           y={slots[0].y + slots[0].height / 2 + STACK_EDGE}

@@ -2051,3 +2051,37 @@ button.pick-chip-name:hover {
   align-items: center;
   justify-content: center;
 }
+/* The previews are drawn in the stamp colour, so the button background contrasts with it (dark ink on paper). */
+.stamp-btn.on-light {
+  background: #f1ede2;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.stamp-btn.on-dark {
+  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.stamp-btn.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Stamp size / font size: presets plus a custom number field. */
+.size-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.size-custom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.size-custom input {
+  width: 60px;
+  padding: 4px;
+  border-radius: 6px;
+  background: #10141a;
+  border: 1px solid var(--border);
+}

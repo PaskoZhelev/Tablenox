@@ -87,6 +87,10 @@ export type SpreadAlign = 'start' | 'center' | 'end';
 /** `keep`: a card comes out as it lies (cards without a stored side lie face down). */
 export type DrawSide = 'keep' | 'faceUp' | 'faceDown';
 
+/** Shapes of a holder's zone (`hexagon` has a point at the top, `hexagonFlat` a flat side). */
+export const HOLDER_SHAPES = ['rectangle', 'circle', 'hexagon', 'hexagonFlat', 'octagon', 'triangle', 'diamond'] as const;
+export type HolderShape = (typeof HOLDER_SHAPES)[number];
+
 /**
  * A holder: a zone on the table that the cards live in (a "deck" is a holder with cards). Its cards are shown
  * stacked (drag draws the top card) or spread side by side (drag takes any card). A **pile** (`isPile`) is a
@@ -125,6 +129,10 @@ export interface DeckObject extends BaseObject {
   strokeOpacity?: number;
   /** Zone outline style; missing means dashed. */
   strokeStyle?: 'dashed' | 'solid';
+  /** Shape of the zone, stretched to fill its box; missing means a rounded rectangle. */
+  zoneShape?: HolderShape;
+  /** Holders only: pieces other than cards (tokens, dice…) dropped on it are centred on it, like in a slot. Missing means on; `false` turns it off. */
+  snapToCenter?: boolean;
   /** Holders only: degrees (clockwise, 0–359) the cards inside are turned; missing means upright. They come out upright. */
   cardRotation?: number;
   /**
@@ -363,8 +371,15 @@ export interface PickStep extends StepBase {
   cards?: Record<ObjectId, string[]>;
 }
 
+export type RollMode = 'roll' | 'set';
+
+/** Rolls dice, or (`set`) turns them to a chosen face. A holder stands for the dice lying on it. */
 export interface RollStep extends StepBase {
   type: 'roll';
+  /** Missing means `roll`. */
+  mode?: RollMode;
+  /** `set`: 1-based face shown afterwards (clamped to each die's face count). */
+  value?: number;
 }
 
 export interface CounterStep extends StepBase {

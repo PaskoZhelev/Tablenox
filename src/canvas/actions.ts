@@ -37,7 +37,9 @@ import {
   splitTokensCommand,
   tokensTakenFrom,
 } from '../domain/rules';
-import { newId } from '../domain/ids';
+import { newId, nowIso } from '../domain/ids';
+import { copyObjects as clipboardOf, pasteObjects as pastedObjects, pasteOffset } from '../domain/clipboard';
+import { readClipboard, writeClipboard } from '../persistence/clipboard';
 import { timerToggleCommand } from '../domain/timer';
 import type { Command } from '../domain/commands';
 import type {
@@ -611,6 +613,52 @@ export function duplicateObjects(ids: string[]): void {
   if (dispatch({ type: 'Batch', commands: copies.map((object) => ({ type: 'AddObject', object }) as Command) })) {
     setSelection(copies.map((c) => c.id));
     setSelectionBar(copies.length > 1 ? MULTI_BAR : copies[0].id);
+  }
+}
+
+/** The last paste: pasting the same copy again in the same view moves each new copy a step down and right. */
+let lastPaste: { copiedAt: string; center: Vec2; count: number } | null = null;
+const PASTE_STEP = 24;
+
+/** Copies objects (Edit mode) so they can be pasted into this game or another one, also in another tab. */
+export async function copyObjects(ids: string[]): Promise<void> {
+  const data = clipboardOf(currentTable().objects, ids, nowIso());
+  if (!data) return;
+  lastPaste = null;
+  try {
+    await writeClipboard(data);
+  } catch {
+    // Browser storage refused it: it can still be pasted in this tab.
+  }
+  const what = data.objects.length === 1 ? `“${displayName(data.objects[0])}”` : `${data.objects.length} objects`;
+  toast(`Copied ${what}. Paste with Ctrl+V, in this game or another one.`, 'success');
+}
+
+/** Pastes the last copied objects (from any game) in the middle of the view, selected, as one undo step. */
+export async function pasteObjects(): Promise<void> {
+  const data = await readClipboard();
+  const s = useTableStore.getState();
+  if (s.mode !== 'edit') return;
+  if (!data) {
+    toast('Nothing to paste: select objects and copy them first (Ctrl+C).');
+    return;
+  }
+  const view = viewportCenterWorld();
+  const again = lastPaste?.copiedAt === data.copiedAt && Math.hypot(lastPaste.center.x - view.x, lastPaste.center.y - view.y) < 1;
+  const count = again && lastPaste ? lastPaste.count + 1 : 0;
+  lastPaste = { copiedAt: data.copiedAt, center: view, count };
+  let offset = pasteOffset(data, { x: view.x + count * PASTE_STEP, y: view.y + count * PASTE_STEP });
+  if (s.ui.snapToGrid) {
+    // The group moves as one, so that its first object lines up with the grid.
+    const first = data.objects[0];
+    const moved = { x: first.position.x + offset.x, y: first.position.y + offset.y };
+    const snapped = snapPosition(first, moved, s.ui.gridSize);
+    offset = { x: offset.x + snapped.x - moved.x, y: offset.y + snapped.y - moved.y };
+  }
+  const copies = pastedObjects(data, currentTable(), offset);
+  if (s.dispatch({ type: 'Batch', commands: copies.map((object) => ({ type: 'AddObject', object }) as Command) })) {
+    s.setSelection(copies.map((c) => c.id));
+    s.setSelectionBar(copies.length > 1 ? MULTI_BAR : copies[0].id);
   }
 }
 

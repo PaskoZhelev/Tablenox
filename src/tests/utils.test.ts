@@ -2,9 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseHash, routeHref } from '../app/router';
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { allowTaps, suppressTaps, tapsSuppressed } from '../canvas/touch';
-import { simplifyPoints, strokeHit, textBounds, textHit, TEXT_LINE_HEIGHT } from '../domain/annotations';
+import { simplifyPoints, straightLinePoints, strokeHit, textBounds, textHit, TEXT_LINE_HEIGHT } from '../domain/annotations';
 import { cardTextColor, DARK_TEXT_COLOR, isRedSuitText, numberedDeck, RED_SUIT_TEXT_COLOR, standardDeck } from '../domain/cards';
-import { distanceToSegment, objectBounds, objectCenter, pointInRect, sceneBounds, unionRects } from '../domain/geometry';
+import {
+  distanceToSegment,
+  holderShapeAspect,
+  holderShapePoints,
+  objectBounds,
+  objectCenter,
+  pointInHolderShape,
+  pointInRect,
+  sceneBounds,
+  unionRects,
+} from '../domain/geometry';
 import { newId } from '../domain/ids';
 import { createObject } from '../domain/objects';
 import type { InkStroke, TextAnnotation } from '../domain/types';
@@ -53,6 +63,33 @@ describe('geometry', () => {
     expect(distanceToSegment({ x: 13, y: 4 }, { x: 0, y: 0 }, { x: 10, y: 0 })).toBe(5);
     expect(distanceToSegment({ x: 3, y: 4 }, { x: 0, y: 0 }, { x: 0, y: 0 })).toBe(5);
   });
+
+  it('builds holder shapes filling their box and tests points against them', () => {
+    expect(holderShapePoints(undefined, 100, 100)).toBeNull();
+    expect(holderShapePoints('circle', 100, 100)).toBeNull();
+    expect(holderShapePoints('diamond', 100, 60)).toEqual([50, 0, 100, 30, 50, 60, 0, 30]);
+    expect(holderShapePoints('hexagon', 100, 200)).toEqual([50, 0, 100, 50, 100, 150, 50, 200, 0, 150, 0, 50]);
+    expect(holderShapePoints('triangle', 90, 60)).toEqual([45, 0, 90, 60, 0, 60]);
+    const oct = holderShapePoints('octagon', 100, 100)!;
+    expect(oct).toHaveLength(16);
+    expect(Math.min(...oct)).toBe(0);
+    expect(Math.max(...oct)).toBe(100);
+    expect(holderShapeAspect(undefined)).toBeNull();
+    expect(holderShapeAspect('rectangle')).toBeNull();
+    expect(holderShapeAspect('circle')).toBe(1);
+    expect(holderShapeAspect('hexagon')).toBeCloseTo(Math.sqrt(3) / 2);
+    expect(holderShapeAspect('hexagonFlat')).toBeCloseTo(2 / Math.sqrt(3));
+
+    expect(pointInHolderShape({ x: 2, y: 2 }, undefined, 100, 100)).toBe(true);
+    expect(pointInHolderShape({ x: 101, y: 50 }, undefined, 100, 100)).toBe(false);
+    expect(pointInHolderShape({ x: 10, y: 10 }, 'circle', 100, 100)).toBe(false);
+    expect(pointInHolderShape({ x: 50, y: 1 }, 'circle', 100, 100)).toBe(true);
+    expect(pointInHolderShape({ x: 10, y: 10 }, 'diamond', 100, 100)).toBe(false);
+    expect(pointInHolderShape({ x: 50, y: 50 }, 'diamond', 100, 100)).toBe(true);
+    expect(pointInHolderShape({ x: 50, y: 0 }, 'diamond', 100, 100)).toBe(true);
+    expect(pointInHolderShape({ x: 5, y: 55 }, 'triangle', 90, 60)).toBe(true);
+    expect(pointInHolderShape({ x: 5, y: 5 }, 'triangle', 90, 60)).toBe(false);
+  });
 });
 
 describe('annotations', () => {
@@ -77,6 +114,12 @@ describe('annotations', () => {
   it('simplifies pen points, keeping the first and last', () => {
     expect(simplifyPoints([0, 0, 1, 1], 5)).toEqual([0, 0, 1, 1]);
     expect(simplifyPoints([0, 0, 1, 0, 2, 0, 10, 0, 11, 0, 11.123, 0], 5)).toEqual([0, 0, 10, 0, 11.12, 0]);
+  });
+
+  it('straightLinePoints keeps only the two ends, or a dot for a very short line', () => {
+    expect(straightLinePoints([0, 0, 5, 9, 20.004, 10.126], 1)).toEqual([0, 0, 20, 10.13]);
+    expect(straightLinePoints([3, 4, 3.2, 4], 1)).toEqual([3, 4]);
+    expect(straightLinePoints([3, 4], 1)).toEqual([3, 4]);
   });
 });
 

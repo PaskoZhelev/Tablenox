@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import {
+  copyObjects,
   deleteObjects,
   duplicateObjects,
   fitToScene,
   flipCard,
   flipDeck,
   nudgeObjects,
+  pasteObjects,
   rollDie,
   rotateStep,
   selectAll,
@@ -55,6 +57,18 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (mod && key === 'd') {
         e.preventDefault();
         if (s.mode === 'edit' && s.selectedIds.length) duplicateObjects(s.selectedIds);
+        return;
+      }
+      if (mod && key === 'c' && s.mode === 'edit') {
+        // Leave a text selection on the page (e.g. in a dialog) to the browser.
+        if (!s.selectedIds.length || window.getSelection()?.toString()) return;
+        e.preventDefault();
+        void copyObjects(s.selectedIds);
+        return;
+      }
+      if (mod && key === 'v' && s.mode === 'edit') {
+        e.preventDefault();
+        void pasteObjects();
         return;
       }
       if (mod && key === 'a' && s.mode === 'edit') {
