@@ -88,18 +88,19 @@ export type Command =
   | { type: 'FlipDeckCard'; deckId: string; cardId: string }
   /**
    * Puts a table card into a deck/pile, on top or at `index` (0 = top; spread holders). `asDefinition` also adds
-   * it to the deck's Reset definition.
+   * it to the deck's Reset definition. `toFront` (on these four commands): the holder/pile that receives the cards
+   * comes above every other object, so what the player just moved isn't drawn under a neighbouring holder or card.
    */
-  | { type: 'AddCardToDeck'; cardId: string; deckId: string; asDefinition?: boolean; index?: number }
+  | { type: 'AddCardToDeck'; cardId: string; deckId: string; asDefinition?: boolean; index?: number; toFront?: boolean }
   /** Drops a card onto another card, creating a pile in the target's place. */
-  | { type: 'MergeCards'; cardId: string; targetCardId: string; pileId: string }
+  | { type: 'MergeCards'; cardId: string; targetCardId: string; pileId: string; toFront?: boolean }
   /** Puts every card of a pile into a deck/pile (keeping their order), on top or at `index`; the pile disappears. */
-  | { type: 'MergePileIntoDeck'; pileId: string; deckId: string; asDefinition?: boolean; index?: number }
+  | { type: 'MergePileIntoDeck'; pileId: string; deckId: string; asDefinition?: boolean; index?: number; toFront?: boolean }
   /**
    * Gathers loose cards and piles into one new pile `pileId` in the place of the first one; the others go on top in
    * the given order (the last one ends up on top). Needs at least two of them.
    */
-  | { type: 'FormPile'; ids: string[]; pileId: string }
+  | { type: 'FormPile'; ids: string[]; pileId: string; toFront?: boolean }
   /** Takes `count` tokens off a token stack as a new stack `newId` at `position`; the stack keeps at least one. */
   | { type: 'SplitTokens'; id: string; newId: string; count: number; position: Vec2 }
   /** Puts a token (stack) onto an identical one: their counts add up and the dropped one disappears. */
@@ -144,6 +145,13 @@ function mapObject(state: TableState, id: string, fn: (o: TabletopObject) => Tab
     return next;
   });
   return changed ? { ...state, objects } : state;
+}
+
+/** `next` with `id` lifted above every other object, when `next` is a real change of `prev` (e.g. a card was put in). */
+function raisedAfter(prev: TableState, next: TableState, id: string, toFront: boolean | undefined): TableState {
+  if (!toFront || next === prev) return next;
+  const top = maxZ(next.objects.filter((o) => o.id !== id));
+  return mapObject(next, id, (o) => (o.zIndex > top ? o : { ...o, zIndex: top + 1 }));
 }
 
 function findObject(state: TableState, id: string): TabletopObject | undefined {
@@ -667,7 +675,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
       });
 
     case 'AddCardToDeck':
-      return addCardToDeck(state, cmd.cardId, cmd.deckId, !!cmd.asDefinition, cmd.index);
+      return raisedAfter(state, addCardToDeck(state, cmd.cardId, cmd.deckId, !!cmd.asDefinition, cmd.index), cmd.deckId, cmd.toFront);
 
     case 'MergeCards': {
       const card = findObject(state, cmd.cardId);
@@ -675,14 +683,12 @@ function applyOne(state: TableState, cmd: Command): TableState {
       if (!card || card.kind !== 'card' || !target || target.kind !== 'card' || card.id === target.id) return state;
       if (findObject(state, cmd.pileId)) return state;
       const pile = pileInPlaceOf(target, cmd.pileId, [tableCardDef(state, card), tableCardDef(state, target)]);
-      return {
-        ...state,
-        objects: [...state.objects.filter((o) => o.id !== card.id && o.id !== target.id), pile],
-      };
+      const merged = { ...state, objects: [...state.objects.filter((o) => o.id !== card.id && o.id !== target.id), pile] };
+      return raisedAfter(state, merged, cmd.pileId, cmd.toFront);
     }
 
     case 'MergePileIntoDeck':
-      return mergePileIntoDeck(state, cmd.pileId, cmd.deckId, !!cmd.asDefinition, cmd.index);
+      return raisedAfter(state, mergePileIntoDeck(state, cmd.pileId, cmd.deckId, !!cmd.asDefinition, cmd.index), cmd.deckId, cmd.toFront);
 
     case 'FormPile': {
       if (findObject(state, cmd.pileId)) return state;
@@ -698,7 +704,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
         zIndex: Math.max(...members.map((m) => m.zIndex)),
       };
       const gone = new Set(members.map((m) => m.id));
-      return { ...state, objects: [...state.objects.filter((o) => !gone.has(o.id)), pile] };
+      return raisedAfter(state, { ...state, objects: [...state.objects.filter((o) => !gone.has(o.id)), pile] }, cmd.pileId, cmd.toFront);
     }
 
     case 'SplitTokens': {

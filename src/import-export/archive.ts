@@ -77,6 +77,63 @@ export function buildLibraryZip(games: Game[], database: TablenoxDB = defaultDb)
   return buildZip({ exportType: 'library', games }, games, database);
 }
 
+// Upper bound for the zip headers and manifest entries each stored image adds.
+const ENTRY_OVERHEAD_BYTES = 512;
+
+/**
+ * Splits games into groups whose archives each stay within the import limit (images are stored uncompressed, so
+ * their sizes plus the manifest JSON are a safe upper bound). An image shared by games in the same group counts once.
+ * Order is kept; a game that is too large on its own gets a group of its own.
+ */
+export async function planLibraryParts(
+  games: Game[],
+  database: TablenoxDB = defaultDb,
+  maxBytes = MAX_IMPORT_BYTES,
+): Promise<Game[][]> {
+  const sizes = new Map<string, number>();
+  const idsOf = games.map((g) => {
+    const ids = new Set<string>();
+    collectAssetIds(g.objects).forEach((id) => ids.add(id));
+    return ids;
+  });
+  const allIds = [...new Set(idsOf.flatMap((ids) => [...ids]))];
+  (await database.assets.bulkGet(allIds)).forEach((a) => {
+    if (a) sizes.set(a.id, a.sizeBytes + ENTRY_OVERHEAD_BYTES);
+  });
+  const costOf = (ids: Iterable<string>, seen: Set<string>) => {
+    let bytes = 0;
+    let count = 0;
+    for (const id of ids) {
+      if (sizes.has(id) && !seen.has(id)) {
+        bytes += sizes.get(id)!;
+        count++;
+      }
+    }
+    return { bytes, count };
+  };
+
+  const parts: Game[][] = [];
+  let current: Game[] = [];
+  let seen = new Set<string>();
+  let bytes = 0;
+  games.forEach((game, i) => {
+    const gameBytes = JSON.stringify(game).length;
+    const added = costOf(idsOf[i], seen);
+    const fits = bytes + gameBytes + added.bytes <= maxBytes && current.length < MAX_ENTRIES && seen.size + added.count < MAX_ENTRIES;
+    if (current.length > 0 && !fits) {
+      parts.push(current);
+      current = [];
+      seen = new Set();
+      bytes = 0;
+    }
+    bytes += gameBytes + costOf(idsOf[i], seen).bytes;
+    idsOf[i].forEach((id) => sizes.has(id) && seen.add(id));
+    current.push(game);
+  });
+  if (current.length > 0) parts.push(current);
+  return parts;
+}
+
 /** True when an export is too large to be imported back. */
 export function exceedsImportLimit(bytes: Uint8Array): boolean {
   return bytes.length > MAX_IMPORT_BYTES;
@@ -92,9 +149,10 @@ export function exportFileName(title: string): string {
   return `${safe}${EXPORT_EXTENSION}`;
 }
 
-export function libraryExportFileName(date = new Date()): string {
+export function libraryExportFileName(date = new Date(), part = 1, totalParts = 1): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `tablenox-library-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}${EXPORT_EXTENSION}`;
+  const suffix = totalParts > 1 ? `-part-${part}-of-${totalParts}` : '';
+  return `tablenox-library-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}${suffix}${EXPORT_EXTENSION}`;
 }
 
 export function downloadBytes(bytes: Uint8Array, fileName: string): void {

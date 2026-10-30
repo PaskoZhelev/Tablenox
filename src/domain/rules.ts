@@ -267,6 +267,8 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   if (!obj || opts.free || obj.kind === 'board' || obj.kind === 'bag' || isHolder(obj)) return move;
 
   const center = objectCenter({ ...obj, position });
+  // What the cards go into comes to the front, as the cards would if dropped on the table.
+  const toFront = true;
 
   if (obj.kind === 'card') {
     const target = findDropTarget(state, id, center);
@@ -278,10 +280,11 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
         ...dropIndex(state, target, center),
+        toFront,
       };
     }
     if (target?.kind === 'card') {
-      return { type: 'MergeCards', cardId: id, targetCardId: target.id, pileId: newId() };
+      return { type: 'MergeCards', cardId: id, targetCardId: target.id, pileId: newId(), toFront };
     }
     return move;
   }
@@ -289,7 +292,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
     const target = findPileTarget(state, id, center);
     if (target?.kind === 'bag') return { type: 'BagPut', bagId: target.id, objectId: id };
     // A pile dropped on a loose card takes it in at the bottom, lying where the card lay.
-    if (target?.kind === 'card') return { type: 'FormPile', ids: [target.id, id], pileId: newId() };
+    if (target?.kind === 'card') return { type: 'FormPile', ids: [target.id, id], pileId: newId(), toFront };
     if (target)
       return {
         type: 'MergePileIntoDeck',
@@ -297,6 +300,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
         deckId: target.id,
         asDefinition: mode === 'edit' && !target.isPile,
         ...dropIndex(state, target, center),
+        toFront,
       };
     return move;
   }

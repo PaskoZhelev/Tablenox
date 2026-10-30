@@ -7,7 +7,7 @@ export async function confirmExportSize(bytes: Uint8Array, kind: 'game' | 'libra
   const mb = (n: number) => Math.round(n / 1024 / 1024);
   const tip =
     kind === 'library'
-      ? 'Remove unused or large images, or export games one by one.'
+      ? 'This file holds a single game that is over the limit. Remove unused or large images from that game.'
       : 'Remove unused or large images to make the game smaller.';
   return confirmDialog({
     title: `Export is larger than ${mb(MAX_IMPORT_BYTES)} MB`,

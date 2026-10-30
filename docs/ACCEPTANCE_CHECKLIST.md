@@ -35,7 +35,7 @@ These were limitations or deferred items in earlier revisions:
 | Stamps (tick, cross, circle, dot, slash, star) | ADR-0031; E2E *roll-and-write…*; `marks.test.ts` › stamps |
 | Manual card order inside holders | Card list ▲ / ▼ (ADR-0027), spread holders take drops where they land (ADR-0023) |
 | Library backup: export all games, import several files | ADR-0031; `archive.test.ts`, `libraryPage.test.tsx` |
-| Imports up to 100 MB; large exports warn before downloading | ADR-0031; `archive.test.ts` |
+| Imports up to 100 MB; *Export all* splits into several files under that; a single over-limit game warns before downloading | ADR-0031; `archive.test.ts` |
 | Images stored once (SHA-256) and scaled down to 2048 px | ADR-0031; `repository.test.ts`, `archive.test.ts` |
 
 ## Known limitations

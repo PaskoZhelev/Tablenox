@@ -12,6 +12,7 @@ import {
   exportFileName,
   importFile,
   libraryExportFileName,
+  planLibraryParts,
   type ImportedGame,
 } from '../../import-export/archive';
 import { downloadExport } from '../../import-export/exportDialog';
@@ -267,9 +268,25 @@ export function LibraryPage() {
       if (!games || games.length === 0) return;
       setExporting(true);
       try {
-        const bytes = await buildLibraryZip(games);
-        if (await downloadExport(bytes, libraryExportFileName(), 'library')) {
-          toast(`Exported ${games.length} ${games.length === 1 ? 'game' : 'games'}.`, 'success');
+        const parts = await planLibraryParts(games);
+        let exported = 0;
+        let cancelled = false;
+        const date = new Date();
+        for (const [i, part] of parts.entries()) {
+          const bytes = await buildLibraryZip(part);
+          if (!(await downloadExport(bytes, libraryExportFileName(date, i + 1, parts.length), 'library'))) {
+            cancelled = true;
+            break;
+          }
+          exported += part.length;
+        }
+        if (exported > 0) {
+          const noun = exported === 1 ? 'game' : 'games';
+          const files = parts.length > 1 ? ` into ${parts.length} files` : '';
+          toast(
+            cancelled ? `Exported ${exported} of ${games.length} games.` : `Exported ${exported} ${noun}${files}.`,
+            cancelled ? 'info' : 'success',
+          );
         }
       } finally {
         setExporting(false);

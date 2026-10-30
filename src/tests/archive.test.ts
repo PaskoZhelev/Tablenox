@@ -10,6 +10,7 @@ import {
   MAX_ENTRIES,
   MAX_IMPORT_BYTES,
   parseImportZip,
+  planLibraryParts,
 } from '../import-export/archive';
 import { SCHEMA_VERSION, type Game } from '../domain/types';
 import { TablenoxDB } from '../persistence/db';
@@ -229,6 +230,29 @@ describe('export / import', () => {
     expect(exceedsImportLimit(new Uint8Array(10))).toBe(false);
     expect(exceedsImportLimit({ length: MAX_IMPORT_BYTES + 1 } as Uint8Array)).toBe(true);
     expect(libraryExportFileName(new Date(2026, 0, 5))).toBe('tablenox-library-2026-01-05.tablenox.zip');
+    expect(libraryExportFileName(new Date(2026, 0, 5), 2, 3)).toBe('tablenox-library-2026-01-05-part-2-of-3.tablenox.zip');
+  });
+
+  it('splits a library into parts that stay within the limit, counting shared images once', async () => {
+    const shared = await repo.addAsset(pngFile());
+    const other = await repo.addAsset(new File([JPEG_BYTES], 'photo.jpg', { type: 'image/jpeg' }));
+    const games = [
+      { ...fixtureGame(shared), id: 'a', title: 'A' },
+      { ...fixtureGame(shared), id: 'b', title: 'B' },
+      { ...fixtureGame(other), id: 'c', title: 'C' },
+    ];
+    expect(await planLibraryParts(games, db)).toHaveLength(1);
+    expect(await planLibraryParts([], db)).toEqual([]);
+
+    const parts = await planLibraryParts(games, db, 3000);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.flat().map((g) => g.id)).toEqual(['a', 'b', 'c']);
+    // A tiny budget still yields every game, one per part.
+    expect((await planLibraryParts(games, db, 1)).map((p) => p.length)).toEqual([1, 1, 1]);
+
+    const imported = [];
+    for (const part of parts) imported.push(...(await importParsed(parseImportZip(await buildLibraryZip(part, db)), db)));
+    expect(imported.map((g) => g.title)).toEqual(['A', 'B', 'C']);
   });
 
   it('accepts JPEG assets', () => {

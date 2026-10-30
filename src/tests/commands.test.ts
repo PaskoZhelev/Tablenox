@@ -853,6 +853,43 @@ describe('deck rules', () => {
     expect(z('pile-1')).toBeGreaterThan(z(token.id));
   });
 
+  it('a card dropped into a holder half under another holder comes above it, and so does a pile it forms', () => {
+    let s = tableOf(fixtureGame());
+    const lower = { ...createObject('deck', { center: { x: 5000, y: 5000 }, zIndex: 1 }), id: 'lower', cards: [] };
+    const upper = { ...createObject('deck', { center: { x: 5000 + lower.width / 2, y: 5000 }, zIndex: maxZ(s.objects) + 1 }), id: 'upper' };
+    s = { ...s, objects: [...s.objects, lower, upper] };
+    const at = (id: string) => sortByStacking(s.objects).findIndex((o) => o.id === id);
+    expect(at('lower')).toBeLessThan(at('upper'));
+    const drawn = drawCardCommand(deckOf(s), { x: -3000, y: -3000 })!;
+    s = applyCommand(s, drawn);
+    const card = s.objects.find((o) => o.id === (drawn as { cardId: string }).cardId)!;
+    // Dropped on the uncovered part of the lower holder.
+    const drop = resolveDrop(s, card.id, { x: lower.position.x + 10 - card.width / 2, y: lower.position.y + lower.height / 2 - card.height / 2 }, 'play');
+    expect(drop).toMatchObject({ type: 'AddCardToDeck', deckId: 'lower', toFront: true });
+    s = applyCommand(s, drop);
+    expect(at('lower')).toBeGreaterThan(at('upper'));
+    // Automations (no toFront) leave the order alone.
+    const before = s.objects.find((o) => o.id === 'upper')!.zIndex;
+    const again = applyCommand(s, drawCardCommand(deckOf(s), { x: -3000, y: -3000 })!);
+    const loose = again.objects.find((o) => o.kind === 'card' && !s.objects.some((x) => x.id === o.id))!;
+    expect(applyCommand(again, { type: 'AddCardToDeck', cardId: loose.id, deckId: 'upper' }).objects.find((o) => o.id === 'upper')!.zIndex).toBe(before);
+
+    // A card dropped on a card lying under another card: the new pile is on top.
+    const t = tableOf(fixtureGame());
+    const target = byKind(t, 'card') as CardObject;
+    const cover = { ...target, id: 'cover', position: { x: target.position.x + 20, y: target.position.y }, zIndex: maxZ(t.objects) + 1 };
+    let u: TableState = { ...t, objects: [...t.objects, cover] };
+    const d = drawCardCommand(deckOf(u), { x: -3000, y: -3000 })!;
+    u = applyCommand(u, d);
+    const dropped = u.objects.find((o) => o.id === (d as { cardId: string }).cardId)!;
+    // Its centre lands on the strip of the target the cover leaves free.
+    const merge = resolveDrop(u, dropped.id, { x: target.position.x + 10 - dropped.width / 2, y: target.position.y }, 'play');
+    expect(merge).toMatchObject({ type: 'MergeCards', targetCardId: target.id, toFront: true });
+    u = applyCommand(u, merge);
+    const pileId = (merge as { pileId: string }).pileId;
+    expect(u.objects.find((o) => o.id === pileId)!.zIndex).toBeGreaterThan(maxZ(u.objects.filter((o) => o.id !== pileId)));
+  });
+
   it('a board comes to the front when a player lifts it in Play mode, but keeps its level in Edit mode', () => {
     const s = tableOf(fixtureGame());
     const board = byKind(s, 'board');

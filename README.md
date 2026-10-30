@@ -41,7 +41,7 @@ No account, no server and no cloud. Everything is stored in your browser (Indexe
 - **Drawing & writing**: pen (colours, widths, highlighter, **straight lines**: with *Straight line* on in the pen options, each drag draws a straight line from where you press to where you let go), **stamps**, whole-stroke eraser and typed text annotations. Marks made **on a board or image (a sheet) belong to it**: they move, turn, lift and resize with it, are drawn under pieces lying on the sheet, and are deleted with it (undo brings both back); an image put into a bag takes its marks along. Marks made on the empty table stay where they are on the table. Drag a text mark onto a sheet (or off it) to move it there. Everything stays aligned at every zoom level. The tool's options panel next to the tool column closes with its ×; click the tool again to bring it back.
 - **Stamps** (`M`): the Stamp tool puts a quick mark where you click: a **tick**, **cross**, **circle**, **dot**, **slash** or **star**, in any colour and five sizes or a custom one (*Custom…*, 4–400 px) (tool options; the shape buttons are drawn on a light or dark background so every colour shows, black included). A faint preview follows the pointer. The Text tool has preset font sizes and a custom one too (6–400 px). Stamps are pen marks drawn in one go, so they belong to the sheet they are on, and erase and undo like any stroke.
 - **Autosave**: debounced saves to IndexedDB with a small status icon. On failure your work stays in memory, and a banner offers Retry and Export.
-- **Portable files**: `.tablenox.zip` archives contain a JSON manifest plus all images. Imports are validated and transactional. **Export all** in the library saves every game in one archive (`tablenox-library-YYYY-MM-DD.tablenox.zip`; an image used by several games is stored once); **Import** takes several files at once and reports which ones failed. Exports larger than the 100 MB import limit ask before downloading, since they couldn't be imported back.
+- **Portable files**: `.tablenox.zip` archives contain a JSON manifest plus all images. Imports are validated and transactional. **Export all** in the library saves every game (`tablenox-library-YYYY-MM-DD.tablenox.zip`; an image used by several games is stored once). A library over the 100 MB import limit is split into several files (`…-part-1-of-3.tablenox.zip`, …) that each import on their own; **Import** takes several files at once and reports which ones failed. A single game larger than 100 MB asks before downloading, since it couldn't be imported back.
 - **Image storage**: an image is stored once however many times it is uploaded or imported (recognised by its content, SHA-256), and images larger than 2048 px on their long side are scaled down on upload (keeping PNG / JPEG / WebP, so transparency is kept). Cards whose image has transparent areas (a hexagon, a circle…) are drawn in that shape, with no white card behind them. The library thumbnail of a game is taken when you leave it.
 
 ## Getting started
@@ -131,7 +131,7 @@ Shortcuts are ignored while typing in an input.
 
 ## Import / export format
 
-An export is a ZIP file named `<title>.tablenox.zip` (one game) or `tablenox-library-YYYY-MM-DD.tablenox.zip` (*Export all*):
+An export is a ZIP file named `<title>.tablenox.zip` (one game) or (`tablenox-library-YYYY-MM-DD.tablenox.zip`, or `…-part-N-of-M.tablenox.zip` when split under the import limit; *Export all*):
 
 ```
 manifest.json
