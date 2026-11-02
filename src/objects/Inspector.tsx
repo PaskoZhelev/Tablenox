@@ -1135,8 +1135,8 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
             </div>
             <CheckboxField
               label="Rotate objects to match holder"
-              checked={!!o.alignRotation}
-              onChange={(alignRotation) => update({ alignRotation })}
+              checked={o.alignRotation !== false}
+              onChange={(alignRotation) => update({ alignRotation: alignRotation ? undefined : false })}
             />
             <CheckboxField
               label="Snap pieces to the centre (slot)"
@@ -1146,8 +1146,10 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
             <p className="hint">
               Cards dropped on a holder go into it. A holder with its own card list (above) is a deck. A spread runs along the holder's
               longer side: left to right when it is wider than tall, top to bottom otherwise. Cards that don't fill it sit at the chosen
-              alignment. With <em>Snap pieces to the centre</em>, tokens, dice and other pieces dropped on the holder are centred on it
-              (Shift+drag places them freely); its shape is set under <em>Object</em>.
+              alignment. With <em>Rotate objects to match holder</em>, cards put in lie at the card rotation and pieces take the holder's
+              rotation; without it, cards and pieces keep the angle they had (and cards come out at that angle). With{' '}
+              <em>Snap pieces to the centre</em>, tokens, dice and other pieces dropped on the holder are centred on it (Shift+drag places
+              them freely); its shape is set under <em>Object</em>.
             </p>
           </Section>
           <DeckEditor o={o} update={update} part="settings" />

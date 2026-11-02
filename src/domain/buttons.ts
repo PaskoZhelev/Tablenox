@@ -1,7 +1,21 @@
 import { applyCommand, type Command } from './commands';
 import { objectCenter } from './geometry';
 import { newId } from './ids';
-import { bagAccepts, bagCount, bagItemWeight, dieFaceCount, displayName, drawnFaceUp, homeDeckMap, isHolder, raisedWhenMoved, sortByStacking, stackingComparator } from './objects';
+import {
+  alignsRotation,
+  bagAccepts,
+  bagCount,
+  bagItemWeight,
+  dieFaceCount,
+  displayName,
+  drawnFaceUp,
+  homeDeckMap,
+  isHolder,
+  raisedWhenMoved,
+  sortByStacking,
+  stackingComparator,
+  withoutCardRotation,
+} from './objects';
 import { randomInt, secureRandomSource, type RandomSource } from './random';
 import {
   bagOf,
@@ -421,7 +435,7 @@ function planMove(plan: Plan, step: MoveStep): void {
     );
 }
 
-const alignedRotation = (target: TabletopObject) => (isHolder(target) && target.alignRotation ? target.rotation : undefined);
+const alignedRotation = (target: TabletopObject) => (isHolder(target) && alignsRotation(target) ? target.rotation : undefined);
 
 function moveToOne(plan: Plan, step: MoveStep, target: TabletopObject): void {
   const into = target.kind === 'deck' ? target : undefined;
@@ -605,8 +619,14 @@ function planRecall(plan: Plan, step: RecallStep, random: RandomSource): void {
   for (const id of gathered) {
     let o = plan.find(id);
     if (o?.kind === 'deck' && !o.isPile) {
-      if ((step.rotation ?? 'reset') === 'reset' && o.cardTurn !== undefined)
-        plan.emit({ type: 'UpdateObject', id, patch: { cardTurn: undefined } });
+      if ((step.rotation ?? 'reset') === 'reset') {
+        if (o.cardTurn !== undefined) plan.emit({ type: 'UpdateObject', id, patch: { cardTurn: undefined } });
+        // Cards that kept their own angle when put in lie like the others again.
+        if (o.cards.some((c) => c.rotation !== undefined))
+          plan.emit({ type: 'UpdateObject', id, patch: { cards: o.cards.map(withoutCardRotation) } });
+        o = plan.find(id);
+        if (o?.kind !== 'deck') continue;
+      }
       const side = step.orientation ?? 'faceDown';
       if (side !== 'keep') {
         const before = o.cards;

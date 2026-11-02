@@ -90,7 +90,7 @@ export function HoverPreview() {
 
   // Turned like the object on the table, or upright (the default).
   const shownCardId = hovered.kind === 'deck' && isSpread(hovered) ? hoverCardId : null;
-  const turn = effectiveHoverRotate(table, hovered, shownCardId) ? hoverRotationOf(hovered) : 0;
+  const turn = effectiveHoverRotate(table, hovered, shownCardId) ? hoverRotationOf(hovered, shownCardId) : 0;
   const box = rotatedBox({ width: preview.w, height: preview.h }, turn);
   const scale = Math.min(
     HOVER_ZOOM_PX[zoom] / Math.max(box.width, box.height),

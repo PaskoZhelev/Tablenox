@@ -601,7 +601,7 @@ export function duplicateObjects(ids: string[]): void {
     if (copy.kind === 'token') copy.sourceId = undefined;
     if (copy.kind === 'deck') {
       copy.cards = copy.cards.map((c) => ({ ...c, id: newId() }));
-      copy.initialCards = copy.cards.map((c) => ({ ...c }));
+      copy.initialCards = copy.cards.map(({ rotation: _rotation, ...c }) => ({ ...c }));
     }
     if (copy.kind === 'bag') {
       // Entries keep their identity only in the original bag: the copy gets its own.

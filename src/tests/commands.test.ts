@@ -779,6 +779,73 @@ describe('deck rules', () => {
     expect(resolveDrop(s, deckOf(s).id, { ...holder.position }, 'edit')).toMatchObject({ type: 'MoveObject', toFront: true });
   });
 
+  it('holders rotate pieces to match by default, unless the setting is switched off', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { rotation: 90 } });
+    const token = byKind(s, 'token');
+    const at = { x: holder.position.x + holder.width / 2 - token.width / 2, y: holder.position.y + holder.height / 2 - token.height / 2 };
+    expect(holderOf(s).alignRotation).toBeUndefined();
+    expect(resolveDrop(s, token.id, at, 'play')).toMatchObject({ type: 'MoveObject', rotation: 90 });
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { alignRotation: false } });
+    expect(resolveDrop(s, token.id, at, 'play')).not.toHaveProperty('rotation');
+  });
+
+  it('a card put into a holder that does not match rotation keeps its angle, and comes out at it', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    const card = byKind(s, 'card') as CardObject;
+    const size = { width: card.width, height: card.height };
+    s = applyCommand(s, { type: 'UpdateObject', id: card.id, patch: { rotation: 90 } });
+
+    // Matching (the default): the card lies like the holder's cards and comes out upright.
+    let t = applyCommand(s, { type: 'AddCardToDeck', cardId: card.id, deckId: holder.id });
+    expect(holderOf(t).cards[0]).not.toHaveProperty('rotation');
+    expect(cardSlots(t.objects, holderOf(t))[0]).toMatchObject(size);
+
+    // Not matching: the card keeps 90° in the holder (the slot is turned) and comes out at 90°.
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { alignRotation: false } });
+    t = applyCommand(s, { type: 'AddCardToDeck', cardId: card.id, deckId: holder.id });
+    expect(holderOf(t).cards[0].rotation).toBe(90);
+    expect(cardSlots(t.objects, holderOf(t))[0]).toMatchObject({ width: size.height, height: size.width });
+    expect(hoverRotationOf(holderOf(t))).toBe(90);
+    const draw = drawCardCommand(holderOf(t))! as Extract<Command, { type: 'DrawCard' }>;
+    const out = applyCommand(t, draw);
+    expect(cardsOnTable(out).find((c) => c.id === draw.cardId)!.rotation).toBe(90);
+
+    // The angle is stored relative to the holder and its card rotation, so the card looks the same on the table.
+    const turned = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { rotation: 30, cardRotation: 90 } });
+    t = applyCommand(turned, { type: 'AddCardToDeck', cardId: card.id, deckId: holder.id });
+    expect(holderOf(t).cards[0].rotation).toBe(330);
+    expect(hoverRotationOf(holderOf(t))).toBe(90);
+    const again = drawCardCommand(holderOf(t))! as Extract<Command, { type: 'DrawCard' }>;
+    expect(cardsOnTable(applyCommand(t, again)).find((c) => c.id === again.cardId)!.rotation).toBe(90);
+  });
+
+  it('piles and definitions never keep a card’s own rotation', () => {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    const card = byKind(s, 'card') as CardObject;
+    s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { alignRotation: false } });
+    s = applyCommand(s, { type: 'UpdateObject', id: card.id, patch: { rotation: 90 } });
+    // Put in in Edit mode, it joins the holder's definition too, but upright there.
+    s = applyCommand(s, { type: 'AddCardToDeck', cardId: card.id, deckId: holder.id, asDefinition: true });
+    expect(holderOf(s).cards[0].rotation).toBe(90);
+    expect(holderOf(s).initialCards[0]).not.toHaveProperty('rotation');
+    // Lifted out as a pile, the cards lie as the pile.
+    const draw = drawCardCommand(deckOf(s))! as Extract<Command, { type: 'DrawCard' }>;
+    s = applyCommand(s, draw);
+    s = applyCommand(s, { type: 'AddCardToDeck', cardId: draw.cardId, deckId: holder.id });
+    const take = takeStackCommand(s.objects, holderOf(s), { x: 0, y: 0 })! as Extract<Command, { type: 'TakeStack' }>;
+    s = applyCommand(s, take);
+    const pile = s.objects.find((o) => o.id === take.pileId) as DeckObject;
+    expect(pile.cards.every((c) => c.rotation === undefined)).toBe(true);
+    // Merged back into the holder, the cards keep the angle the pile lies at.
+    s = applyCommand(s, { type: 'UpdateObject', id: pile.id, patch: { rotation: 180 } });
+    s = applyCommand(s, { type: 'MergePileIntoDeck', pileId: pile.id, deckId: holder.id });
+    expect(holderOf(s).cards.map((c) => c.rotation)).toEqual([180, 180]);
+  });
+
   it('a slot holder centres the pieces dropped on it (Shift places freely); cards still go in', () => {
     let s = tableOf(fixtureGame());
     const holder = holderOf(s);

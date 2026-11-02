@@ -2,9 +2,12 @@ import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
 import { objectCenter, pointInHolderShape } from './geometry';
 import {
+  alignsRotation,
   bagAccepts,
   bagItemWeight,
+  cardRotationOf,
   cardSizeOf,
+  cardTurnOf,
   dieFaceCount,
   drawnFaceUp,
   homeDeckMap,
@@ -142,10 +145,7 @@ export function isSpread(deck: DeckObject): boolean {
   return !deck.isPile && deck.layout === 'spread';
 }
 
-/** Degrees (clockwise, 0–359) a holder turns the cards it shows (its set-up rotation plus any automation turn); piles never turn them. */
-export function cardRotationOf(deck: DeckObject): number {
-  return deck.isPile ? 0 : normalizeDegrees((deck.cardRotation ?? 0) + (deck.cardTurn ?? 0));
-}
+export { cardRotationOf, cardTurnOf } from './objects';
 
 function normalizeDegrees(d: number): number {
   const n = ((Math.round(d) % 360) + 360) % 360;
@@ -180,8 +180,9 @@ export function spreadLayout(
   const withGap = isSpread(deck) && gapAt !== undefined && gapAt !== null;
   if (n === 0 && !withGap) return { slots: [] };
   const turn = cardRotationOf(deck);
-  const slotSize = (s: { width: number; height: number }) => rotatedBox(s, turn);
-  const look = (i: number) => slotSize(resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id)));
+  const slotSize = (s: { width: number; height: number }, degrees = turn) => rotatedBox(s, degrees);
+  const look = (i: number) =>
+    slotSize(resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id)), cardTurnOf(deck, deck.cards[i]));
   if (!isSpread(deck)) {
     const l = look(0);
     return { slots: [{ index: 0, x: (deck.width - l.width) / 2, y: (deck.height - l.height) / 2, width: l.width, height: l.height }] };
@@ -312,7 +313,7 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   const surface = topmostSurface(state.objects, obj, center);
   if (surface?.kind === 'bag') return { type: 'BagPut', bagId: surface.id, objectId: id };
   if (!surface) return move;
-  const rotation = surface.alignRotation ? { rotation: surface.rotation } : {};
+  const rotation = alignsRotation(surface) ? { rotation: surface.rotation } : {};
   if (surface.snapToCenter !== false) {
     // A slot: the piece is centred on the holder.
     const c = objectCenter(surface);
@@ -614,9 +615,14 @@ export function pressPreviewOf(state: TableState, o: TabletopObject, p: Vec2): {
   return { id: o.id, cardId: card.id };
 }
 
-/** Degrees the hover preview of `o` is turned when it follows the object: a holder adds the turn of its cards. */
-export function hoverRotationOf(o: TabletopObject): number {
-  return normalizeDegrees(o.rotation + (o.kind === 'deck' ? cardRotationOf(o) : 0));
+/**
+ * Degrees the hover preview of `o` is turned when it follows the object: a holder adds the turn of the card shown
+ * (`cardId`, or its top card).
+ */
+export function hoverRotationOf(o: TabletopObject, cardId?: string | null): number {
+  if (o.kind !== 'deck') return normalizeDegrees(o.rotation);
+  const card = (cardId ? o.cards.find((c) => c.id === cardId) : undefined) ?? o.cards[0];
+  return normalizeDegrees(o.rotation + cardTurnOf(o, card));
 }
 
 /** Angles the rotation picker offers. */

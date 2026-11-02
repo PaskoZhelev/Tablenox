@@ -39,6 +39,7 @@ export const cardDefSchema = z.object({
   width: positive.optional(),
   height: positive.optional(),
   faceUp: z.boolean().optional(),
+  rotation: z.number().min(0).lt(360).optional(),
 });
 
 const objectIds = z.array(id).max(500);

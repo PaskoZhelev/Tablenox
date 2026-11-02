@@ -5,10 +5,12 @@ import {
   cardDefFromObject,
   cardObjectFromDef,
   cardSizeOf,
+  cardTurnedInto,
   dieFaceCount,
   cardPutInto,
   cardsZOf,
   drawnFaceUp,
+  drawnRotation,
   homeDeckMap,
   isHolder,
   maxCardsZ,
@@ -17,6 +19,7 @@ import {
   resolveCardLook,
   sameTokenLook,
   tokenCount,
+  withoutCardRotation,
   withTokenCount,
 } from './objects';
 import {
@@ -209,7 +212,8 @@ function setZIndex(state: TableState, id: string, direction: ZOrderDirection): T
   };
 }
 
-const stripFace = ({ faceUp: _faceUp, ...rest }: CardDef): CardDef => rest;
+/** A card as a definition (or a card going back home): no side and no rotation of its own. */
+const stripFace = ({ faceUp: _faceUp, rotation: _rotation, ...rest }: CardDef): CardDef => rest;
 
 /** `incoming` inserted into `cards` at `index` (clamped; missing = on top). */
 function insertCards(cards: CardDef[], incoming: CardDef[], index: number | undefined): CardDef[] {
@@ -260,7 +264,7 @@ function addCardToDeck(state: TableState, cardId: string, deckId: string, asDefi
       if (o.id === deck.id) {
         return {
           ...deck,
-          cards: alreadyInDeck ? deck.cards : insertCards(deck.cards, [cardPutInto(deck, def)], index),
+          cards: alreadyInDeck ? deck.cards : insertCards(deck.cards, [cardPutInto(deck, cardTurnedInto(deck, def, card.rotation))], index),
           initialCards: define ? [stripFace(def), ...deck.initialCards] : deck.initialCards,
         };
       }
@@ -309,7 +313,7 @@ function mergePileIntoDeck(state: TableState, pileId: string, deckId: string, as
           ...deck,
           cards: insertCards(
             deck.cards,
-            incoming.map((c) => cardPutInto(deck, c)),
+            incoming.map((c) => cardPutInto(deck, cardTurnedInto(deck, c, pile.rotation))),
             index,
           ),
           initialCards: [...defined.map(stripFace), ...deck.initialCards],
@@ -444,7 +448,7 @@ function returnPile(state: TableState, id: string): TableState {
         ...o,
         cards: insertCards(
           o.cards,
-          back.filter((c) => !inHolder.has(c.id)).map((c) => cardPutInto(o, c)),
+          back.filter((c) => !inHolder.has(c.id)).map((c) => cardPutInto(o, cardTurnedInto(o, c, pile.rotation))),
           undefined,
         ),
       },
@@ -618,6 +622,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
         faceUp: cmd.faceUp,
         zIndex: maxZ(state.objects) + 1,
         owner: ownerDeckOf(state.objects, picked.id),
+        rotation: drawnRotation(deck, picked),
       });
       const removePile = deck.isPile && rest.length === 0;
       const objects = state.objects.flatMap((o) => (o.id !== deck.id ? [o] : removePile ? [] : [{ ...deck, cards: rest }]));
@@ -640,7 +645,8 @@ function applyOne(state: TableState, cmd: Command): TableState {
         : cmd.fromBottom
           ? deck.cards.slice(0, deck.cards.length - n)
           : deck.cards.slice(n);
-      const cards = taken.map((c): CardDef => {
+      const cards = taken.map((t): CardDef => {
+        const c = withoutCardRotation(t);
         const owner = ownerDeckOf(state.objects, c.id);
         const faceUp = drawnFaceUp(deck, c);
         if (owner) return { ...c, faceUp };
@@ -688,7 +694,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
         zIndex: maxZ(state.objects) + 1,
         locked: false,
         visible: true,
-        cards: holder.cards,
+        cards: holder.cards.map(withoutCardRotation),
         initialCards: [],
         backAssetId: holder.backAssetId,
         backColor: holder.backColor,

@@ -14,7 +14,7 @@ import {
   tokenCount,
 } from '../domain/objects';
 import { useShallow } from 'zustand/react/shallow';
-import { cardRotationOf, isSpread, spreadLayout } from '../domain/rules';
+import { cardTurnOf, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import { holderShapePoints } from '../domain/geometry';
 import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
@@ -349,7 +349,7 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
   const holder = !o.isPile;
   const showBadge = count > 1;
   const { slots, gap } = spreadLayout(objects, o, gapAt);
-  const turn = cardRotationOf(o);
+  const turnOf = (i: number) => cardTurnOf(o, o.cards[i]);
   // A stack of two or more cards gets one thin edge underneath, whatever its size.
   const stacked = slots.length === 1 && !isSpread(o) && count > 1;
   const lookOf = (i: number) => resolveCardLook(o.cards[i], o, ownerDeckOf(objects, o.cards[i].id));
@@ -377,7 +377,7 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
         <Group
           x={slots[0].x + slots[0].width / 2 + STACK_EDGE}
           y={slots[0].y + slots[0].height / 2 + STACK_EDGE}
-          rotation={turn}
+          rotation={turnOf(0)}
           offsetX={lookOf(0).width / 2}
           offsetY={lookOf(0).height / 2}
           listening={false}
@@ -410,7 +410,7 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
       {slots.map((s) => {
         const c = o.cards[s.index];
         const look = lookOf(s.index);
-        // The card is drawn upright, then turned by the holder's card rotation about its slot's centre.
+        // The card is drawn upright, then turned by the holder's card rotation (plus its own) about its slot's centre.
         return (
           <Group
             key={c.id}
@@ -418,7 +418,7 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
             y={s.y + s.height / 2}
             offsetX={look.width / 2}
             offsetY={look.height / 2}
-            rotation={turn}
+            rotation={turnOf(s.index)}
             name="deck-card"
           >
             <CardVisual

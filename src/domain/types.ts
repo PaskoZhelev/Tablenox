@@ -64,6 +64,12 @@ export interface CardDef {
   height?: number;
   /** Side the card lies on inside a holder or pile. Undefined means face down. */
   faceUp?: boolean;
+  /**
+   * Holders only: degrees (clockwise, 0–359) the card is turned on top of the holder's card rotation, because it was
+   * put in with *Rotate objects to match holder* off; it comes out turned like that. Missing means it lies like the
+   * holder's other cards (and comes out upright). Piles and definitions never store one.
+   */
+  rotation?: number;
 }
 
 export interface CardObject extends BaseObject {
@@ -150,7 +156,10 @@ export interface DeckObject extends BaseObject {
   label?: string;
   /** Where the label sits relative to the zone; missing means above. */
   labelPosition?: 'above' | 'below';
-  /** Objects dropped onto the holder take on its rotation. */
+  /**
+   * Objects dropped onto the holder take on its rotation, and cards put in lie like its other cards. Missing means
+   * on; `false` turns it off: pieces keep their rotation and cards keep the angle they had (`CardDef.rotation`).
+   */
   alignRotation?: boolean;
   /** Holders only move in Edit mode unless this is set (piles always move). */
   playMovable?: boolean;

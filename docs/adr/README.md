@@ -294,3 +294,14 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Sizes.** Stamp size and text font size offer presets plus *Custom…* (4 / 6–400 px). The stamp shape buttons use a light or dark background depending on the stamp colour (`isLightColor`).
 
 **Consequences:** the clipboard holds one copy at a time for the whole browser profile; its images stay stored until something else is copied. Holder hit-testing is no longer always the box, so code that needs the box must use `toLocal` / bounds rather than `pointInObject`.
+## ADR-0034: cards keep their angle in holders that don't match rotation
+
+**Context:** a card put into a holder always lay at the holder's card rotation and came out upright, even with *Rotate objects to match holder* off: the option only applied to other pieces, and it was off by default, so a turned card dropped into a plain holder lost its angle.
+
+**Decision:**
+
+- **On by default.** `DeckObject.alignRotation` missing now means on (`alignsRotation`); `false` turns it off (the panel stores `undefined` / `false`, like `snapToCenter`). Pieces dropped on a holder (or moved there by an automation) take its rotation unless it is off.
+- **Per-card angle.** `CardDef.rotation?` (holders only, 0–359.999) is the card's turn on top of the holder's `cardRotationOf`. `cardTurnedInto(deck, def, angle)` sets it when a card goes into a holder that doesn't align rotation (`AddCardToDeck` from the card's angle, `MergePileIntoDeck` / `ReturnPile` from the pile's), so the card looks the same as on the table (`angle − holder.rotation − cardRotationOf`); a holder that aligns rotation, or a pile, clears it. `cardTurnOf` (holder card rotation + own) drives `spreadLayout` slot sizes, `DeckVisual` and `hoverRotationOf(o, cardId)`. `DrawCard` gives the card `drawnRotation` (its angle on the table; cards without their own angle still come out upright).
+- **Never in piles or definitions.** `TakeStack` / `DrawCards` drop it (`withoutCardRotation`), `stripFace` drops it with the side (definitions, cards sent home by Gather & reset), Duplicate's copied definitions drop it. A Recall step with `rotation: 'reset'` clears it from the holders it gathers into.
+
+**Consequences:** older saves had `alignRotation` missing = off; they now match rotation: their cards behave exactly as before, but pieces dropped on a rotated holder now take its rotation until the option is unticked.

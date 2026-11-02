@@ -131,6 +131,49 @@ export function drawnFaceUp(deck: Pick<DeckObject, 'drawSide'>, card: Pick<CardD
   return deck.drawSide === 'keep' ? card.faceUp === true : deck.drawSide === 'faceUp';
 }
 
+/** `d` degrees as 0–359.999 (clockwise); tiny floating-point leftovers are rounded away. */
+export function normalizeAngle(d: number): number {
+  const n = (((Math.round(d * 1000) / 1000) % 360) + 360) % 360;
+  return Number.isFinite(n) && n < 360 ? n : 0;
+}
+
+/** Degrees (clockwise, 0–359) a holder turns the cards it shows (its set-up rotation plus any automation turn); piles never turn them. */
+export function cardRotationOf(deck: DeckObject): number {
+  return deck.isPile ? 0 : normalizeAngle(Math.round((deck.cardRotation ?? 0) + (deck.cardTurn ?? 0)));
+}
+
+/** Degrees (clockwise, 0–359.999) `card` is turned inside `deck`: the holder's card rotation plus the card's own. */
+export function cardTurnOf(deck: DeckObject, card: Pick<CardDef, 'rotation'> | undefined): number {
+  return deck.isPile ? 0 : normalizeAngle(cardRotationOf(deck) + (card?.rotation ?? 0));
+}
+
+/** Whether objects put on / cards put into the holder take its rotation (*Rotate objects to match holder*; on unless turned off). */
+export function alignsRotation(holder: Pick<DeckObject, 'alignRotation'>): boolean {
+  return holder.alignRotation !== false;
+}
+
+/**
+ * `card`, which lay at world angle `angle`, as it lies once put into `deck`: in a holder that doesn't align rotation it
+ * keeps that angle (`rotation`), anywhere else it lies like the other cards (same object when unchanged).
+ */
+export function cardTurnedInto(deck: DeckObject, card: CardDef, angle: number): CardDef {
+  const { rotation: _rotation, ...rest } = card;
+  if (deck.isPile || alignsRotation(deck)) return card.rotation === undefined ? card : rest;
+  return { ...rest, rotation: normalizeAngle(angle - deck.rotation - cardRotationOf(deck)) };
+}
+
+/** World angle a card has when it comes out of `deck`: as it lay if it has its own rotation, otherwise upright. */
+export function drawnRotation(deck: DeckObject, card: Pick<CardDef, 'rotation'>): number {
+  return deck.isPile || card.rotation === undefined ? 0 : normalizeAngle(deck.rotation + cardTurnOf(deck, card));
+}
+
+/** `card` without its own rotation (as piles and definitions hold it; same object when it has none). */
+export function withoutCardRotation(card: CardDef): CardDef {
+  if (card.rotation === undefined) return card;
+  const { rotation: _rotation, ...rest } = card;
+  return rest;
+}
+
 /** `card` as it lies once put into `deck`: turned by the holder's "Cards come in" setting, or as it was (same object when unchanged). */
 export function cardPutInto(deck: Pick<DeckObject, 'putSide'>, card: CardDef): CardDef {
   const side = deck.putSide ?? 'keep';
@@ -376,7 +419,7 @@ export function resolveCardLook(def: CardDef, deck: DeckObject, owner: DeckObjec
 export function cardObjectFromDef(
   def: CardDef,
   deck: DeckObject,
-  opts: { id?: string; position: Vec2; faceUp: boolean; zIndex: number; owner?: DeckObject },
+  opts: { id?: string; position: Vec2; faceUp: boolean; zIndex: number; owner?: DeckObject; rotation?: number },
 ): CardObject {
   const look = resolveCardLook(def, deck, opts.owner);
   return {
@@ -386,7 +429,7 @@ export function cardObjectFromDef(
     position: opts.position,
     width: look.width,
     height: look.height,
-    rotation: 0,
+    rotation: opts.rotation ?? 0,
     zIndex: opts.zIndex,
     locked: false,
     visible: true,
