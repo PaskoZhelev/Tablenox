@@ -15,6 +15,7 @@ import {
   raisedWhenMoved,
   sortByStacking,
   stackingComparator,
+  tokenCount,
   withoutCardRotation,
 } from './objects';
 import { randomInt, secureRandomSource, type RandomSource } from './random';
@@ -59,6 +60,7 @@ import type {
   TableState,
   TabletopObject,
   TimerStep,
+  TokenObject,
 } from './types';
 import { timerFinished } from './timer';
 
@@ -451,6 +453,14 @@ function planMove(plan: Plan, step: MoveStep): void {
 
 const alignedRotation = (target: TabletopObject) => (isHolder(target) && alignsRotation(target) ? target.rotation : undefined);
 
+/** Takes `n` tokens off a token stack, as a new stack lying where it lies; all of them = the stack itself. Returns what moves. */
+function takeTokens(plan: Plan, token: TokenObject, n: number): string {
+  if (n >= tokenCount(token)) return token.id;
+  const fresh = newId();
+  plan.emit({ type: 'SplitTokens', id: token.id, newId: fresh, count: n, position: token.position });
+  return plan.find(fresh) ? fresh : token.id;
+}
+
 function moveToOne(plan: Plan, step: MoveStep, target: TabletopObject): void {
   const into = target.kind === 'deck' ? target : undefined;
   const rotation = alignedRotation(target);
@@ -473,6 +483,9 @@ function moveToOne(plan: Plan, step: MoveStep, target: TabletopObject): void {
     } else if (src.kind === 'card') {
       setOrientation(plan, src, step.orientation);
       deliver(plan, target, src.id, rotation);
+    } else if (src.kind === 'token' && step.count !== undefined) {
+      // A token stack gives up `count` tokens, like a holder gives up cards.
+      deliver(plan, target, takeTokens(plan, src, step.count), rotation);
     } else if (target.kind !== 'bag' || bagAccepts(src)) {
       deliver(plan, target, src.id, rotation);
     }
@@ -504,6 +517,16 @@ function dealToMany(plan: Plan, step: MoveStep, targetIds: ObjectId[]): void {
     } else if (src.kind === 'card') {
       setOrientation(plan, src, step.orientation);
       deliverTo(turn++, src.id);
+    } else if (src.kind === 'token' && step.count !== undefined) {
+      // A token stack deals `count` tokens to each destination, while it has them.
+      let left = tokenCount(src);
+      for (let i = 0; i < n && left > 0; i++) {
+        const now = plan.find(src.id);
+        if (now?.kind !== 'token') break;
+        const take = Math.min(step.count, left);
+        left -= take;
+        deliverTo(i, takeTokens(plan, now, take));
+      }
     } else {
       const target = plan.find(targetIds[turn % n]);
       if (target && (target.kind !== 'bag' || bagAccepts(src))) deliverTo(turn++, src.id);

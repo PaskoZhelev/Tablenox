@@ -35,6 +35,7 @@ import type {
   RecallStep,
   TableState,
   TabletopObject,
+  TokenObject,
 } from '../domain/types';
 import { fixtureGame, tableOf } from './fixtures';
 
@@ -477,6 +478,40 @@ describe('automation buttons', () => {
     const loose = run(s, { ...button, steps: [step('move', [card.id, holder.id], { targetIds: [extra[1].id, holder.id] })] });
     expect(get<DeckObject>(loose, extra[1].id).cards).toHaveLength(1);
     expect(get(loose, card.id)).toBeUndefined();
+  });
+
+  it('a count takes that many tokens off a token stack, also one lying in a holder; recall puts them back', () => {
+    const { state, button, holder } = setup();
+    const token = { ...byKind<TokenObject>(state, 'token'), count: 12, assetId: undefined };
+    const other = { ...createObject('deck', { center: { x: 3000, y: 0 }, zIndex: 70 }), id: 'other', name: 'Other', cards: [] };
+    const third = { ...createObject('deck', { center: { x: 3600, y: 0 }, zIndex: 71 }), id: 'third', name: 'Third', cards: [] };
+    let s: TableState = { ...state, objects: [...state.objects.filter((o) => o.id !== token.id), token, other, third] };
+    const tokens = (st: TableState) => st.objects.filter((o): o is TokenObject => o.kind === 'token');
+    const inHolder = (st: TableState, id: string) => tokens(st).filter((t) => t.holderId === id);
+    const countIn = (st: TableState, id: string) => inHolder(st, id).reduce((n, t) => n + (t.count ?? 1), 0);
+    // All 12 go into the holder as one stack, then one of them moves on to another holder.
+    s = run(s, { ...button, steps: [step('move', [token.id], { targetIds: [holder.id] })] });
+    expect(countIn(s, holder.id)).toBe(12);
+    s = run(s, { ...button, steps: [step('move', [holder.id], { targetIds: ['other'], count: 1 })] });
+    expect(countIn(s, holder.id)).toBe(11);
+    expect(countIn(s, 'other')).toBe(1);
+    // Again: it joins the token already there (one stack of 2).
+    s = run(s, { ...button, steps: [step('move', [holder.id], { targetIds: ['other'], count: 1 })] });
+    expect(inHolder(s, 'other')).toHaveLength(1);
+    expect(countIn(s, 'other')).toBe(2);
+    // Dealt to several destinations: `count` each while there are tokens left; asking for all of them moves the stack.
+    s = run(s, { ...button, steps: [step('move', [holder.id], { targetIds: ['other', 'third'], count: 4 })] });
+    expect([countIn(s, holder.id), countIn(s, 'other'), countIn(s, 'third')]).toEqual([2, 6, 4]);
+    s = run(s, { ...button, steps: [step('move', [holder.id], { targetIds: ['third'], count: 5 })] });
+    expect(countIn(s, holder.id)).toBe(0);
+    expect(countIn(s, 'third')).toBe(6);
+    // Without a count the whole stack moves, as before.
+    s = run(s, { ...button, steps: [step('move', ['other'], { targetIds: [holder.id] })] });
+    expect(countIn(s, 'other')).toBe(0);
+    expect(countIn(s, holder.id)).toBe(6);
+    // The split stacks remember where they came from: recall puts every token back on the stack.
+    s = run(s, { ...button, steps: [step('recall', [token.id])] });
+    expect(tokens(s).reduce((n, t) => n + (t.count ?? 1), 0)).toBe(12);
   });
 
   it('recall sends a holder’s foreign cards home, and a deck gathers all of its cards', () => {

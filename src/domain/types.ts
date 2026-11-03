@@ -330,7 +330,10 @@ export interface MoveStep extends StepBase {
   targetIds: ObjectId[];
   /** Holders/piles give up cards from their top or bottom (the holder itself never moves). */
   deckMode: DeckMoveMode;
-  /** Number of cards each destination gets from each holder/pile/bag; missing means all of them. */
+  /**
+   * Number of cards (or tokens of a token stack) each destination gets from each holder/pile/bag/token stack; missing
+   * means all of them. Other pieces always move whole.
+   */
   count?: number;
   orientation: StepOrientation;
 }
