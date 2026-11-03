@@ -149,7 +149,9 @@ export function useCrispImage(id: string | undefined, w: number, h: number): Bit
   const fixed = useContext(RenderScaleContext);
   const level = useTableStore((s) => {
     if (!img) return 0;
-    const px = (fixed ?? s.camera.scale) * (globalThis.devicePixelRatio || 1);
+    // While the magnifier is shown, images are kept sharp enough for its zoom.
+    const scale = fixed ?? s.camera.scale * (s.magnifierHeld ? s.ui.magnifierZoom : 1);
+    const px = scale * (globalThis.devicePixelRatio || 1);
     return mipLevel(img, w * px, h * px);
   });
   return img && mipmap(img, level);

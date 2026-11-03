@@ -41,6 +41,7 @@ const ROWS: [string, string][] = [
     'Play mode: form a pile, flip cards, return cards to their holders, roll dice · Edit mode also: duplicate, lock, delete, align (left / centres / right / top / middles / bottom) and distribute (3+ objects; also in the properties panel)',
   ],
   ['Wheel', 'Zoom around the cursor'],
+  ['Hold Z', 'Magnifier: the table under the mouse, enlarged, follows the mouse while Z is held · the wheel sets how much it enlarges'],
   ['Drag empty table / Space + drag', 'Pan'],
   ['V H P M E T', 'Select, Pan, Pen, Stamp, Eraser, Text tool'],
   [

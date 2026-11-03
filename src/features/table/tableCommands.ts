@@ -78,6 +78,10 @@ export function useTableShortcuts(onHelp?: () => void): void {
       }
       if (mod || e.altKey) return;
 
+      if (key === 'z') {
+        s.setMagnifierHeld(true);
+        return;
+      }
       if (e.key === ' ') {
         e.preventDefault();
         s.setSpaceHeld(true);
@@ -153,8 +157,12 @@ export function useTableShortcuts(onHelp?: () => void): void {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === ' ') useTableStore.getState().setSpaceHeld(false);
+      if (e.key.toLowerCase() === 'z') useTableStore.getState().setMagnifierHeld(false);
     };
-    const onBlur = () => useTableStore.getState().setSpaceHeld(false);
+    const onBlur = () => {
+      useTableStore.getState().setSpaceHeld(false);
+      useTableStore.getState().setMagnifierHeld(false);
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);

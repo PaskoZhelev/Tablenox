@@ -1762,6 +1762,45 @@ test('play mode: a box selection of dice dragged onto a spread holder highlights
   expect(await storeState(page, '(s) => s.dropTargetId')).toBe(null);
 });
 
+test('hold Z: a magnifier follows the mouse with the table enlarged; the wheel changes its zoom, not the camera', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const die = await storeState<{ x: number; y: number; w: number; h: number }>(
+    page,
+    "(s) => { const o = s.history.present.objects.find(o => o.kind === 'die'); return { x: o.position.x, y: o.position.y, w: o.width, h: o.height }; }",
+  );
+  const at = await worldToPage(page, die.x + die.w / 2, die.y + die.h / 2);
+  await page.mouse.move(at.x, at.y);
+  const lens = page.getByTestId('magnifier');
+  await expect(lens).toHaveCount(0);
+  await page.keyboard.down('z');
+  await expect(lens).toBeVisible();
+  const centre = async () => {
+    const b = (await lens.boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  await expect.poll(async () => Math.abs((await centre()).x - at.x)).toBeLessThanOrEqual(1.5);
+  // The middle of the lens shows the die enlarged: white, where the table is dark grey.
+  const middle = await page.evaluate(() => {
+    const c = document.querySelector('[data-testid="magnifier"] canvas') as HTMLCanvasElement;
+    const d = c.getContext('2d')!.getImageData(Math.round(c.width / 2) - 20, Math.round(c.height / 2) - 20, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  });
+  expect(Math.min(...middle)).toBeGreaterThan(200);
+  // It follows the mouse.
+  await page.mouse.move(at.x + 120, at.y + 60, { steps: 4 });
+  await expect.poll(async () => Math.abs((await centre()).x - at.x - 120)).toBeLessThanOrEqual(1.5);
+  // The wheel changes the magnification and leaves the camera alone.
+  const camera = await storeState<number>(page, '(s) => s.camera.scale');
+  const zoom = await storeState<number>(page, '(s) => s.ui.magnifierZoom');
+  await page.mouse.wheel(0, -300);
+  await expect.poll(() => storeState<number>(page, '(s) => s.ui.magnifierZoom')).toBeGreaterThan(zoom);
+  expect(await storeState<number>(page, '(s) => s.camera.scale')).toBe(camera);
+  await page.keyboard.up('z');
+  await expect(lens).toHaveCount(0);
+  await page.mouse.wheel(0, -300);
+  await expect.poll(() => storeState<number>(page, '(s) => s.camera.scale')).toBeGreaterThan(camera);
+});
+
 test('play mode: a right-click on a box selection keeps it and offers group actions such as Form a pile', async ({ page }) => {
   await addSampleAndPlay(page);
   const deckId = await obj<string>(page, 'Bonus deck', 'o.id');

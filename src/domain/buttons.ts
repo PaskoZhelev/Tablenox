@@ -29,6 +29,7 @@ import {
   shuffleBagCommand,
   shuffleDeckCommand,
   tokenSourceOf,
+  tokenStackInHolder,
   tokensTakenFrom,
   topFaceUp,
 } from './rules';
@@ -381,6 +382,9 @@ function placeOnto(plan: Plan, target: TabletopObject, id: string, rotation: num
   }
   const c = objectCenter(target);
   const position = { x: Math.round(c.x - item.width / 2), y: Math.round(c.y - item.height / 2) };
+  // A token moved into a slot that already holds an identical stack joins it (as a player's drop would).
+  const stack = item.kind === 'token' && isHolder(target) ? tokenStackInHolder(plan.state, target, item) : undefined;
+  if (stack) return plan.emit({ type: 'MergeTokens', id, targetId: stack.id });
   // A piece moved onto a holder goes into it (lining up in a spread); moved anywhere else, it leaves its holder.
   const into = isHolder(target) && joinsHolder(item) ? target.id : joinsHolder(item) && item.holderId ? null : undefined;
   plan.emit({

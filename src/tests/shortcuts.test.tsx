@@ -226,6 +226,32 @@ describe('keyboard shortcuts', () => {
     expect(s().spaceHeld).toBe(false);
   });
 
+  it('holding Z shows the magnifier (both modes) until Z is released or the window loses focus; Ctrl+Z still undoes', () => {
+    for (const mode of ['play', 'edit'] as const) {
+      load(mode);
+      press('z');
+      expect(s().magnifierHeld).toBe(true);
+      press('z', { repeat: true });
+      expect(s().magnifierHeld).toBe(true);
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'z' }));
+      expect(s().magnifierHeld).toBe(false);
+    }
+    press('Z', { shiftKey: true });
+    expect(s().magnifierHeld).toBe(true);
+    window.dispatchEvent(new Event('blur'));
+    expect(s().magnifierHeld).toBe(false);
+    const label = ofKind('label');
+    s().dispatch({ type: 'MoveObject', id: label.id, position: { x: 3, y: 4 } });
+    press('z', { ctrlKey: true });
+    expect(s().magnifierHeld).toBe(false);
+    expect(get(label.id).position).not.toEqual({ x: 3, y: 4 });
+    const input = document.createElement('input');
+    document.body.append(input);
+    press('z', {}, input);
+    expect(s().magnifierHeld).toBe(false);
+    input.remove();
+  });
+
   it('Esc closes the menu, then deselects, then closes the automations panel', () => {
     load('edit');
     const label = ofKind('label');

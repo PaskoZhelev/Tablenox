@@ -4,7 +4,15 @@ import { objectCenter } from '../domain/geometry';
 import { createObject } from '../domain/objects';
 import { pasteObjects, copyObjects } from '../domain/clipboard';
 import { cardSlots, findGroupDropTarget, resolveDrop, resolveGroupDrop, spreadLayout, splitTokensCommand } from '../domain/rules';
-import type { BagObject, DeckObject, TableState, TabletopObject, TokenObject, Vec2 } from '../domain/types';
+import {
+  MAX_TOKEN_STACK,
+  type BagObject,
+  type DeckObject,
+  type TableState,
+  type TabletopObject,
+  type TokenObject,
+  type Vec2,
+} from '../domain/types';
 import { fixtureGame, tableOf } from './fixtures';
 
 const find = (s: TableState, id: string) => s.objects.find((o) => o.id === id)!;
@@ -190,6 +198,54 @@ describe('pieces in holders', () => {
     s = applyCommand(s, resolveGroupDrop(s, moves, 'd1', 'play'));
     expect(find(s, 'd1')).toMatchObject({ position: { x: 10, y: 10 } });
     expect(find(s, 'd1').holderId).toBeUndefined();
+  });
+
+  it('identical tokens put into a slot pile up as one stack with a count; other tokens and spreads keep them apart', () => {
+    let s = setup();
+    s = applyCommand(s, { type: 'UpdateObject', id: holderOf(s).id, patch: { layout: 'stack' } });
+    const h = holderOf(s);
+    const token = s.objects.find((o): o is TokenObject => o.kind === 'token')!;
+    const twin = (id: string, patch: Partial<TokenObject> = {}): TokenObject => ({
+      ...token,
+      id,
+      position: { x: 1500 + s.objects.length * 80, y: 1500 },
+      zIndex: 90,
+      ...patch,
+    });
+    s = { ...s, objects: [...s.objects, twin('t2'), twin('t3'), twin('red', { color: '#ff0000' })] };
+    const hc = objectCenter(h);
+    // Dropped on the holder (not on the token already there): it joins that token's stack.
+    s = dropAt(s, token.id, hc);
+    s = dropAt(s, 't2', { x: h.position.x + 20, y: h.position.y + 20 });
+    expect(s.objects.some((o) => o.id === 't2')).toBe(false);
+    expect((find(s, token.id) as TokenObject).count).toBe(2);
+    // A token that looks different lies on top as itself.
+    s = dropAt(s, 'red', hc);
+    expect(find(s, 'red').holderId).toBe(h.id);
+    expect((find(s, token.id) as TokenObject).count).toBe(2);
+    // A group drop counts the tokens it puts in on the way; never past the stack limit.
+    s = applyCommand(s, resolveGroupDrop(s, [{ id: 't3', position: centredAt(find(s, 't3'), hc) }], 't3', 'play'));
+    expect((find(s, token.id) as TokenObject).count).toBe(3);
+    s = applyCommand(s, { type: 'UpdateObject', id: token.id, patch: { count: MAX_TOKEN_STACK } });
+    s = { ...s, objects: [...s.objects, twin('t4')] };
+    s = dropAt(s, 't4', hc);
+    expect(find(s, 't4').holderId).toBe(h.id);
+
+    // Two loose identical tokens dropped together make one stack; in a spread they stay side by side.
+    s = setup();
+    const t = s.objects.find((o): o is TokenObject => o.kind === 'token')!;
+    s = { ...s, objects: [...s.objects, { ...t, id: 'u2', position: { x: t.position.x + 100, y: t.position.y } }] };
+    const pair = (st: TableState) => [
+      { id: t.id, position: centredAt(t, objectCenter(holderOf(st))) },
+      { id: 'u2', position: centredAt(t, { x: objectCenter(holderOf(st)).x + 100, y: objectCenter(holderOf(st)).y }) },
+    ];
+    const spread = applyCommand(s, resolveGroupDrop(s, pair(s), t.id, 'play'));
+    expect(spread.objects.filter((o) => o.kind === 'token' && o.holderId)).toHaveLength(2);
+    s = applyCommand(s, { type: 'UpdateObject', id: holderOf(s).id, patch: { layout: 'stack' } });
+    s = applyCommand(s, resolveGroupDrop(s, pair(s), t.id, 'play'));
+    const inHolder = s.objects.filter((o): o is TokenObject => o.kind === 'token' && o.holderId === holderOf(s).id);
+    expect(inHolder).toHaveLength(1);
+    expect(inHolder[0].count).toBe(2);
   });
 
   it('copies and tokens taken off a stack are not in the holder', () => {

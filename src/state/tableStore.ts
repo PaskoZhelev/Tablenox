@@ -62,6 +62,15 @@ export interface UiPrefs {
   gridSize: number;
   /** Edit mode: dragged and added objects (and arrow-key nudges) snap to the grid. */
   snapToGrid: boolean;
+  /** How many times the magnifier (hold Z) enlarges the table under the mouse. */
+  magnifierZoom: number;
+}
+
+export const MAGNIFIER_ZOOM = { min: 1.5, max: 8, default: 3 };
+
+export function clampMagnifierZoom(z: number): number {
+  if (!Number.isFinite(z)) return MAGNIFIER_ZOOM.default;
+  return Math.round(Math.min(MAGNIFIER_ZOOM.max, Math.max(MAGNIFIER_ZOOM.min, z)) * 100) / 100;
 }
 
 const UI_PREFS_KEY = 'tablenox.ui';
@@ -74,6 +83,7 @@ const DEFAULT_UI: UiPrefs = {
   palettePinned: true,
   gridSize: DEFAULT_GRID_SIZE,
   snapToGrid: false,
+  magnifierZoom: MAGNIFIER_ZOOM.default,
 };
 
 function loadUiPrefs(): UiPrefs {
@@ -83,7 +93,7 @@ function loadUiPrefs(): UiPrefs {
     const saved = JSON.parse(raw) as Partial<UiPrefs> & { hoverZoom?: unknown };
     delete saved.hoverZoom;
     const prefs = { ...DEFAULT_UI, ...saved };
-    return { ...prefs, gridSize: clampGridSize(Number(prefs.gridSize)) };
+    return { ...prefs, gridSize: clampGridSize(Number(prefs.gridSize)), magnifierZoom: clampMagnifierZoom(Number(prefs.magnifierZoom)) };
   } catch {
     return { ...DEFAULT_UI };
   }
@@ -109,6 +119,8 @@ export interface TableStoreState {
   selectedIds: string[];
   tool: Tool;
   spaceHeld: boolean;
+  /** Z is held: a magnifier shows the table under the mouse enlarged. */
+  magnifierHeld: boolean;
   /** `straight`: the pen draws straight lines from where the press starts to where it ends. */
   pen: { color: string; width: number; opacity: number; straight: boolean };
   textStyle: { color: string; fontSize: number };
@@ -170,6 +182,7 @@ export interface TableStoreActions {
   toggleSelected(id: string): void;
   setTool(tool: Tool): void;
   setSpaceHeld(held: boolean): void;
+  setMagnifierHeld(held: boolean): void;
   setPen(p: Partial<TableStoreState['pen']>): void;
   setTextStyle(p: Partial<TableStoreState['textStyle']>): void;
   setStamp(p: Partial<TableStoreState['stamp']>): void;
@@ -215,6 +228,7 @@ const transient = {
   selectedIds: [] as string[],
   tool: 'select' as Tool,
   spaceHeld: false,
+  magnifierHeld: false,
   editingText: null,
   erasingIds: EMPTY_IDS,
   draggingId: null,
@@ -375,6 +389,10 @@ export const useTableStore = create<TableStore>()((set, get) => ({
 
   setSpaceHeld(spaceHeld) {
     if (get().spaceHeld !== spaceHeld) set({ spaceHeld });
+  },
+
+  setMagnifierHeld(magnifierHeld) {
+    if (get().magnifierHeld !== magnifierHeld) set({ magnifierHeld });
   },
 
   setPen(p) {

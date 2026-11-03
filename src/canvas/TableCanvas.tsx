@@ -25,10 +25,11 @@ import { AnnotationLayer } from '../drawing/AnnotationLayer';
 import { focusTextEditor, startEditingText } from '../drawing/textEditing';
 import { TextEditorOverlay } from '../drawing/TextEditorOverlay';
 import { HOLDER_ID_ATTR, HOLDER_ZONE_NAME, HolderZoneNode, ObjectNode } from '../objects/ObjectNode';
-import { currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
+import { clampMagnifierZoom, currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { ContextMenu, SelectionBar } from './SelectionBar';
 import { getGroupActions, getObjectActions, hasObjectControls } from './objectActions';
 import { HoverPreview } from './HoverPreview';
+import { Magnifier } from './Magnifier';
 import { FlashOutline } from './FlashOutline';
 import {
   cardIndexAt,
@@ -913,6 +914,12 @@ export function TableCanvas() {
     const s = useTableStore.getState();
     const unit = e.evt.deltaMode === 1 ? 16 : e.evt.deltaMode === 2 ? 400 : 1;
     const dy = e.evt.deltaY * unit;
+    if (s.magnifierHeld) {
+      // While the magnifier is shown, the wheel sets how much it enlarges instead of zooming the table.
+      const z = clampMagnifierZoom(s.ui.magnifierZoom * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.002));
+      if (z !== s.ui.magnifierZoom) s.setUi({ magnifierZoom: z });
+      return;
+    }
     const k = e.evt.ctrlKey ? 0.01 : 0.0015;
     const factor = Math.exp(-Math.max(-300, Math.min(300, dy)) * k);
     s.setCamera(zoomBy(s.camera, pointer, factor));
@@ -1092,6 +1099,7 @@ export function TableCanvas() {
       <SelectionBar />
       <ContextMenu />
       <HoverPreview />
+      <Magnifier />
     </div>
   );
 }

@@ -2013,6 +2013,32 @@ button.pick-chip-name:hover {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
+/* Hold Z: the table under the mouse, enlarged */
+.magnifier {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 26;
+  pointer-events: none;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+.magnifier canvas {
+  display: block;
+}
+.magnifier-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+}
+
 /* Non-button sections inside dropdown menus */
 .menu-section {
   padding: 8px 10px;

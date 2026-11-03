@@ -1,7 +1,7 @@
 import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
 import { objectCenter } from './geometry';
-import { isSpread, joinsHolder, pointInObject, spreadLayout, spreadsVertically, toLocal, type CardSlot } from './holders';
+import { holderPieces, isSpread, joinsHolder, pointInObject, spreadLayout, spreadsVertically, toLocal, type CardSlot } from './holders';
 import {
   alignsRotation,
   bagAccepts,
@@ -20,6 +20,7 @@ import {
   tokenCount,
 } from './objects';
 import { randomInt, shuffledIndices, secureRandomSource, type RandomSource } from './random';
+import { MAX_TOKEN_STACK } from './types';
 import type { BagObject, CardObject, DeckObject, DieObject, HoverZoom, Mode, TableState, TabletopObject, TokenObject, Vec2 } from './types';
 
 /** Surfaces and containers other pieces lie on or go into (not pieces that can cover a token stack). */
@@ -209,7 +210,31 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   const surface = topmostSurface(state.objects, obj, center);
   if (surface?.kind === 'bag') return { type: 'BagPut', bagId: surface.id, objectId: id };
   if (!surface) return move;
+  const stack = obj.kind === 'token' ? tokenStackInHolder(state, surface, obj) : undefined;
+  if (stack) return { type: 'MergeTokens', id, targetId: stack.id };
   return { ...move, ...putOnHolder(surface, obj, position) };
+}
+
+/**
+ * The identical token stack that `token` joins when put into `holder`: in a stacked holder that centres pieces, tokens
+ * pile up as one stack (with its count), not as separate tokens on top of each other. `extra` are tokens put in by the
+ * same drop, and `counts` their counts so far (a stack never grows past `MAX_TOKEN_STACK`).
+ */
+export function tokenStackInHolder(
+  state: TableState,
+  holder: DeckObject,
+  token: TokenObject,
+  extra: readonly TokenObject[] = [],
+  counts?: ReadonlyMap<string, number>,
+): TokenObject | undefined {
+  if (holder.isPile || isSpread(holder) || holder.snapToCenter === false) return undefined;
+  const candidates = [...sortByStacking(holderPieces(state.objects, holder), state.objects), ...extra];
+  const n = (t: TokenObject) => counts?.get(t.id) ?? tokenCount(t);
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const c = candidates[i];
+    if (c.kind === 'token' && c.id !== token.id && sameTokenLook(c, token) && n(c) + tokenCount(token) <= MAX_TOKEN_STACK) return c;
+  }
+  return undefined;
 }
 
 /**
@@ -305,13 +330,21 @@ export function resolveGroupDrop(
     // A spread takes the cards side by side in the order they lie along it (each one goes in after the previous one);
     // a stack takes them from the bottom of the selection up, so the top-most one ends on top.
     const order = index === undefined ? sortByStacking(takenIn, state.objects) : [...takenIn].sort((a, b) => along(a) - along(b));
+    // Identical tokens put into a slot pile up as one stack.
+    const joined: TokenObject[] = [];
+    const counts = new Map<string, number>();
     for (const o of order) {
-      if (o.kind === 'card') {
+      const stack = o.kind === 'token' && !target.isPile ? tokenStackInHolder(state, target, o, joined, counts) : undefined;
+      if (o.kind === 'token' && stack) {
+        counts.set(stack.id, (counts.get(stack.id) ?? tokenCount(stack)) + tokenCount(o));
+        commands.push({ type: 'MergeTokens', id: o.id, targetId: stack.id });
+      } else if (o.kind === 'card') {
         commands.push({ type: 'AddCardToDeck', cardId: o.id, deckId: target.id, asDefinition: definition, index, toFront: true });
       } else if (isPile(o)) {
         commands.push({ type: 'MergePileIntoDeck', pileId: o.id, deckId: target.id, asDefinition: definition, index, toFront: true });
       } else {
         commands.push({ type: 'MoveObject', id: o.id, ...putOnHolder(target, o, o.position) });
+        if (o.kind === 'token') joined.push(o);
       }
     }
   }
