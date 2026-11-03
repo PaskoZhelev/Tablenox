@@ -2,8 +2,15 @@ import { useEffect, useRef } from 'react';
 import { useTableStore } from '../state/tableStore';
 import { getStage } from './stageRegistry';
 
-/** Size of the magnifier on screen, in CSS pixels. */
-export const MAGNIFIER_SIZE = { width: 360, height: 240 };
+/** Size of the magnifier on screen, in CSS pixels; on a small table it shrinks to at most `MAX_SHARE` of it. */
+export const MAGNIFIER_SIZE = { width: 540, height: 360 };
+const MAX_SHARE = 0.6;
+
+/** The lens size for a table area of `width` ? `height` CSS pixels, keeping its proportions. */
+export function magnifierSize(width: number, height: number): { width: number; height: number } {
+  const k = Math.min(1, (width * MAX_SHARE) / MAGNIFIER_SIZE.width, (height * MAX_SHARE) / MAGNIFIER_SIZE.height);
+  return { width: Math.round(MAGNIFIER_SIZE.width * k), height: Math.round(MAGNIFIER_SIZE.height * k) };
+}
 /** Without mouse moves the magnifier still redraws this often, so changes on the table (a drop, a roll) show up. */
 const IDLE_REDRAW_MS = 120;
 
@@ -50,10 +57,14 @@ export function Magnifier() {
       const over = x >= 0 && y >= 0 && x <= area.width && y <= area.height;
       box.style.visibility = over ? 'visible' : 'hidden';
       if (!over) return;
-      const { width, height } = MAGNIFIER_SIZE;
+      const { width, height } = magnifierSize(area.width, area.height);
+      if (box.style.width !== `${width}px`) {
+        box.style.width = canvas.style.width = `${width}px`;
+        box.style.height = canvas.style.height = `${height}px`;
+      }
       box.style.transform = `translate(${Math.round(x - width / 2)}px, ${Math.round(y - height / 2)}px)`;
       const dpr = globalThis.devicePixelRatio || 1;
-      if (canvas.width !== Math.round(width * dpr)) {
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
         canvas.width = Math.round(width * dpr);
         canvas.height = Math.round(height * dpr);
       }
@@ -79,13 +90,8 @@ export function Magnifier() {
 
   if (!held) return null;
   return (
-    <div
-      ref={boxRef}
-      className="magnifier"
-      data-testid="magnifier"
-      style={{ width: MAGNIFIER_SIZE.width, height: MAGNIFIER_SIZE.height, visibility: 'hidden' }}
-    >
-      <canvas ref={canvasRef} style={{ width: MAGNIFIER_SIZE.width, height: MAGNIFIER_SIZE.height }} />
+    <div ref={boxRef} className="magnifier" data-testid="magnifier" style={{ visibility: 'hidden' }}>
+      <canvas ref={canvasRef} />
       <span className="magnifier-zoom">{`${zoom.toFixed(1).replace(/\.0$/, '')}×`}</span>
     </div>
   );

@@ -1774,6 +1774,7 @@ test('hold Z: a magnifier follows the mouse with the table enlarged; the wheel c
   await expect(lens).toHaveCount(0);
   await page.keyboard.down('z');
   await expect(lens).toBeVisible();
+  await expect.poll(async () => Math.round((await lens.boundingBox())!.width)).toBeGreaterThanOrEqual(540);
   const centre = async () => {
     const b = (await lens.boundingBox())!;
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };

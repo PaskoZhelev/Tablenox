@@ -325,7 +325,7 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 
 **Decision:**
 
-- **Hold `Z`** (both modes; not with Ctrl / Alt, not while typing) sets the store's transient `magnifierHeld`; key up or window blur clears it. `Magnifier` (`canvas/Magnifier.tsx`, inside the canvas container) shows a 360 × 240 px lens centred on the mouse (`pointer-events: none`, so drags go on underneath).
+- **Hold `Z`** (both modes; not with Ctrl / Alt, not while typing) sets the store's transient `magnifierHeld`; key up or window blur clears it. `Magnifier` (`canvas/Magnifier.tsx`, inside the canvas container) shows a 540 × 360 px lens (at most 60% of the table area on small screens, `magnifierSize`) centred on the mouse (`pointer-events: none`, so drags go on underneath).
 - **Drawn again, not stretched.** Each animation frame in which the mouse moved (and at least every 120 ms otherwise) it calls `stage.toCanvas` for the screen region under the lens at `pixelRatio = zoom × devicePixelRatio`, over the table colour, so vector shapes and text are sharp. Card and other images use mipmaps for the zoomed size while `Z` is held (`useCrispImage` multiplies the camera scale by the zoom), so they are sharp in the lens too.
 - **Zoom** is the UI pref `magnifierZoom` (1.5–8, default 3, `clampMagnifierZoom`, saved in `localStorage`); the wheel changes it while `Z` is held and doesn't zoom the camera then.
 
