@@ -14,7 +14,7 @@ import {
   tokenCount,
 } from '../domain/objects';
 import { useShallow } from 'zustand/react/shallow';
-import { cardTurnOf, isSpread, spreadLayout } from '../domain/rules';
+import { cardTurnOf, holderPieces, isSpread, spreadLayout } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import { holderShapePoints } from '../domain/geometry';
 import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
@@ -116,7 +116,11 @@ function CardBack({
   const img = useCrispImage(backAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) {
-    return shaped ? <KImage image={img} width={w} height={h} {...CARD_SHADOW} /> : <KImage image={img} width={w} height={h} cornerRadius={r} />;
+    return shaped ? (
+      <KImage image={img} width={w} height={h} {...CARD_SHADOW} />
+    ) : (
+      <KImage image={img} width={w} height={h} cornerRadius={r} />
+    );
   }
   // A back image that is still loading: a plain card, not the default back design, so it never flashes up.
   if (backAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
@@ -149,7 +153,11 @@ function CardFront({
   const img = useCrispImage(faceAssetId, w, h);
   const r = Math.min(w, h) * 0.07;
   if (img) {
-    return shaped ? <KImage image={img} width={w} height={h} {...CARD_SHADOW} /> : <KImage image={img} width={w} height={h} cornerRadius={r} />;
+    return shaped ? (
+      <KImage image={img} width={w} height={h} {...CARD_SHADOW} />
+    ) : (
+      <KImage image={img} width={w} height={h} cornerRadius={r} />
+    );
   }
   if (faceAssetId) return <Rect width={w} height={h} cornerRadius={r} fill={LOADING_FILL} />;
   const color = cardTextColor(faceText);
@@ -203,13 +211,7 @@ export function CardVisual(p: CardFaceProps) {
   if (shaped) return p.faceUp ? <CardFront {...p} shaped /> : <CardBack {...p} shaped />;
   return (
     <>
-      <Rect
-        width={p.w}
-        height={p.h}
-        cornerRadius={r}
-        fill="#fff"
-        {...CARD_SHADOW}
-      />
+      <Rect width={p.w} height={p.h} cornerRadius={r} fill="#fff" {...CARD_SHADOW} />
       {p.faceUp ? <CardFront {...p} /> : <CardBack {...p} />}
       <Rect width={p.w} height={p.h} cornerRadius={r} stroke="rgba(0,0,0,0.25)" strokeWidth={1} listening={false} />
     </>
@@ -332,6 +334,8 @@ export function HolderZoneVisual({ o, mode, ghost }: { o: DeckObject; mode: Mode
   );
 }
 
+const NO_OBJECTS: TabletopObject[] = [];
+
 /** `zone`: `shown` draws the holder's zone too (previews); `ghost` leaves it to its own node (the table). */
 export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: Mode; zone?: 'shown' | 'ghost' }) {
   const count = o.cards.length;
@@ -344,7 +348,9 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
       return [...new Set(o.cards.map((c) => byId.get(c.id)).filter((d): d is DeckObject => !!d))];
     }),
   );
-  const objects: TabletopObject[] = owners;
+  // A spread lines up the pieces put into it after its cards, so the cards make room for them.
+  const pieces = useTableStore(useShallow((s) => (isSpread(o) ? holderPieces(s.history.present.objects, o) : NO_OBJECTS)));
+  const objects: TabletopObject[] = pieces.length ? [...owners, ...pieces] : owners;
   const gapAt = useTableStore((s) => (s.dropTargetId === o.id ? s.dropIndex : null));
   const holder = !o.isPile;
   const showBadge = count > 1;
@@ -767,13 +773,24 @@ function CustomDieFace({ o, stroke }: { o: DieObject; stroke: string }) {
   const h = o.height;
   const s = Math.min(w, h);
   const pad = s * 0.08;
-  let imgBox = { x: pad, y: pad, width: w - pad * 2, height: h - pad * 2 };
   if (img) {
-    // Fit the image inside the die face, preserving its aspect ratio.
-    const k = Math.min(imgBox.width / img.naturalWidth, imgBox.height / img.naturalHeight);
-    const iw = img.naturalWidth * k;
-    const ih = img.naturalHeight * k;
-    imgBox = { x: (w - iw) / 2, y: (h - ih) / 2, width: iw, height: ih };
+    // The image is the whole face: cover the die (centre-cropping a mismatched aspect ratio) with its rounded corners.
+    const k = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const cropWidth = w / k;
+    const cropHeight = h / k;
+    return (
+      <KImage
+        image={img}
+        width={w}
+        height={h}
+        crop={{ x: (img.naturalWidth - cropWidth) / 2, y: (img.naturalHeight - cropHeight) / 2, width: cropWidth, height: cropHeight }}
+        cornerRadius={s * 0.18}
+        shadowColor="#000"
+        shadowBlur={5}
+        shadowOpacity={0.3}
+        shadowOffsetY={2}
+      />
+    );
   }
   return (
     <>
@@ -789,23 +806,19 @@ function CustomDieFace({ o, stroke }: { o: DieObject; stroke: string }) {
         shadowOpacity={0.3}
         shadowOffsetY={2}
       />
-      {img ? (
-        <KImage image={img} {...imgBox} cornerRadius={s * 0.1} />
-      ) : (
-        <Text
-          width={w}
-          height={h}
-          padding={pad}
-          text={face?.label || String(o.value)}
-          align="center"
-          verticalAlign="middle"
-          fontFamily={FONT}
-          fontStyle="bold"
-          fontSize={(face?.label?.length ?? 1) > 3 ? s * 0.2 : s * 0.4}
-          fill={o.pipColor}
-          wrap="word"
-        />
-      )}
+      <Text
+        width={w}
+        height={h}
+        padding={pad}
+        text={face?.label || String(o.value)}
+        align="center"
+        verticalAlign="middle"
+        fontFamily={FONT}
+        fontStyle="bold"
+        fontSize={(face?.label?.length ?? 1) > 3 ? s * 0.2 : s * 0.4}
+        fill={o.pipColor}
+        wrap="word"
+      />
     </>
   );
 }

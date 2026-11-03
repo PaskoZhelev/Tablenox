@@ -2,7 +2,10 @@ import { useEffect, useRef } from 'react';
 
 const ROWS: [string, string][] = [
   ['Drag', 'Move a card, token, die… (locked objects, and boards / holders in Play mode, pan the view instead)'],
-  ['Drag onto a card / holder', 'A card joins the holder, or makes a pile with the card; the target fades while you hover'],
+  [
+    'Drag onto a card / holder',
+    'A card joins the holder, or makes a pile with the card; a die, token… goes into the holder (lined up in a spread); the target fades while you hover',
+  ],
   ['Drag a pile onto a holder / pile / card', 'Put all its cards on top (on a loose card: the card goes to the bottom of the pile)'],
   ['Shift + drop', 'Place freely, without stacking, snapping into a holder or slot, or snapping to the grid'],
   ['Drag from a holder', 'Take its top card (stacked) or the card you grab (spread out) (Play mode)'],
@@ -27,7 +30,7 @@ const ROWS: [string, string][] = [
   ['Ctrl / Shift + click', 'Add to or remove from the selection (Edit mode)'],
   [
     'Shift + drag table · drag with camera locked',
-    'Selection box; drag any selected object to move them all (in Play mode it only picks pieces you can move)',
+    'Selection box; drag any selected object to move them all, or onto a holder, pile or bag to put them in (in Play mode it only picks pieces you can move)',
   ],
   [
     'Right-click',

@@ -34,6 +34,11 @@ export interface BaseObject {
   rotations?: number[];
   /** Bag this object was last put into or drawn from; "recall" sends it back there. */
   bagId?: ObjectId;
+  /**
+   * Holder this piece was put into (not cards or piles: they join its cards). It moves with the holder and, in a
+   * spread, lines up after the holder's cards; moving it off the holder takes it out.
+   */
+  holderId?: ObjectId;
 }
 
 export interface BoardObject extends BaseObject {

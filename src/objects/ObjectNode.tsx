@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import Konva from 'konva';
 import { Group, Rect } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { cardIndexAt, findHoverTarget, isSpread, spreadInsertIndex } from '../domain/rules';
+import { cardIndexAt, findGroupDropTarget, findHoverTarget, isSpread, resolveGroupDrop, spreadInsertIndex } from '../domain/rules';
 import { isHolder, raisedWhenMoved, sortByStacking } from '../domain/objects';
 import { isMarkAnchor } from '../domain/annotations';
 import { screenToWorld, worldToScreen } from '../domain/camera';
@@ -49,11 +49,13 @@ function inGroupSelection(id: string): boolean {
   return s.selectedIds.length > 1 && s.selectedIds.includes(id);
 }
 
-// All members of one group drag share a coalesce key, so the whole move is a single undo step.
+// All members of one group drag share a key; the first member to land drops the whole selection.
 let groupDragKey = '';
 let groupDragSeq = 0;
-/** The group drag whose members were already brought to the front (once, by the first member that lands). */
-let groupRaisedKey = '';
+/** The group drag that was already dropped (by the first member that lands). */
+let groupDroppedKey = '';
+/** The objects moving in the current group drag (each gets a dragstart from the Transformer). */
+const groupDragIds = new Set<string>();
 
 function liftToTop(node: Konva.Node | undefined): void {
   if (!node) return;
@@ -65,7 +67,10 @@ function liftToTop(node: Konva.Node | undefined): void {
 function raisedMembers(ids: readonly string[], mode: Mode): string[] {
   const set = new Set(ids);
   const all = currentTable().objects;
-  return sortByStacking(all.filter((x) => set.has(x.id) && raisedWhenMoved(x, mode)), all).map((x) => x.id);
+  return sortByStacking(
+    all.filter((x) => set.has(x.id) && raisedWhenMoved(x, mode)),
+    all,
+  ).map((x) => x.id);
 }
 
 /** Shuffle animation: quick, a few side-to-side swings that die out. */
@@ -170,11 +175,13 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     if (inGroupSelection(o.id)) {
       if (!s.draggingId) {
         groupDragKey = `group-drag:${++groupDragSeq}`;
+        groupDragIds.clear();
         // The selection is lifted above everything else while it moves, keeping its own order.
         const layer = e.target.getLayer();
         const nodes = new Map((layer?.getChildren((n) => n.hasName('object')) ?? []).map((n) => [n.id(), n]));
         for (const m of raisedMembers(s.selectedIds, s.mode)) liftToTop(nodes.get(m));
       }
+      groupDragIds.add(o.id);
     } else {
       if (raisedWhenMoved(o, s.mode)) liftToTop(e.target);
       s.select(o.id);
@@ -183,11 +190,25 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   };
 
   const onDragMove = (e: KonvaEventObject<DragEvent>) => {
-    const dragsCards = o.kind === 'card' || o.kind === 'deck';
-    if (o.kind === 'board' || o.kind === 'bag' || isHolder(o) || inGroupSelection(o.id)) return;
     const free = !!(e.evt as MouseEvent | undefined)?.shiftKey;
     const center = centerOf(e.target);
     const table = currentTable();
+    if (inGroupSelection(o.id)) {
+      // A selection: the object under the pointer shows where the whole selection would go.
+      const s = useTableStore.getState();
+      if (s.draggingId !== o.id) return;
+      const ids = [...groupDragIds];
+      const target = free ? undefined : findGroupDropTarget(table, ids, center);
+      const withCards = ids.some((id) => {
+        const m = table.objects.find((x) => x.id === id);
+        return m?.kind === 'card' || (m?.kind === 'deck' && m.isPile);
+      });
+      const index = withCards && target?.kind === 'deck' && isSpread(target) ? spreadInsertIndex(table.objects, target, center) : null;
+      s.setDropTarget(target?.id ?? null, index);
+      return;
+    }
+    const dragsCards = o.kind === 'card' || o.kind === 'deck';
+    if (o.kind === 'board' || o.kind === 'bag' || isHolder(o)) return;
     const target = free ? undefined : findHoverTarget(table, o.id, center);
     // Cards and piles over a spread holder show the place they would take.
     const index = dragsCards && target?.kind === 'deck' && isSpread(target) ? spreadInsertIndex(table.objects, target, center) : null;
@@ -199,15 +220,23 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     node.setAttr(LIFTED_ATTR, false);
     const free = !!(e.evt as MouseEvent | undefined)?.shiftKey;
     const s = useTableStore.getState();
+    const leaderId = s.draggingId;
     land();
     s.setDropTarget(null);
     s.setDragging(null);
     const position = { x: Math.round(node.x() - o.width / 2), y: Math.round(node.y() - o.height / 2) };
     if (inGroupSelection(o.id)) {
-      s.dispatch({ type: 'MoveObject', id: o.id, position }, { coalesceKey: groupDragKey });
-      if (groupRaisedKey !== groupDragKey) {
-        groupRaisedKey = groupDragKey;
-        s.dispatch({ type: 'RaiseObjects', ids: raisedMembers(s.selectedIds, s.mode) }, { coalesceKey: groupDragKey });
+      if (groupDroppedKey !== groupDragKey) {
+        // Every member has reached its place by now: drop the whole selection as one undo step.
+        groupDroppedKey = groupDragKey;
+        const table = currentTable();
+        const layer = node.getLayer();
+        const moves = [...groupDragIds].flatMap((id) => {
+          const m = table.objects.find((x) => x.id === id);
+          const n = layer?.findOne((x: Konva.Node) => x.id() === id && x.hasName('object'));
+          return m && n ? [{ id, position: { x: Math.round(n.x() - m.width / 2), y: Math.round(n.y() - m.height / 2) } }] : [];
+        });
+        s.dispatch(resolveGroupDrop(table, moves, leaderId ?? o.id, s.mode, { free }));
       }
     } else {
       dropObject(o.id, position, free);

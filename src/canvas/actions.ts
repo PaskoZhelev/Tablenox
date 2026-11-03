@@ -597,6 +597,7 @@ export function duplicateObjects(ids: string[]): void {
       position: { x: o.position.x + 24, y: o.position.y + 24 },
       zIndex: ++z,
       bagId: undefined,
+      holderId: undefined,
     };
     if (copy.kind === 'token') copy.sourceId = undefined;
     if (copy.kind === 'deck') {

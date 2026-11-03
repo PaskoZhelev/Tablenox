@@ -1,5 +1,6 @@
 import { applyCommand, type Command } from './commands';
 import { objectCenter } from './geometry';
+import { joinsHolder } from './holders';
 import { newId } from './ids';
 import {
   alignsRotation,
@@ -380,7 +381,16 @@ function placeOnto(plan: Plan, target: TabletopObject, id: string, rotation: num
   }
   const c = objectCenter(target);
   const position = { x: Math.round(c.x - item.width / 2), y: Math.round(c.y - item.height / 2) };
-  plan.emit({ type: 'MoveObject', id, position, toFront: raisedWhenMoved(item), rotation });
+  // A piece moved onto a holder goes into it (lining up in a spread); moved anywhere else, it leaves its holder.
+  const into = isHolder(target) && joinsHolder(item) ? target.id : joinsHolder(item) && item.holderId ? null : undefined;
+  plan.emit({
+    type: 'MoveObject',
+    id,
+    position,
+    toFront: raisedWhenMoved(item),
+    rotation,
+    ...(into !== undefined ? { holderId: into } : {}),
+  });
 }
 
 /**

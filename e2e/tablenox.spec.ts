@@ -441,16 +441,19 @@ test('a card put into a holder lying half under another shows above that holder 
   const hitAt = async (x: number, y: number) => {
     const p = await worldToPage(page, x, y);
     const box = (await page.getByTestId('table-canvas').boundingBox())!;
-    return page.evaluate((p) => {
-      type KNode = { id(): string; hasName(n: string): boolean; getAttr(a: string): unknown; getParent(): KNode | null };
-      const stage = (window as unknown as { Konva: { stages: { getIntersection(p: { x: number; y: number }): KNode | null }[] } }).Konva
-        .stages[0];
-      for (let n = stage.getIntersection(p); n; n = n.getParent()) {
-        if (n.hasName('object')) return n.id();
-        if (n.hasName('holder-zone')) return `zone:${n.getAttr('holderId')}`;
-      }
-      return null;
-    }, { x: p.x - box.x, y: p.y - box.y });
+    return page.evaluate(
+      (p) => {
+        type KNode = { id(): string; hasName(n: string): boolean; getAttr(a: string): unknown; getParent(): KNode | null };
+        const stage = (window as unknown as { Konva: { stages: { getIntersection(p: { x: number; y: number }): KNode | null }[] } }).Konva
+          .stages[0];
+        for (let n = stage.getIntersection(p); n; n = n.getParent()) {
+          if (n.hasName('object')) return n.id();
+          if (n.hasName('holder-zone')) return `zone:${n.getAttr('holderId')}`;
+        }
+        return null;
+      },
+      { x: p.x - box.x, y: p.y - box.y },
+    );
   };
   const dropInto = async (cardId: string, from: { x: number; y: number }, to: { x: number; y: number }) => {
     const a = await worldToPage(page, from.x + cw / 2, from.y + ch / 2);
@@ -1705,6 +1708,58 @@ test('play mode: Shift+drag box-selects movable pieces, which then drag together
   const empty = await worldToPage(page, -800, 0);
   await page.mouse.click(empty.x, empty.y);
   await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([]);
+});
+
+test('play mode: a box selection of dice dragged onto a spread holder highlights it and goes in, lined up', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const discardId = await obj<string>(page, 'Discard', 'o.id');
+  await storeState(
+    page,
+    `(s) => s.dispatch({ type: 'UpdateObject', id: ${JSON.stringify(discardId)}, patch: { layout: 'spread', width: 420 } })`,
+  );
+  const from = await worldToPage(page, 280, -580);
+  const to = await worldToPage(page, 750, -370);
+  await page.keyboard.down('Shift');
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  const dieIds = await storeState<string[]>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'die').map(o => o.id)");
+  await expect.poll(() => storeState<string[]>(page, '(s) => [...s.selectedIds].sort()')).toEqual([...dieIds].sort());
+
+  type Box = { x: number; y: number; w: number; h: number };
+  const boxOf = (id: string) =>
+    storeState<Box>(
+      page,
+      `(s) => { const o = s.history.present.objects.find(o => o.id === ${JSON.stringify(id)}); return { x: o.position.x, y: o.position.y, w: o.width, h: o.height }; }`,
+    );
+  const die = await boxOf(dieIds[0]);
+  const zone = await boxOf(discardId);
+  const past = await storeState<number>(page, '(s) => s.history.past.length');
+  const grab = await worldToPage(page, die.x + die.w / 2, die.y + die.h / 2);
+  const target = await worldToPage(page, zone.x + zone.w / 2, zone.y + zone.h / 2);
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(grab.x + 20, grab.y + 20, { steps: 4 });
+  await page.mouse.move(target.x, target.y, { steps: 10 });
+  await expect.poll(() => storeState(page, '(s) => s.dropTargetId')).toBe(discardId);
+  await page.mouse.up();
+
+  await expect
+    .poll(() => storeState<string[]>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'die').map(o => o.holderId)"))
+    .toEqual([discardId, discardId]);
+  const placed = await Promise.all(dieIds.map(boxOf));
+  // Side by side across the middle of the holder, inside it; one undo step.
+  expect(placed[0].y + placed[0].h / 2).toBeCloseTo(zone.y + zone.h / 2, 0);
+  expect(placed[1].y + placed[1].h / 2).toBeCloseTo(zone.y + zone.h / 2, 0);
+  expect(Math.abs(placed[0].x - placed[1].x)).toBeGreaterThanOrEqual(die.w);
+  for (const p of placed) {
+    expect(p.x).toBeGreaterThanOrEqual(zone.x);
+    expect(p.x + p.w).toBeLessThanOrEqual(zone.x + zone.w);
+  }
+  expect(await storeState<number>(page, '(s) => s.history.past.length')).toBe(past + 1);
+  expect(await storeState(page, '(s) => s.dropTargetId')).toBe(null);
 });
 
 test('play mode: a right-click on a box selection keeps it and offers group actions such as Form a pile', async ({ page }) => {

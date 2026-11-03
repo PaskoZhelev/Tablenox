@@ -1,12 +1,11 @@
 import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
-import { objectCenter, pointInHolderShape } from './geometry';
+import { objectCenter } from './geometry';
+import { isSpread, joinsHolder, pointInObject, spreadLayout, spreadsVertically, toLocal, type CardSlot } from './holders';
 import {
   alignsRotation,
   bagAccepts,
   bagItemWeight,
-  cardRotationOf,
-  cardSizeOf,
   cardTurnOf,
   dieFaceCount,
   drawnFaceUp,
@@ -14,6 +13,7 @@ import {
   isHolder,
   ownerDeckOf,
   raisedWhenMoved,
+  sortByStacking,
   stackingComparator,
   resolveCardLook,
   sameTokenLook,
@@ -96,42 +96,6 @@ function topmostSurface(objects: TabletopObject[], obj: TabletopObject, center: 
   );
 }
 
-const HOLDER_PADDING = 10;
-
-function rotateVec(v: Vec2, degrees: number): Vec2 {
-  const r = (degrees * Math.PI) / 180;
-  const cos = Math.cos(r);
-  const sin = Math.sin(r);
-  return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos };
-}
-
-/** True when `p` lies inside the (possibly rotated) object; for a shaped holder, inside its shape. */
-export function pointInObject(p: Vec2, o: TabletopObject): boolean {
-  const c = objectCenter(o);
-  const local = rotateVec({ x: p.x - c.x, y: p.y - c.y }, -o.rotation);
-  if (Math.abs(local.x) > o.width / 2 || Math.abs(local.y) > o.height / 2) return false;
-  if (o.kind !== 'deck' || o.isPile || !o.zoneShape || o.zoneShape === 'rectangle') return true;
-  return pointInHolderShape({ x: local.x + o.width / 2, y: local.y + o.height / 2 }, o.zoneShape, o.width, o.height);
-}
-
-/** `p` in the object's own, unrotated frame (origin at its top-left corner). */
-export function toLocal(p: Vec2, o: TabletopObject): Vec2 {
-  const c = objectCenter(o);
-  const local = rotateVec({ x: p.x - c.x, y: p.y - c.y }, -o.rotation);
-  return { x: local.x + o.width / 2, y: local.y + o.height / 2 };
-}
-
-export interface CardSlot {
-  /** Index into `deck.cards`. */
-  index: number;
-  /** Top-left corner in the holder's unrotated frame. */
-  x: number;
-  y: number;
-  /** Size of the slot: the box around the card as turned by the holder's `cardRotation`. */
-  width: number;
-  height: number;
-}
-
 /**
  * Where the visible cards of a holder/pile sit, in its own frame, in drawing order (bottom first). A stack
  * shows only its top card, centred. A spread lays every card out along the holder's long side: left to right
@@ -141,88 +105,13 @@ export function cardSlots(objects: TabletopObject[], deck: DeckObject): CardSlot
   return spreadLayout(objects, deck).slots;
 }
 
-export function isSpread(deck: DeckObject): boolean {
-  return !deck.isPile && deck.layout === 'spread';
-}
-
 export { cardRotationOf, cardTurnOf } from './objects';
+export { holderPieces, isSpread, pointInObject, rotatedBox, spreadLayout, spreadsVertically, toLocal } from './holders';
+export type { CardSlot, PieceSlot } from './holders';
 
 function normalizeDegrees(d: number): number {
   const n = ((Math.round(d) % 360) + 360) % 360;
   return Number.isFinite(n) ? n : 0;
-}
-
-/** Size of the box around a `size` card turned by `degrees`. */
-export function rotatedBox(size: { width: number; height: number }, degrees: number): { width: number; height: number } {
-  if (degrees % 180 === 0) return { width: size.width, height: size.height };
-  if (degrees % 90 === 0) return { width: size.height, height: size.width };
-  const r = (degrees * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(r));
-  const sin = Math.abs(Math.sin(r));
-  return { width: size.width * cos + size.height * sin, height: size.width * sin + size.height * cos };
-}
-
-/** A spread runs down a holder that is taller than it is wide. */
-export function spreadsVertically(deck: DeckObject): boolean {
-  return deck.height > deck.width;
-}
-
-/**
- * Card positions of a holder/pile; for a spread with `gapAt` (an index into `cards`, as for `AddCardToDeck`)
- * the cards make room for one more card there, and `gap` is that empty place.
- */
-export function spreadLayout(
-  objects: TabletopObject[],
-  deck: DeckObject,
-  gapAt?: number | null,
-): { slots: CardSlot[]; gap?: Omit<CardSlot, 'index'> } {
-  const n = deck.cards.length;
-  const withGap = isSpread(deck) && gapAt !== undefined && gapAt !== null;
-  if (n === 0 && !withGap) return { slots: [] };
-  const turn = cardRotationOf(deck);
-  const slotSize = (s: { width: number; height: number }, degrees = turn) => rotatedBox(s, degrees);
-  const look = (i: number) =>
-    slotSize(resolveCardLook(deck.cards[i], deck, ownerDeckOf(objects, deck.cards[i].id)), cardTurnOf(deck, deck.cards[i]));
-  if (!isSpread(deck)) {
-    const l = look(0);
-    return { slots: [{ index: 0, x: (deck.width - l.width) / 2, y: (deck.height - l.height) / 2, width: l.width, height: l.height }] };
-  }
-  // Lay out along the main axis (x for a row, y for a column); the cross axis centres each card.
-  const vertical = spreadsVertically(deck);
-  const main = (s: { width: number; height: number }) => (vertical ? s.height : s.width);
-  const cross = (s: { width: number; height: number }) => (vertical ? s.width : s.height);
-  const length = main(deck);
-  const looks = deck.cards.map((_, i) => look(i));
-  const own = slotSize(cardSizeOf(deck));
-  const cardMain = looks.length ? Math.max(...looks.map(main)) : main(own);
-  const at = withGap ? Math.max(0, Math.min(n, gapAt)) : -1;
-  const places = n + (withGap ? 1 : 0);
-  const avail = length - HOLDER_PADDING * 2;
-  const step = places > 1 ? Math.min(cardMain + 8, Math.max(8, (avail - cardMain) / (places - 1))) : 0;
-  const total = cardMain + step * (places - 1);
-  const align = deck.spreadAlign ?? 'center';
-  const start =
-    align === 'start'
-      ? HOLDER_PADDING
-      : align === 'end'
-        ? Math.max(HOLDER_PADDING, length - HOLDER_PADDING - total)
-        : Math.max(HOLDER_PADDING, (length - total) / 2);
-  const place = (along: number, size: { width: number; height: number }) => {
-    const across = (cross(deck) - cross(size)) / 2;
-    return vertical ? { x: across, y: along, ...size } : { x: along, y: across, ...size };
-  };
-  // The bottom card (last index) comes first, the top card (index 0) last (right-most / bottom-most) and drawn last.
-  // The gap takes the place the inserted card would get: after every card with index >= `at`.
-  const placeOf = (i: number) => (withGap && i < at ? places - 1 - i : n - 1 - i);
-  const slots = looks
-    .map((l, i) => ({
-      index: i,
-      ...place(start + placeOf(i) * step + (cardMain - main(l)) / 2, { width: l.width, height: l.height }),
-    }))
-    .reverse();
-  if (!withGap) return { slots };
-  const gapSize = vertical ? { width: own.width, height: cardMain } : { width: cardMain, height: own.height };
-  return { slots, gap: place(start + (n - at) * step, gapSize) };
 }
 
 /**
@@ -264,7 +153,14 @@ export interface DropOptions {
  */
 export function resolveDrop(state: TableState, id: string, position: Vec2, mode: Mode, opts: DropOptions = {}): Command {
   const obj = state.objects.find((o) => o.id === id);
-  const move: Command = { type: 'MoveObject', id, position, toFront: !!obj && raisedWhenMoved(obj, mode) };
+  const move: Command = {
+    type: 'MoveObject',
+    id,
+    position,
+    toFront: !!obj && raisedWhenMoved(obj, mode),
+    // A piece put down anywhere but on a holder is out of the holder it was in.
+    ...(obj && joinsHolder(obj) && obj.holderId ? { holderId: null } : {}),
+  };
   if (!obj || opts.free || obj.kind === 'board' || obj.kind === 'bag' || isHolder(obj)) return move;
 
   const center = objectCenter({ ...obj, position });
@@ -313,13 +209,113 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   const surface = topmostSurface(state.objects, obj, center);
   if (surface?.kind === 'bag') return { type: 'BagPut', bagId: surface.id, objectId: id };
   if (!surface) return move;
-  const rotation = alignsRotation(surface) ? { rotation: surface.rotation } : {};
-  if (surface.snapToCenter !== false) {
-    // A slot: the piece is centred on the holder.
-    const c = objectCenter(surface);
-    return { ...move, position: { x: Math.round(c.x - obj.width / 2), y: Math.round(c.y - obj.height / 2) }, ...rotation };
+  return { ...move, ...putOnHolder(surface, obj, position) };
+}
+
+/**
+ * Where a piece dropped at `position` lies once put into `holder`: a spread lines it up where it was dropped (see
+ * `settleHolderPieces`), a slot centres it; it takes the holder's rotation when the holder asks for that.
+ */
+function putOnHolder(holder: DeckObject, obj: TabletopObject, position: Vec2): { position: Vec2; holderId: string; rotation?: number } {
+  const rotation = alignsRotation(holder) ? { rotation: holder.rotation } : {};
+  if (!isSpread(holder) && holder.snapToCenter !== false) {
+    const c = objectCenter(holder);
+    return { position: { x: Math.round(c.x - obj.width / 2), y: Math.round(c.y - obj.height / 2) }, holderId: holder.id, ...rotation };
   }
-  return { ...move, ...rotation };
+  return { position, holderId: holder.id, ...rotation };
+}
+
+/** Whether `target` takes in `o` when a selection is dropped on it (anything else in the selection just moves). */
+function takesInGroup(target: DeckObject | BagObject, o: TabletopObject): boolean {
+  if (target.kind === 'bag') return bagAccepts(o);
+  if (o.kind === 'card' || isPile(o)) return true;
+  return !target.isPile && joinsHolder(o);
+}
+
+/**
+ * The holder, pile or bag a dragged selection (`ids`) goes into when released with the dragged object's centre at
+ * `center`: the top-most one there that takes in at least one of its objects.
+ */
+export function findGroupDropTarget(state: TableState, ids: readonly string[], center: Vec2): DeckObject | BagObject | undefined {
+  const set = new Set(ids);
+  const members = state.objects.filter((o) => set.has(o.id));
+  const target = topmostContaining(
+    state.objects,
+    state.objects.filter((o): o is DeckObject | BagObject => !set.has(o.id) && (o.kind === 'deck' || o.kind === 'bag')),
+    center,
+  );
+  return target && members.some((m) => takesInGroup(target, m)) ? target : undefined;
+}
+
+/**
+ * Turns "a selection was dragged to these positions" into one command. Dropped on a holder, pile or bag (under the
+ * centre of the dragged object `leaderId`), each object goes in as it would on its own: cards and piles join the
+ * holder / pile (side by side in a spread, in their order along it), pieces are put into the holder, the bag takes
+ * what it accepts. Everything else just moves; the selection comes to the front, keeping its order.
+ */
+export function resolveGroupDrop(
+  state: TableState,
+  moves: readonly { id: string; position: Vec2 }[],
+  leaderId: string,
+  mode: Mode,
+  opts: DropOptions = {},
+): Command {
+  const at = new Map(moves.map((m) => [m.id, m.position]));
+  const members = state.objects.filter((o) => at.has(o.id));
+  // Pieces in a holder that moves along with them are carried by it.
+  const carried = (o: TabletopObject) => !!o.holderId && at.has(o.holderId);
+  const leader = members.find((o) => o.id === leaderId);
+  const target =
+    leader && !opts.free
+      ? findGroupDropTarget(
+          state,
+          members.map((o) => o.id),
+          objectCenter({ ...leader, position: at.get(leader.id)! }),
+        )
+      : undefined;
+  const placed = members.map((o) => ({ ...o, position: at.get(o.id)! }));
+  const raised = sortByStacking(
+    members.filter((o) => raisedWhenMoved(o, mode)),
+    state.objects,
+  ).map((o) => o.id);
+  const commands: Command[] = [];
+  const takenIn: TabletopObject[] = [];
+  for (const o of placed) {
+    if (carried(o)) continue;
+    if (target && takesInGroup(target, o)) {
+      takenIn.push(o);
+      continue;
+    }
+    commands.push({ type: 'MoveObject', id: o.id, position: o.position, ...(joinsHolder(o) && o.holderId ? { holderId: null } : {}) });
+  }
+  commands.push({ type: 'RaiseObjects', ids: raised });
+  if (target?.kind === 'bag') {
+    // The last one put in ends on top: put them in from the bottom of the selection up.
+    for (const o of sortByStacking(takenIn, state.objects)) commands.push({ type: 'BagPut', bagId: target.id, objectId: o.id });
+  } else if (target) {
+    const definition = mode === 'edit' && !target.isPile;
+    const index = isSpread(target)
+      ? spreadInsertIndex(state.objects, target, objectCenter(placed.find((o) => o.id === leaderId)!))
+      : undefined;
+    const vertical = spreadsVertically(target);
+    const along = (o: TabletopObject) => {
+      const p = toLocal(objectCenter(o), target);
+      return vertical ? p.y : p.x;
+    };
+    // A spread takes the cards side by side in the order they lie along it (each one goes in after the previous one);
+    // a stack takes them from the bottom of the selection up, so the top-most one ends on top.
+    const order = index === undefined ? sortByStacking(takenIn, state.objects) : [...takenIn].sort((a, b) => along(a) - along(b));
+    for (const o of order) {
+      if (o.kind === 'card') {
+        commands.push({ type: 'AddCardToDeck', cardId: o.id, deckId: target.id, asDefinition: definition, index, toFront: true });
+      } else if (isPile(o)) {
+        commands.push({ type: 'MergePileIntoDeck', pileId: o.id, deckId: target.id, asDefinition: definition, index, toFront: true });
+      } else {
+        commands.push({ type: 'MoveObject', id: o.id, ...putOnHolder(target, o, o.position) });
+      }
+    }
+  }
+  return { type: 'Batch', commands };
 }
 
 export function defaultDrawPosition(deck: DeckObject): Vec2 {

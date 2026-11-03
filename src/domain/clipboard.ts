@@ -54,6 +54,10 @@ export function pasteObjects(data: ClipboardData, table: TableState, offset: Vec
     const out = { ...structuredClone(o), id } as TabletopObject;
     if (bagId) out.bagId = bagId;
     else delete out.bagId;
+    // A piece stays in its holder only when the holder is copied too.
+    const holderId = out.holderId && ids.get(out.holderId);
+    if (holderId) out.holderId = holderId;
+    else delete out.holderId;
     switch (out.kind) {
       case 'card': {
         const owner = ref(out.sourceDeckId);

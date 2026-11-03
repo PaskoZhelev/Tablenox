@@ -26,6 +26,7 @@ const base = {
     .max(8)
     .optional(),
   bagId: id.optional(),
+  holderId: id.optional(),
 };
 
 export const cardDefSchema = z.object({

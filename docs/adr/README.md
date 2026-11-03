@@ -81,7 +81,7 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Card zoom on hover** (UI preference, off by default): after a 250 ms hover, face-up cards and face-up pile tops are shown large in a separate small Konva stage that reuses the card renderer, so the preview matches the table exactly. *Superseded by ADR-0016 (per-object zoom).*
 - **Camera lock** (UI preference): plain drags on the table or on locked objects no longer pan. Explicit panning (Pan tool, Space+drag, middle button) and wheel zoom still work.
 - **Table colour** is stored per game (`Game.tableColor`, optional), saved like the title and not part of undo history.
-- **Custom dice.** `DieObject.faces?: DieFace[]` (label and/or image). When present, it replaces the numbered `sides`; `value` stays the 1-based index of the face shown. Rolling, value clamping, asset tracking and import/export all work on the face count. Optional fields keep schema v2 backward compatible.
+- **Custom dice.** `DieObject.faces?: DieFace[]` (label and/or image). When present, it replaces the numbered `sides`; `value` stays the 1-based index of the face shown. Rolling, value clamping, asset tracking and import/export all work on the face count. Optional fields keep schema v2 backward compatible. An image face is the whole die: it covers the die's rounded square (centre-cropped), with no body colour or outline around it.
 
 ## ADR-0016: per-object zoom, multi-select, card identity (revision 5)
 
@@ -305,3 +305,16 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Never in piles or definitions.** `TakeStack` / `DrawCards` drop it (`withoutCardRotation`), `stripFace` drops it with the side (definitions, cards sent home by Gather & reset), Duplicate's copied definitions drop it. A Recall step with `rotation: 'reset'` clears it from the holders it gathers into.
 
 **Consequences:** older saves had `alignRotation` missing = off; they now match rotation: their cards behave exactly as before, but pieces dropped on a rotated holder now take its rotation until the option is unticked.
+
+## ADR-0035: pieces go into holders, spreads line them up, selections drop into holders and bags
+
+**Context:** only cards were ever *in* a holder. A die, token or counter dropped on one just took its rotation (and was centred on a slot), so a spread holder never lined pieces up, moving the holder left them behind, and a dragged multi-selection was only moved: no holder highlighted and nothing went in.
+
+**Decision:**
+
+- **`BaseObject.holderId?`** marks a piece (anything but boards, bags, cards and piles: `joinsHolder`) put into a holder. `resolveDrop` sets it through `MoveObject.holderId` (a string puts it in, `null` takes it out, missing keeps it); Shift+drop and drops elsewhere take it out, and so does an automation Move to anything but a holder. Bags, Duplicate, `SplitTokens` and pasting without the holder drop it.
+- **Settled in the reducer.** After every command (`applyCommand` → `settleHolderPieces` in `domain/holders.ts`) a piece that the command moved off its holder (its centre outside, unless the same command just put it in) or whose holder is gone leaves it, and the pieces of every spread holder are placed in its row. A holder that a `MoveObject` / `TransformObject` / `UpdateObject` moves or turns carries its pieces (`carryHolderPieces`), except pieces the same command (or batch) places itself, so moving a holder together with its pieces never moves them twice. Locked and hidden pieces stay where they are.
+- **One shared row.** `spreadLayout` lays out the cards (bottom card first) and then the holder's pieces (in their order along the spread, so a piece lands where it is dropped among them) with one step; cards make room for pieces. `DeckVisual` subscribes to the holder's pieces (`holderPieces`, cached per objects array). A stack holder doesn't arrange pieces: with *Snap pieces to the centre* they are centred (and pile up), otherwise they stay where dropped.
+- **Group drops.** `resolveGroupDrop` turns a dragged selection into one `Batch`: dropped (the dragged object's centre) on a holder, pile or bag that takes in at least one of them (`findGroupDropTarget`, which `ObjectNode` also uses to highlight it while dragging), cards and piles join the holder / pile (in a spread side by side, in their order along it, at the drop index), pieces go into the holder, the bag takes what it accepts; the rest just moves, and the selection comes to the front. The first member to land dispatches it for all; Shift drops freely.
+
+**Consequences:** pieces in a spread can't be placed freely inside it (they snap back into the row); take them out or switch the holder to a stack. A group dropped half over a holder goes in as a whole, since only the dragged object's centre counts.
