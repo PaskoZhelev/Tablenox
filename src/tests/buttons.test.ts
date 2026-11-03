@@ -514,6 +514,38 @@ describe('automation buttons', () => {
     expect(tokens(s).reduce((n, t) => n + (t.count ?? 1), 0)).toBe(12);
   });
 
+  it('a token stack a step moves is still found after it was split up and merged with other stacks', () => {
+    const { state, button, holder } = setup();
+    const token = { ...byKind<TokenObject>(state, 'token'), count: 12, assetId: undefined };
+    const other = { ...createObject('deck', { center: { x: 3000, y: 0 }, zIndex: 70 }), id: 'other', name: 'Other', cards: [] };
+    const twin = { ...token, id: 'twin', count: 3, position: { x: 4000, y: 0 }, zIndex: 72 };
+    const move = step<MoveStep>('move', [token.id], { targetIds: [holder.id] });
+    const btn = { ...button, steps: [move] };
+    let s: TableState = {
+      ...state,
+      objects: [...state.objects.filter((o) => o.id !== token.id && o.id !== button.id), token, other, twin, btn],
+    };
+    const stepIds = (st: TableState) => get<ButtonObject>(st, btn.id).steps[0].objectIds;
+    s = run(s, get<ButtonObject>(s, btn.id));
+    // The player takes the tokens one by one into another holder: they make one stack there (split off the first).
+    s = applyCommand(s, { type: 'SplitTokens', id: token.id, newId: 'p1', count: 11, position: { x: 3000, y: 0 } });
+    expect(get<TokenObject>(s, 'p1').sourceId).toBe(token.id);
+    // The last token of the original stack is dropped on that stack: the merged stack takes over the original's identity.
+    s = applyCommand(s, { type: 'MergeTokens', id: token.id, targetId: 'p1' });
+    expect(get(s, 'p1')).toBeUndefined();
+    expect(get<TokenObject>(s, token.id)).toMatchObject({ count: 12, position: { x: 3000, y: 0 } });
+    expect(get<TokenObject>(s, token.id).sourceId).toBeUndefined();
+    expect(stepIds(s)).toEqual([token.id]);
+    s = run(s, get<ButtonObject>(s, btn.id));
+    expect(get<TokenObject>(s, token.id).holderId).toBe(holder.id);
+    // Dropped onto a stack that isn't its own: the step follows it to the stack it joined.
+    s = applyCommand(s, { type: 'MergeTokens', id: token.id, targetId: 'twin' });
+    expect(get(s, token.id)).toBeUndefined();
+    expect(stepIds(s)).toEqual(['twin']);
+    s = run(s, get<ButtonObject>(s, btn.id));
+    expect(get<TokenObject>(s, 'twin')).toMatchObject({ count: 15, holderId: holder.id });
+  });
+
   it('recall sends a holder’s foreign cards home, and a deck gathers all of its cards', () => {
     const { state, button, deck, holder } = setup();
     const moved = run(state, { ...button, steps: [step('move', [deck.id], { targetIds: [holder.id], count: 3 })] });

@@ -506,6 +506,27 @@ function bagDraw(state: TableState, cmd: Extract<Command, { type: 'BagDraw' }>):
 }
 
 /**
+ * `o` with references to object `from` (which goes away, e.g. merged into another token stack) pointing at `to`:
+ * automation steps' objects / destinations and a token's source stack. Same object when nothing refers to it.
+ */
+function withRefsMoved(o: TabletopObject, from: string, to: string): TabletopObject {
+  if (o.kind === 'token' && o.sourceId === from) {
+    const { sourceId: _source, ...rest } = o;
+    return o.id === to ? rest : { ...o, sourceId: to };
+  }
+  if (o.kind !== 'button' || !o.steps.some((s) => s.objectIds.includes(from) || ('targetIds' in s && s.targetIds.includes(from)))) return o;
+  const swap = (ids: string[]) => (ids.includes(from) ? [...new Set(ids.map((id) => (id === from ? to : id)))] : ids);
+  return {
+    ...o,
+    steps: o.steps.map((s) => {
+      const objectIds = swap(s.objectIds);
+      const moved = objectIds === s.objectIds ? s : { ...s, objectIds };
+      return 'targetIds' in moved ? { ...moved, targetIds: swap(moved.targetIds) } : moved;
+    }),
+  };
+}
+
+/**
  * Pure reducer for all table mutations. Returns the SAME state reference when the command is a no-op,
  * which lets the history skip empty entries.
  */
@@ -814,9 +835,19 @@ function applyOne(state: TableState, cmd: Command): TableState {
       if (!token || token.kind !== 'token' || !target || target.kind !== 'token' || token.id === target.id) return state;
       if (!sameTokenLook(token, target)) return state;
       const count = Math.min(MAX_TOKEN_STACK, tokenCount(token) + tokenCount(target));
+      // The merged stack keeps the identity of the stack the other was split off (it lies where the target lies), so
+      // automation steps and split-off tokens that refer to it still find it; references to the one that goes away
+      // move over to it.
+      const rootDropped = !token.sourceId && target.sourceId === token.id;
+      const goneId = rootDropped ? target.id : token.id;
+      const keptId = rootDropped ? token.id : target.id;
+      const { sourceId: _source, ...unsourced } = target;
+      const merged = withTokenCount(rootDropped ? { ...unsourced, id: token.id } : target, count);
       return {
         ...state,
-        objects: state.objects.filter((o) => o.id !== token.id).map((o) => (o.id === target.id ? withTokenCount(target, count) : o)),
+        objects: state.objects
+          .filter((o) => o.id !== token.id)
+          .map((o) => (o.id === target.id ? merged : withRefsMoved(o, goneId, keptId))),
       };
     }
 
