@@ -62,7 +62,7 @@ type Gesture =
     }
   | { kind: 'pen'; points: number[]; straight: boolean }
   | { kind: 'erase'; strokeIds: Set<string>; textIds: Set<string> }
-  | { kind: 'deck'; deckId: string; start: Vec2; index: number | 'all' }
+  | { kind: 'deck'; deckId: string; start: Vec2; index: number | 'all'; badgeGrab?: Vec2 }
   /** Play mode: a press on a bag; dragging draws a random piece out of it. */
   | { kind: 'bag'; id: string; start: Vec2 }
   /** Play mode: a press on a token stack; dragging takes one token off it. */
@@ -97,13 +97,22 @@ function findObjectNode(target: Konva.Node): Konva.Node | null {
 const isTokenStack = (o: TabletopObject) => o.kind === 'token' && tokenCount(o) > 1;
 
 function isDeckHandle(target: Konva.Node): boolean {
+  return deckHandleOf(target) !== null;
+}
+
+/** The count badge (`name="deck-handle"`) `target` belongs to, if any. */
+function deckHandleOf(target: Konva.Node): Konva.Node | null {
   let n: Konva.Node | null = target;
   while (n && n.getType() !== 'Stage') {
-    if (n.hasName('deck-handle')) return true;
-    if (n.hasName('object')) return false;
+    if (n.hasName('deck-handle')) {
+      // The badge's Rect and Text carry the name too; its Group (the outermost one) has the badge position.
+      const parent: Konva.Node | null = n.getParent();
+      return parent?.hasName('deck-handle') ? parent : n;
+    }
+    if (n.hasName('object')) return null;
     n = n.getParent();
   }
-  return false;
+  return null;
 }
 
 function isUiButton(target: Konva.Node): boolean {
@@ -498,8 +507,10 @@ export function TableCanvas() {
           }
           const movable = !obj.locked && !fixedInPlay(obj) && !!node;
           if (onBadge && obj.cards.length > 0) {
-            // Dragging the count badge lifts the whole stack out of the holder; the holder stays put.
-            gesture.current = { kind: 'deck', deckId: obj.id, start: screen, index: 'all' };
+            // Dragging the count badge lifts the whole stack out of the holder; the holder stays put. The pile comes
+            // out with the same point of its badge under the pointer.
+            const badgeGrab = deckHandleOf(e.target)?.getRelativePointerPosition() ?? undefined;
+            gesture.current = { kind: 'deck', deckId: obj.id, start: screen, index: 'all', badgeGrab };
             return;
           }
           const index = evt.shiftKey ? null : cardIndexAt(currentTable().objects, obj, world);
@@ -786,7 +797,7 @@ export function TableCanvas() {
         if (deck?.kind !== 'deck') return;
         let cmd: Command | null = null;
         if (g.index === 'all') {
-          cmd = takeStackCommand(currentTable().objects, deck, world);
+          cmd = takeStackCommand(currentTable().objects, deck, world, g.badgeGrab);
         } else if (deck.cards[g.index]) {
           const def = deck.cards[g.index];
           const look = resolveCardLook(def, deck, ownerDeckOf(currentTable().objects, def.id));

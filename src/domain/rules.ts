@@ -374,12 +374,26 @@ export function drawCardCommand(deck: DeckObject, position: Vec2 = defaultDrawPo
   };
 }
 
-/** Lifts the whole stack out of a holder with its centre at `center`: a single card is drawn, more become a pile. */
-export function takeStackCommand(objects: TabletopObject[], holder: DeckObject, center: Vec2): Command | null {
+/** Top-left corner of the count badge on a holder, pile or bag `width` wide, in its own (unrotated) coordinates. */
+export function stackBadgeOrigin(width: number): Vec2 {
+  return { x: width - 34, y: -14 };
+}
+
+/**
+ * Lifts the whole stack out of a holder: a single card is drawn, more become a pile. The pile is centred at `at`,
+ * or, with `badgeGrab` (the point of the holder's count badge held by the pointer, in badge coordinates), placed so
+ * that the same point of its own badge is at `at`, keeping the badge under the pointer.
+ */
+export function takeStackCommand(objects: TabletopObject[], holder: DeckObject, at: Vec2, badgeGrab?: Vec2): Command | null {
   const top = holder.cards[0];
   if (!top) return null;
   const look = resolveCardLook(top, holder, ownerDeckOf(objects, top.id));
-  const position = { x: Math.round(center.x - look.width / 2), y: Math.round(center.y - look.height / 2) };
+  const badge = stackBadgeOrigin(look.width);
+  const corner =
+    badgeGrab && holder.cards.length > 1
+      ? { x: at.x - badgeGrab.x - badge.x, y: at.y - badgeGrab.y - badge.y }
+      : { x: at.x - look.width / 2, y: at.y - look.height / 2 };
+  const position = { x: Math.round(corner.x), y: Math.round(corner.y) };
   if (holder.cards.length === 1) return drawCardCommand(holder, position);
   return { type: 'TakeStack', deckId: holder.id, pileId: newId(), position };
 }

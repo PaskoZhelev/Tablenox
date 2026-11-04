@@ -31,6 +31,7 @@ import {
   spreadInsertIndex,
   spreadLayout,
   splitTokensCommand,
+  stackBadgeOrigin,
   takeStackCommand,
 } from '../domain/rules';
 import type { CardObject, DeckObject, DieObject, InkStroke, TableState, TokenObject } from '../domain/types';
@@ -1326,6 +1327,18 @@ describe('deck rules', () => {
     const one = { ...deck, cards: deck.cards.slice(0, 1) };
     expect(takeStackCommand(s.objects, one, { x: 0, y: 0 })).toMatchObject({ type: 'DrawCard' });
     expect(takeStackCommand(s.objects, { ...deck, cards: [] }, { x: 0, y: 0 })).toBeNull();
+  });
+
+  it('taking the whole stack by its badge keeps the grabbed point of the badge under the pointer', () => {
+    let s = tableOf(fixtureGame());
+    const deck = deckOf(s);
+    const grab = { x: 12, y: 9 };
+    const at = { x: 500, y: 700 };
+    s = applyCommand(s, takeStackCommand(s.objects, deck, at, grab)!);
+    const [pile] = s.objects.filter((o): o is DeckObject => o.kind === 'deck' && o.isPile);
+    const badge = stackBadgeOrigin(pile.width);
+    expect(pile.position.x + badge.x + grab.x).toBeCloseTo(at.x, 0);
+    expect(pile.position.y + badge.y + grab.y).toBeCloseTo(at.y, 0);
   });
 
   it('boards and holders only move in Edit mode unless set to be movable in Play mode; boards start unlocked', () => {

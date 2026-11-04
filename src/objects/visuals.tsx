@@ -14,7 +14,7 @@ import {
   tokenCount,
 } from '../domain/objects';
 import { useShallow } from 'zustand/react/shallow';
-import { cardTurnOf, holderPieces, isSpread, spreadLayout } from '../domain/rules';
+import { cardTurnOf, holderPieces, isSpread, spreadLayout, stackBadgeOrigin } from '../domain/rules';
 import { BUTTON_LABEL_PADDING, buttonMaxFontSize, fitFontSize } from '../domain/buttons';
 import { holderShapePoints } from '../domain/geometry';
 import { isTimerRunning, timerFinished, timerText } from '../domain/timer';
@@ -440,7 +440,7 @@ export function DeckVisual({ o, mode, zone = 'shown' }: { o: DeckObject; mode: M
           </Group>
         );
       })}
-      {showBadge && <CountBadge x={w - 34} y={-14} count={count} />}
+      {showBadge && <CountBadge {...stackBadgeOrigin(w)} count={count} />}
     </>
   );
 }
@@ -466,6 +466,24 @@ function CountBadge({
   handle?: boolean;
 }) {
   const name = handle ? 'deck-handle' : undefined;
+  // The container whose cursor this badge turned into a hand, so it can be restored.
+  const grabbed = useRef<HTMLDivElement | null>(null);
+  const inside = useRef(false);
+  // Pressed on this badge and not released yet: the hand stays until the drag that may follow ends.
+  const held = useRef(false);
+  const release = () => {
+    const c = grabbed.current;
+    grabbed.current = null;
+    if (c && c.style.cursor === 'grab') c.style.cursor = '';
+  };
+  // Taking the whole stack (or dropping it onto another) unmounts the badge, so no mouseleave ever arrives.
+  useEffect(
+    () => () => {
+      inside.current = false;
+      if (!held.current) release();
+    },
+    [],
+  );
   return (
     <Group
       x={x}
@@ -473,11 +491,26 @@ function CountBadge({
       name={name}
       onMouseEnter={(e) => {
         const c = e.target.getStage()?.container();
-        if (c && handle) c.style.cursor = 'grab';
+        if (!c || !handle) return;
+        inside.current = true;
+        c.style.cursor = 'grab';
+        grabbed.current = c;
       }}
-      onMouseLeave={(e) => {
-        const c = e.target.getStage()?.container();
-        if (c && handle) c.style.cursor = '';
+      onMouseLeave={() => {
+        inside.current = false;
+        if (!held.current) release();
+      }}
+      onMouseDown={() => {
+        if (!handle || held.current) return;
+        held.current = true;
+        window.addEventListener(
+          'mouseup',
+          () => {
+            held.current = false;
+            if (!inside.current) release();
+          },
+          { once: true },
+        );
       }}
     >
       <Rect
@@ -579,7 +612,7 @@ export function BagVisual({ o }: { o: BagObject }) {
         ellipsis
         listening={false}
       />
-      {count > 0 && <CountBadge x={w - 34} y={-14} count={count} handle={false} />}
+      {count > 0 && <CountBadge {...stackBadgeOrigin(w)} count={count} handle={false} />}
     </>
   );
 }
