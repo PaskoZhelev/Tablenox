@@ -318,6 +318,51 @@ test('dragging a card over another card highlights it; dropping makes a pile; Sh
   expect(pile).toEqual({ isPile: true, n: 2 });
 });
 
+test('the "Place freely" toggle drops like Shift (for touch screens); off again, drops stack', async ({ page }) => {
+  await addSampleAndPlay(page);
+  const deckPos = await objectScreenPos(page, 'Bonus deck');
+  await page.mouse.click(deckPos.x, deckPos.y);
+  const bar = page.getByRole('toolbar', { name: 'Bonus deck actions' });
+  await bar.getByRole('button', { name: 'Draw a card' }).click();
+  await bar.getByRole('button', { name: 'Draw a card' }).click();
+  const cards = await storeState<{ id: string; name: string }[]>(
+    page,
+    "(s) => s.history.present.objects.filter(o => o.kind === 'card').map(o => ({ id: o.id, name: o.name }))",
+  );
+  const [bottom, top] = cards;
+  const toggle = page.getByRole('button', { name: 'Place freely' });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await drag(page, await objectScreenPos(page, top.name), 0, 260);
+  const cardCount = () => storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'card').length");
+  expect(await cardCount()).toBe(2);
+
+  // Dragged back over the other card: nothing is highlighted and nothing stacks.
+  const from = await objectScreenPos(page, top.name);
+  const to = await objectScreenPos(page, bottom.name);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 4, to.y + 4, { steps: 8 });
+  expect(await storeState(page, '(s) => s.dropTargetId')).toBe(null);
+  await page.mouse.up();
+  expect(await cardCount()).toBe(2);
+
+  // Collapsed tools keep the toggle in sight while it is on.
+  await page.getByRole('button', { name: 'Collapse tools' }).click();
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveCount(0);
+  await page.getByRole('button', { name: /Show tools/ }).click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+  // Off again: nudging the card lying on the other one makes a pile.
+  await drag(page, await objectScreenPos(page, top.name), 10, 0);
+  await expect.poll(cardCount).toBe(0);
+  await expect
+    .poll(() => storeState(page, "(s) => s.history.present.objects.find(o => o.kind === 'deck' && o.isPile)?.cards.length"))
+    .toBe(2);
+});
+
 /** Whether the object named `upper` is drawn above the one named `lower` on the canvas (Konva node order). */
 const drawnAbove = (page: Page, upper: string, lower: string) =>
   page.evaluate(

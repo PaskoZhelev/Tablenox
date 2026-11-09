@@ -66,6 +66,11 @@ function find(id: string): TabletopObject | undefined {
   return currentTable().objects.find((o) => o.id === id);
 }
 
+/** A drag places freely (no stacking, holders, slots or grid) with Shift held or the "Place freely" toggle on. */
+export function placesFreely(evt?: { shiftKey?: boolean } | null): boolean {
+  return !!evt?.shiftKey || useTableStore.getState().ui.freePlace;
+}
+
 export function dropObject(id: string, position: Vec2, free = false): void {
   const { dispatch, mode } = useTableStore.getState();
   dispatch(resolveDrop(currentTable(), id, { x: Math.round(position.x), y: Math.round(position.y) }, mode, { free }));

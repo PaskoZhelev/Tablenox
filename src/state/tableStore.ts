@@ -62,6 +62,11 @@ export interface UiPrefs {
   gridSize: number;
   /** Edit mode: dragged and added objects (and arrow-key nudges) snap to the grid. */
   snapToGrid: boolean;
+  /**
+   * Drops place objects freely, as if Shift were held (no stacking, no holders / slots, no grid): for touch screens.
+   * Never restored on reload, so stacking can't silently stay off.
+   */
+  freePlace: boolean;
   /** How many times the magnifier (hold Z) enlarges the table under the mouse. */
   magnifierZoom: number;
 }
@@ -83,6 +88,7 @@ const DEFAULT_UI: UiPrefs = {
   palettePinned: true,
   gridSize: DEFAULT_GRID_SIZE,
   snapToGrid: false,
+  freePlace: false,
   magnifierZoom: MAGNIFIER_ZOOM.default,
 };
 
@@ -93,7 +99,12 @@ function loadUiPrefs(): UiPrefs {
     const saved = JSON.parse(raw) as Partial<UiPrefs> & { hoverZoom?: unknown };
     delete saved.hoverZoom;
     const prefs = { ...DEFAULT_UI, ...saved };
-    return { ...prefs, gridSize: clampGridSize(Number(prefs.gridSize)), magnifierZoom: clampMagnifierZoom(Number(prefs.magnifierZoom)) };
+    return {
+      ...prefs,
+      freePlace: false,
+      gridSize: clampGridSize(Number(prefs.gridSize)),
+      magnifierZoom: clampMagnifierZoom(Number(prefs.magnifierZoom)),
+    };
   } catch {
     return { ...DEFAULT_UI };
   }

@@ -24,6 +24,7 @@ import {
   flipDeckCard,
   incrementCounter,
   pickOnTable,
+  placesFreely,
   resetTimer,
   rollDie,
   runButton,
@@ -115,11 +116,11 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   const gridSize = useTableStore((s) => (s.mode === 'edit' && s.ui.snapToGrid ? s.ui.gridSize : 0));
 
   /**
-   * Keeps a dragged object's bounding box corner on the grid (Shift places freely). Only the object under the pointer
+   * Keeps a dragged object's bounding box corner on the grid (Shift or "Place freely" places freely). Only the object under the pointer
    * snaps; the rest of a multi-selection follows it by the same amount, so their layout is kept.
    */
   const snapDrag = (pos: { x: number; y: number }, evt?: { shiftKey?: boolean }) => {
-    if (evt?.shiftKey) return pos;
+    if (placesFreely(evt)) return pos;
     const { camera } = useTableStore.getState();
     const obj = latest.current;
     const center = screenToWorld(camera, pos);
@@ -204,7 +205,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   };
 
   const onDragMove = (e: KonvaEventObject<DragEvent>) => {
-    const free = !!(e.evt as MouseEvent | undefined)?.shiftKey;
+    const free = placesFreely(e.evt as MouseEvent | undefined);
     const center = centerOf(e.target);
     const table = currentTable();
     if (inGroupSelection(o.id)) {
@@ -232,7 +233,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
   const onDragEnd = (e: KonvaEventObject<DragEvent>) => {
     const node = e.target as unknown as Konva.Group;
     node.setAttr(LIFTED_ATTR, false);
-    const free = !!(e.evt as MouseEvent | undefined)?.shiftKey;
+    const free = placesFreely(e.evt as MouseEvent | undefined);
     const s = useTableStore.getState();
     const leaderId = s.draggingId;
     land();

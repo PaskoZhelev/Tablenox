@@ -253,12 +253,29 @@ export function Toolbar() {
   const showGrid = useTableStore((s) => s.ui.showGrid);
   const snapToGrid = useTableStore((s) => s.ui.snapToGrid);
   const cameraLocked = useTableStore((s) => s.ui.cameraLocked);
+  const freePlace = useTableStore((s) => s.ui.freePlace);
   const setUi = useTableStore((s) => s.setUi);
   const { open: paletteOpen, toggle: togglePalette } = usePaletteToggle();
   const fullscreen = useFullscreen();
   // The tool whose options panel was closed; picking another tool (or the same one again) shows it again.
   const [optionsClosedFor, setOptionsClosedFor] = useState<Tool | null>(null);
   const activeTool = TOOLS.find((t) => t.tool === tool)!;
+  const freePlaceButton = (
+    <button
+      type="button"
+      className={`hud-btn ${freePlace ? 'is-active' : ''}`}
+      aria-pressed={freePlace}
+      aria-label="Place freely"
+      title={
+        freePlace
+          ? 'Placing freely: drops never stack, go into holders or snap (like holding Shift). Click to stack again'
+          : 'Place freely: drops never stack, go into holders or snap (like holding Shift)'
+      }
+      onClick={() => setUi({ freePlace: !freePlace })}
+    >
+      <Icon name="freePlace" size={18} />
+    </button>
+  );
 
   if (!open) {
     return (
@@ -272,6 +289,8 @@ export function Toolbar() {
         >
           <Icon name={activeTool.icon} size={18} />
         </button>
+        {/* Stays in sight while on, so stacking doesn't seem broken with the tools collapsed. */}
+        {freePlace && freePlaceButton}
       </div>
     );
   }
@@ -391,6 +410,7 @@ export function Toolbar() {
         >
           <Icon name={cameraLocked ? 'moveOff' : 'move'} size={18} />
         </button>
+        {freePlaceButton}
         <span className="hud-sep-h" />
         <button
           type="button"

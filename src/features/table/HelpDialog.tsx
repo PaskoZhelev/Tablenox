@@ -8,6 +8,7 @@ const ROWS: [string, string][] = [
   ],
   ['Drag a pile onto a holder / pile / card', 'Put all its cards on top (on a loose card: the card goes to the bottom of the pile)'],
   ['Shift + drop', 'Place freely, without stacking, snapping into a holder or slot, or snapping to the grid'],
+  ['“Place freely” button (tools)', 'Every drop places freely, like holding Shift (for touch screens); click again to stack again'],
   ['Drag from a holder', 'Take its top card (stacked) or the card you grab (spread out) (Play mode)'],
   [
     'Right-click a holder',

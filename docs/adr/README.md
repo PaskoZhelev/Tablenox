@@ -330,3 +330,15 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Zoom** is the UI pref `magnifierZoom` (1.5–8, default 3, `clampMagnifierZoom`, saved in `localStorage`); the wheel changes it while `Z` is held and doesn't zoom the camera then.
 
 **Consequences:** while `Z` is held, images on the table itself are drawn from larger mipmaps (slightly less smooth when shrunk); the lens shows the Konva layers only, not HTML overlays such as the action bar or the text editor.
+
+## ADR-0037: a "Place freely" toggle for touch screens
+
+**Context:** Shift + drop places a piece freely (no stacking, holders, slots, bags or grid), but phones and tablets have no Shift key.
+
+**Decision:**
+
+- **`ui.freePlace`**, toggled by a *Place freely* button in the tool column (both modes), makes every drop free, as if Shift were held. `placesFreely(evt)` in `canvas/actions.ts` (`evt.shiftKey || ui.freePlace`) replaces the Shift checks in `ObjectNode` (drop, hover target, grid snapping), so single and group drops behave the same.
+- **Drops only.** The drag-start Shift gestures in `TableCanvas` (move a whole pile, token stack, holder or bag instead of taking from it) ignore the toggle: with it on, dragging a pile still takes its top card, and the count badges move whole stacks on touch.
+- **Not restored on reload** (`loadUiPrefs` forces it off) and still shown in the collapsed tool column while on, so stacking never seems broken without a visible reason.
+
+**Consequences:** while it is on nothing stacks or goes into a holder by dragging, in either mode; menu and automation actions are unaffected.
