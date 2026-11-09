@@ -296,12 +296,12 @@ describe('pieces in holders', () => {
         .sort(),
     ).toEqual(['d1', 'ta', 'tb']);
     expect(pieceStacks(s.objects).get('d1')).toEqual({ holderId: h.id, ids: ['ta', 'tb', 'd1'], count: 5 });
-    // Dragging the badge moves the stack as a selection: onto the table they all leave the holder�
+    // Dragging the badge moves the stack as a selection: onto the table they all leave the holder, staying a (loose) pile;
     const off = (id: string) => ({ id, position: centredAt(find(s, id), { x: 9000, y: 9000 }) });
     const out = applyCommand(s, resolveGroupDrop(s, ['ta', 'tb', 'd1'].map(off), 'd1', 'play'));
     expect(['ta', 'tb', 'd1'].every((id) => !find(out, id).holderId)).toBe(true);
-    expect(pieceStacks(out.objects).size).toBe(0);
-    // �and onto another stacked holder they go in and stack there.
+    expect(pieceStacks(out.objects).get('d1')).toMatchObject({ ids: ['ta', 'tb', 'd1'], count: 5 });
+    // onto another stacked holder they go in and stack there.
     const other = { ...createObject('deck', { center: { x: 6000, y: 6000 }, zIndex: 1 }), id: 'other', cards: [] } as DeckObject;
     let t: TableState = { ...s, objects: [...s.objects, other] };
     const onto = (id: string) => ({ id, position: centredAt(find(t, id), { x: 6000, y: 6000 }) });
@@ -310,5 +310,83 @@ describe('pieces in holders', () => {
     // A spread lays its pieces out instead, and one that doesn't centre pieces leaves them where they were dropped.
     expect(pieceStacks(applyCommand(t, { type: 'UpdateObject', id: 'other', patch: { layout: 'spread' } }).objects).size).toBe(0);
     expect(pieceStacks(applyCommand(t, { type: 'UpdateObject', id: 'other', patch: { snapToCenter: false } }).objects).size).toBe(0);
+  });
+});
+describe('loose piles of pieces', () => {
+  const token = (id: string, x: number, patch: Partial<TokenObject> = {}) =>
+    ({ ...createObject('token', { center: { x, y: 7000 }, zIndex: 70 }), id, ...patch }) as TokenObject;
+  function table(...extra: TabletopObject[]): TableState {
+    const s = tableOf(fixtureGame());
+    return { ...s, objects: [...s.objects, ...extra] };
+  }
+
+  it('a token dropped on a different loose token makes a pile with a badge; more join it; taking the top one off leaves it', () => {
+    let s = table(token('a', 7000, { assetId: 'img-a' }), token('b', 7300, { assetId: 'img-b', count: 2 }), token('c', 7600));
+    const at = objectCenter(find(s, 'a'));
+    s = dropAt(s, 'b', { x: at.x + 5, y: at.y - 4 });
+    // Centred on it, in one pile (not merged: they look different); a token stack counts every token.
+    expect(objectCenter(find(s, 'b'))).toEqual(at);
+    expect(find(s, 'a').stackId).toBeDefined();
+    expect(find(s, 'b').stackId).toBe(find(s, 'a').stackId);
+    expect(pieceStacks(s.objects).get('b')).toMatchObject({ ids: ['a', 'b'], count: 3 });
+    s = dropAt(s, 'c', at);
+    expect(pieceStacks(s.objects).get('c')).toMatchObject({ ids: ['a', 'b', 'c'], count: 4 });
+    expect(pieceStacks(s.objects).has('b')).toBe(false);
+    // Taken off (dropped elsewhere), the top token leaves the pile.
+    s = dropAt(s, 'c', { x: 9000, y: 9000 });
+    expect(find(s, 'c').stackId).toBeUndefined();
+    expect(pieceStacks(s.objects).get('b')).toMatchObject({ ids: ['a', 'b'], count: 3 });
+    // Shift+drop places it freely on the pile without joining.
+    s = dropAt(s, 'c', at, true);
+    expect(find(s, 'c').stackId).toBeUndefined();
+    expect(pieceStacks(s.objects).get('b')?.count).toBe(3);
+  });
+
+  it('identical tokens still merge into one stack', () => {
+    let s = table(token('a', 7000), token('b', 7300));
+    s = dropAt(s, 'b', objectCenter(find(s, 'a')));
+    expect(find(s, 'b')).toBeUndefined();
+    expect((find(s, 'a') as TokenObject).count).toBe(2);
+  });
+
+  it('a pile moved by its badge stays a pile; a holder stack dragged out becomes one; put in a holder it leaves the pile', () => {
+    let s = table(token('a', 7000, { assetId: 'img-a' }), token('b', 7300, { assetId: 'img-b' }));
+    s = dropAt(s, 'b', objectCenter(find(s, 'a')));
+    const pileId = find(s, 'a').stackId;
+    const to = (st: TableState, id: string, p: Vec2) => ({ id, position: centredAt(find(st, id), p) });
+    s = applyCommand(s, resolveGroupDrop(s, [to(s, 'a', { x: 500, y: 500 }), to(s, 'b', { x: 500, y: 500 })], 'b', 'play'));
+    expect([find(s, 'a').stackId, find(s, 'b').stackId]).toEqual([pileId, pileId]);
+    expect(pieceStacks(s.objects).get('b')?.count).toBe(2);
+    // Into a stacked holder: they go in and stack there, out of the loose pile.
+    const h = holderOf(s);
+    s = applyCommand(s, resolveGroupDrop(s, [to(s, 'a', objectCenter(h)), to(s, 'b', objectCenter(h))], 'b', 'play'));
+    expect(['a', 'b'].map((id) => [find(s, id).holderId, find(s, id).stackId])).toEqual([
+      [h.id, undefined],
+      [h.id, undefined],
+    ]);
+    // Dragged out of the holder together (its badge), they make a new loose pile on the table.
+    s = applyCommand(s, resolveGroupDrop(s, [to(s, 'a', { x: 8000, y: 0 }), to(s, 'b', { x: 8000, y: 0 })], 'b', 'play'));
+    expect(find(s, 'a').holderId).toBeUndefined();
+    expect(find(s, 'a').stackId).toBeDefined();
+    expect(find(s, 'b').stackId).toBe(find(s, 'a').stackId);
+    expect(pieceStacks(s.objects).get('b')).toMatchObject({ stackId: find(s, 'a').stackId, count: 2 });
+    // A piece moved away by anything else (an automation, say) is no longer counted in the pile.
+    s = applyCommand(s, { type: 'MoveObject', id: 'b', position: { x: 0, y: 0 } });
+    expect(pieceStacks(s.objects).size).toBe(0);
+  });
+
+  it('bags, splits, duplicates and pastes keep pile ids to themselves', () => {
+    let s = table(token('a', 7000, { assetId: 'img-a', count: 3 }), token('b', 7300, { assetId: 'img-b' }));
+    s = dropAt(s, 'b', objectCenter(find(s, 'a')));
+    const split = splitTokensCommand(find(s, 'a') as TokenObject, 1, { x: 0, y: 0 })!;
+    s = applyCommand(s, split);
+    expect(s.objects.find((o) => o.kind === 'token' && !['a', 'b'].includes(o.id))!.stackId).toBeUndefined();
+    const pasted = pasteObjects(copyObjects(s.objects, ['a', 'b'], '')!, s, { x: 0, y: 0 });
+    expect(pasted[0].stackId).toBeDefined();
+    expect(pasted[0].stackId).toBe(pasted[1].stackId);
+    expect(pasted[0].stackId).not.toBe(find(s, 'a').stackId);
+    const bag = s.objects.find((o): o is BagObject => o.kind === 'bag')!;
+    s = applyCommand(s, { type: 'BagPut', bagId: bag.id, objectId: 'b' });
+    expect((find(s, bag.id) as BagObject).items.find((i) => i.id === 'b')!.stackId).toBeUndefined();
   });
 });

@@ -36,6 +36,7 @@ export function clipboardCenter(data: ClipboardData): Vec2 {
 export function pasteObjects(data: ClipboardData, table: TableState, offset: Vec2): TabletopObject[] {
   const ids = new Map<string, string>();
   const cardIds = new Map<string, string>();
+  const stackIds = new Map<string, string>();
   const fresh = (map: Map<string, string>, id: string) => {
     let next = map.get(id);
     if (!next) map.set(id, (next = newId()));
@@ -58,6 +59,8 @@ export function pasteObjects(data: ClipboardData, table: TableState, offset: Vec
     const holderId = out.holderId && ids.get(out.holderId);
     if (holderId) out.holderId = holderId;
     else delete out.holderId;
+    // Copies of a loose pile make a pile of their own.
+    if (out.stackId) out.stackId = fresh(stackIds, out.stackId);
     switch (out.kind) {
       case 'card': {
         const owner = ref(out.sourceDeckId);

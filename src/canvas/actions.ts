@@ -590,6 +590,8 @@ export function duplicateObjects(ids: string[]): void {
   const originals = sortByZ(objects.filter((o) => ids.includes(o.id)));
   if (originals.length === 0) return;
   let z = maxZ(objects);
+  // Copies of a loose pile make a pile of their own.
+  const stackIds = new Map<string, string>();
   const copies = originals.map((o) => {
     const copy = {
       ...structuredClone(o),
@@ -598,7 +600,12 @@ export function duplicateObjects(ids: string[]): void {
       zIndex: ++z,
       bagId: undefined,
       holderId: undefined,
+      stackId: undefined as string | undefined,
     };
+    if (o.stackId) {
+      if (!stackIds.has(o.stackId)) stackIds.set(o.stackId, newId());
+      copy.stackId = stackIds.get(o.stackId);
+    }
     if (copy.kind === 'token') copy.sourceId = undefined;
     if (copy.kind === 'deck') {
       copy.cards = copy.cards.map((c) => ({ ...c, id: newId() }));

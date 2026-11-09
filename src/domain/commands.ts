@@ -70,9 +70,18 @@ export type Command =
   | { type: 'UpdateObject'; id: string; patch: ObjectPatch }
   /**
    * `holderId` (pieces only): the holder the piece is put into, or null to take it out of its holder; missing keeps it
-   * as it is (a piece moved off its holder still leaves it, see `settleHolderPieces`).
+   * as it is (a piece moved off its holder still leaves it, see `settleHolderPieces`). `stackId` (pieces only): the
+   * loose pile it joins, or null to take it out of its pile; missing keeps it. A piece put into a holder leaves its pile.
    */
-  | { type: 'MoveObject'; id: string; position: Vec2; toFront?: boolean; rotation?: number; holderId?: string | null }
+  | {
+      type: 'MoveObject';
+      id: string;
+      position: Vec2;
+      toFront?: boolean;
+      rotation?: number;
+      holderId?: string | null;
+      stackId?: string | null;
+    }
   | { type: 'TransformObject'; id: string; position: Vec2; width: number; height: number; rotation: number }
   | { type: 'DeleteObject'; id: string }
   | { type: 'SetZIndex'; id: string; direction: ZOrderDirection }
@@ -467,7 +476,7 @@ function bagPut(state: TableState, bagId: string, objectId: string, index?: numb
   const bag = findObject(state, bagId);
   const obj = findObject(state, objectId);
   if (!bag || bag.kind !== 'bag' || !obj || obj.id === bag.id || !bagAccepts(obj)) return state;
-  const { holderId: _holder, ...loose } = obj;
+  const { holderId: _holder, stackId: _stack, ...loose } = obj;
   const item: BagItem = { ...(loose as BagItem), bagId: bag.id };
   // Every piece keeps its own entry and id (identical tokens too), so it comes out as the very same object and
   // automation steps that list it still find it.
@@ -576,14 +585,17 @@ function applyOne(state: TableState, cmd: Command): TableState {
         const isTop = !cmd.toFront || (o.zIndex === z && !tied);
         const rotation = cmd.rotation === undefined ? o.rotation : ((cmd.rotation % 360) + 360) % 360;
         const holderId = cmd.holderId === undefined || !joinsHolder(o) ? o.holderId : (cmd.holderId ?? undefined);
-        if (samePos && isTop && rotation === o.rotation && holderId === o.holderId) return o;
-        const { holderId: _holder, ...rest } = o;
+        const wantedStack = cmd.stackId === undefined || !joinsHolder(o) ? o.stackId : (cmd.stackId ?? undefined);
+        const stackId = holderId ? undefined : wantedStack;
+        if (samePos && isTop && rotation === o.rotation && holderId === o.holderId && stackId === o.stackId) return o;
+        const { holderId: _holder, stackId: _stack, ...rest } = o;
         return {
           ...rest,
           position: { ...cmd.position },
           zIndex: isTop ? o.zIndex : z + 1,
           rotation,
           ...(holderId ? { holderId } : {}),
+          ...(stackId ? { stackId } : {}),
         } as TabletopObject;
       });
       // A holder brought to the front brings its cards along.
@@ -812,7 +824,7 @@ function applyOne(state: TableState, cmd: Command): TableState {
       if (total < 2) return state;
       // The new stack remembers the stack at the root of the family; a source that is gone starts a new one.
       const root = token.sourceId && findObject(state, token.sourceId)?.kind === 'token' ? token.sourceId : token.id;
-      const { bagId: _bag, holderId: _holder, ...plain } = withTokenCount(token, n);
+      const { bagId: _bag, holderId: _holder, stackId: _stack, ...plain } = withTokenCount(token, n);
       const taken: TokenObject = {
         ...plain,
         id: cmd.newId,

@@ -5,12 +5,15 @@ import {
   holderPieces,
   isSpread,
   joinsHolder,
+  loosePileOf,
+  pieceStacks,
   pointInObject,
   spreadLayout,
   spreadsVertically,
   stacksPieces,
   toLocal,
   type CardSlot,
+  type PieceStack,
 } from './holders';
 import {
   alignsRotation,
@@ -82,6 +85,39 @@ export function findTokenTarget(state: TableState, id: string, center: Vec2): To
 }
 
 /**
+ * The loose piece a dragged token would pile up on if released with its centre at `center`: the top-most piece there,
+ * when it is a token or lies in a loose pile and is not in a holder (an identical token merges instead,
+ * `findTokenTarget`; a piece in a holder makes the token go into the holder).
+ */
+export function findLoosePileTarget(state: TableState, id: string, center: Vec2): TabletopObject | undefined {
+  const obj = state.objects.find((o) => o.id === id);
+  if (obj?.kind !== 'token') return undefined;
+  const top = topmostContaining(
+    state.objects,
+    state.objects.filter((o) => o.id !== id && !isSurface(o)),
+    center,
+  );
+  if (!top || top.holderId || top.locked || !joinsHolder(top)) return undefined;
+  return top.kind === 'token' || loosePileOf(state.objects, top) ? top : undefined;
+}
+
+/** A token dropped on loose piece `target`: centred on it, in its pile (a new pile when `target` lies alone). */
+function pileUpCommand(token: TabletopObject, target: TabletopObject): Command {
+  const c = objectCenter(target);
+  const stackId = target.stackId ?? newId();
+  const moveIn: Command = {
+    type: 'MoveObject',
+    id: token.id,
+    position: { x: Math.round(c.x - token.width / 2), y: Math.round(c.y - token.height / 2) },
+    toFront: true,
+    stackId,
+    ...(token.holderId ? { holderId: null } : {}),
+  };
+  if (target.stackId) return moveIn;
+  return { type: 'Batch', commands: [{ type: 'MoveObject', id: target.id, position: target.position, stackId }, moveIn] };
+}
+
+/**
  * The object highlighted while `id` is dragged with its centre at `center`: for cards the holder/pile/card it
  * would join, for piles the holder/pile it would merge into, for tokens an identical token they would stack on,
  * for other pieces the holder underneath. Boards and holders themselves never highlight anything.
@@ -94,6 +130,8 @@ export function findHoverTarget(state: TableState, id: string, center: Vec2): Ta
   if (obj.kind === 'token') {
     const stack = findTokenTarget(state, id, center);
     if (stack) return stack;
+    const pile = findLoosePileTarget(state, id, center);
+    if (pile) return pile;
   }
   return topmostSurface(state.objects, obj, center);
 }
@@ -120,6 +158,7 @@ export { cardRotationOf, cardTurnOf } from './objects';
 export {
   holderPieces,
   isSpread,
+  loosePileOf,
   pieceStacks,
   pointInObject,
   rotatedBox,
@@ -179,8 +218,9 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
     id,
     position,
     toFront: !!obj && raisedWhenMoved(obj, mode),
-    // A piece put down anywhere but on a holder is out of the holder it was in.
+    // A piece put down anywhere but on a holder is out of the holder it was in, and out of its loose pile.
     ...(obj && joinsHolder(obj) && obj.holderId ? { holderId: null } : {}),
+    ...(obj?.stackId ? { stackId: null } : {}),
   };
   if (!obj || opts.free || obj.kind === 'board' || obj.kind === 'bag' || isHolder(obj)) return move;
 
@@ -225,6 +265,9 @@ export function resolveDrop(state: TableState, id: string, position: Vec2, mode:
   if (obj.kind === 'token') {
     const stack = findTokenTarget(state, id, center);
     if (stack) return { type: 'MergeTokens', id, targetId: stack.id };
+    // Dropped on another loose token (or a loose pile), like a card on a card, it makes a pile with it.
+    const pile = findLoosePileTarget(state, id, center);
+    if (pile) return pileUpCommand({ ...obj, position }, pile);
   }
 
   const surface = topmostSurface(state.objects, obj, center);
@@ -278,6 +321,31 @@ function takesInGroup(target: DeckObject | BagObject, o: TabletopObject): boolea
 }
 
 /**
+ * The loose pile each of `moved` (pieces of a selection put down on the table) ends up in: pieces moved together out of
+ * one stack (a loose pile, or a holder's piece stack, e.g. dragged by its badge) stay a pile where they land (a holder's
+ * stack becomes a new loose pile); a piece moved alone out of a pile leaves it (null). Pieces not in the map keep theirs.
+ */
+function pilesMovedTogether(state: TableState, moved: readonly TabletopObject[]): Map<string, string | null> {
+  const stacks = [...pieceStacks(state.objects).values()];
+  const groups = new Map<PieceStack, TabletopObject[]>();
+  for (const o of moved) {
+    const stack = stacks.find((s) => s.ids.includes(o.id));
+    if (stack) groups.set(stack, [...(groups.get(stack) ?? []), o]);
+    else if (o.stackId) groups.set({ stackId: o.stackId, ids: [o.id], count: 1 }, [o]);
+  }
+  const out = new Map<string, string | null>();
+  for (const [stack, members] of groups) {
+    if (members.length < 2) {
+      for (const m of members) if (m.stackId) out.set(m.id, null);
+      continue;
+    }
+    const stackId = stack.stackId ?? newId();
+    for (const m of members) if (m.stackId !== stackId) out.set(m.id, stackId);
+  }
+  return out;
+}
+
+/**
  * The holder, pile or bag a dragged selection (`ids`) goes into when released with the dragged object's centre at
  * `center`: the top-most one there that takes in at least one of its objects.
  */
@@ -325,13 +393,21 @@ export function resolveGroupDrop(
   ).map((o) => o.id);
   const commands: Command[] = [];
   const takenIn: TabletopObject[] = [];
+  const onTable = placed.filter((o) => !carried(o) && !(target && takesInGroup(target, o)));
+  const piled = pilesMovedTogether(state, onTable);
   for (const o of placed) {
     if (carried(o)) continue;
     if (target && takesInGroup(target, o)) {
       takenIn.push(o);
       continue;
     }
-    commands.push({ type: 'MoveObject', id: o.id, position: o.position, ...(joinsHolder(o) && o.holderId ? { holderId: null } : {}) });
+    commands.push({
+      type: 'MoveObject',
+      id: o.id,
+      position: o.position,
+      ...(joinsHolder(o) && o.holderId ? { holderId: null } : {}),
+      ...(piled.has(o.id) ? { stackId: piled.get(o.id) } : {}),
+    });
   }
   commands.push({ type: 'RaiseObjects', ids: raised });
   if (target?.kind === 'bag') {

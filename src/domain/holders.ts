@@ -109,36 +109,70 @@ export function stacksPieces(deck: DeckObject): boolean {
 /** Pieces a piece counts for in a stack: every token of a token stack, one for anything else. */
 const pieceWeight = (o: TabletopObject) => (o.kind === 'token' ? (o.count ?? 1) : 1);
 
-/** The pieces stacked in a holder, bottom first, and how many pieces that makes. */
+/** A stack of pieces, bottom first, and how many pieces that makes: in a holder (`holderId`) or a loose pile (`stackId`). */
 export interface PieceStack {
-  holderId: string;
+  holderId?: string;
+  stackId?: string;
   ids: string[];
   count: number;
 }
 
 const pieceStackCache = new WeakMap<readonly TabletopObject[], Map<string, PieceStack>>();
 
+/** How far apart (world units) the centres of pieces of one loose pile may be (centring rounds to whole units). */
+const PILE_CENTRE_SLOP = 2;
+
 /**
- * Top piece id -> the stack it tops, for every stacked holder (`stacksPieces`) holding 2+ pieces (a token stack counts
- * each token). Like a holder's cards, the stack shows one count badge on its top piece, which drags the whole stack.
- * Cached per (immutable) objects array, so store selectors can call it.
+ * Top piece id -> the stack it tops: every stacked holder (`stacksPieces`) holding 2+ pieces (a token stack counts each
+ * token), and every loose pile of 2+ pieces (sharing a `stackId` and lying on the same centre; a piece of a pile moved
+ * elsewhere, e.g. by an automation, is no longer part of it). Like a holder's cards, the stack shows one count badge on
+ * its top piece, which drags the whole stack. Cached per (immutable) objects array, so store selectors can call it.
  */
 export function pieceStacks(objects: readonly TabletopObject[]): Map<string, PieceStack> {
   let map = pieceStackCache.get(objects);
   if (!map) {
     map = new Map();
     const all = objects as TabletopObject[];
+    const weigh = (pieces: readonly TabletopObject[]) => pieces.reduce((n, p) => n + pieceWeight(p), 0);
     for (const [holderId, pieces] of piecesByHolder(objects)) {
       const holder = objects.find((o) => o.id === holderId);
       if (holder?.kind !== 'deck' || !stacksPieces(holder)) continue;
-      const count = pieces.reduce((n, p) => n + pieceWeight(p), 0);
+      const count = weigh(pieces);
       if (count < 2) continue;
       const ids = sortByStacking(pieces, all).map((p) => p.id);
       map.set(ids[ids.length - 1], { holderId, ids, count });
     }
+    const piles = new Map<string, TabletopObject[]>();
+    for (const o of objects) {
+      if (!o.stackId || o.holderId || !o.visible || o.locked || !joinsHolder(o)) continue;
+      piles.set(o.stackId, [...(piles.get(o.stackId) ?? []), o]);
+    }
+    for (const [stackId, pieces] of piles) {
+      // From the top down, each piece joins the group lying on its centre (the top piece's group is the pile).
+      const groups: { at: Vec2; members: TabletopObject[] }[] = [];
+      for (const p of sortByStacking(pieces, all).reverse()) {
+        const c = objectCenter(p);
+        const g = groups.find((x) => Math.abs(x.at.x - c.x) <= PILE_CENTRE_SLOP && Math.abs(x.at.y - c.y) <= PILE_CENTRE_SLOP);
+        if (g) g.members.push(p);
+        else groups.push({ at: c, members: [p] });
+      }
+      for (const { members } of groups) {
+        const count = weigh(members);
+        if (count < 2) continue;
+        const ids = members.map((p) => p.id).reverse();
+        map.set(ids[ids.length - 1], { stackId, ids, count });
+      }
+    }
     pieceStackCache.set(objects, map);
   }
   return map;
+}
+
+/** The loose pile `o` lies in (2+ pieces), if any. */
+export function loosePileOf(objects: readonly TabletopObject[], o: TabletopObject): PieceStack | undefined {
+  if (!o.stackId || o.holderId) return undefined;
+  for (const s of pieceStacks(objects).values()) if (s.stackId === o.stackId && s.ids.includes(o.id)) return s;
+  return undefined;
 }
 
 /** The pieces of a spread holder in their order along it (first = nearest the start of the row / column). */

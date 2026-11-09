@@ -17,9 +17,10 @@ const ROWS: [string, string][] = [
   ['Drag a token stack', 'Take one token off it; drag its badge (or Shift + drag) to move the whole stack (Play mode)'],
   ['Drop a token on an identical one', 'Stack them (the count badge adds up)'],
   [
-    'Drag the badge of the pieces in a holder',
-    'Pieces in a stacked holder form one stack with a count badge; dragging the badge moves them all, out onto the table or into another holder',
+    'Drag the badge of a stack of pieces',
+    'Pieces in a stacked holder form one stack with a count badge; dragging the badge moves them all (into another holder, or onto the table as a pile)',
   ],
+  ['Drop a token on a different loose token', 'Make a pile with a count badge, like cards (Shift + drop places it freely)'],
   [
     'Right-click a token / pile / card / bag',
     'Recall all tokens (stack) or return to stack · return a pile’s cards, or a card, to its holder · draw from, shuffle and recall to a bag (Play mode)',

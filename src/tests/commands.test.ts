@@ -401,10 +401,10 @@ describe('deck rules', () => {
     expect(tokenCount(tokenNow())).toBe(25);
     expect(s.objects.some((o) => o.id === split.newId)).toBe(false);
 
-    // A token that looks different is just moved, and Shift (free) never stacks.
+    // A token that looks different doesn't merge (it piles up loose on it instead), and Shift (free) never stacks.
     const other: TokenObject = { ...tokenNow(), id: 'red', color: '#ff0000', count: undefined, zIndex: 99, position: { x: 5000, y: 5000 } };
     s = applyCommand(s, { type: 'AddObject', object: other });
-    expect(resolveDrop(s, 'red', c, 'play').type).toBe('MoveObject');
+    expect(resolveDrop(s, 'red', c, 'play').type).not.toBe('MergeTokens');
     expect(applyCommand(s, { type: 'MergeTokens', id: 'red', targetId: token.id })).toBe(s);
     const twin: TokenObject = { ...other, id: 'twin', color: token.color };
     s = applyCommand(s, { type: 'AddObject', object: twin });

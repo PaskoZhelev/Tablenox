@@ -25,6 +25,7 @@ import { AnnotationLayer } from '../drawing/AnnotationLayer';
 import { focusTextEditor, startEditingText } from '../drawing/textEditing';
 import { TextEditorOverlay } from '../drawing/TextEditorOverlay';
 import { HOLDER_ID_ATTR, HOLDER_ZONE_NAME, HolderZoneNode, ObjectNode } from '../objects/ObjectNode';
+import { markStackDrag } from '../objects/stackDrag';
 import { clampMagnifierZoom, currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { ContextMenu, SelectionBar } from './SelectionBar';
 import { getGroupActions, getObjectActions, hasObjectControls } from './objectActions';
@@ -468,6 +469,7 @@ export function TableCanvas() {
           return;
         }
         if (isUiButton(e.target) || e.target.hasName('text-annotation')) return;
+        markStackDrag(false);
         const node = findObjectNode(e.target);
         const obj = node ? currentTable().objects.find((o) => o.id === node.id()) : undefined;
         // Edit mode: Ctrl/Cmd/Shift+click adds to / removes from the selection (applied on click, see onClick).
@@ -491,8 +493,8 @@ export function TableCanvas() {
         }
         const pieceStack = deckHandleOf(e.target)?.hasName('piece-stack') ? pieceStacks(currentTable().objects).get(obj.id) : undefined;
         if (pieceStack && node && !obj.locked) {
-          // The count badge of a holder's piece stack drags the whole stack (as a selection that moves together), as a
-          // holder's card badge lifts all its cards; dropped on the table the pieces leave the holder, on a holder they go in.
+          // The count badge of a piece stack (in a holder or a loose pile) drags the whole stack (as a selection that
+          // moves together), as a holder's card badge lifts all its cards: on the table it stays a pile, on a holder it goes in.
           const table = currentTable().objects;
           const ids = pieceStack.ids.filter((id) => {
             const p = table.find((x) => x.id === id);
@@ -500,6 +502,7 @@ export function TableCanvas() {
           });
           s.setSelection(ids);
           s.setSelectionBar(null);
+          if (ids.length > 1) markStackDrag(true);
           if (!node.draggable()) gesture.current = { kind: 'group', id: obj.id, start: screen };
           return;
         }

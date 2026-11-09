@@ -39,6 +39,11 @@ export interface BaseObject {
    * spread, lines up after the holder's cards; moving it off the holder takes it out.
    */
   holderId?: ObjectId;
+  /**
+   * Loose pile (on the table, not in a holder) this piece lies in: pieces sharing it and lying on the same centre are
+   * one pile with a count badge on its top piece (`pieceStacks`), like a pile of cards. Never set together with `holderId`.
+   */
+  stackId?: string;
 }
 
 export interface BoardObject extends BaseObject {

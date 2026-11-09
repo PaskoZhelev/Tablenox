@@ -34,6 +34,7 @@ import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
 import { LIFTED_ATTR } from '../canvas/stageRegistry';
 import { HolderZoneShape, HolderZoneVisual, ObjectVisual, PieceStackBadge } from './visuals';
+import { takeStackDrag } from './stackDrag';
 
 interface Props {
   object: TabletopObject;
@@ -64,6 +65,8 @@ let groupDragSeq = 0;
 let groupDroppedKey = '';
 /** The objects moving in the current group drag (each gets a dragstart from the Transformer). */
 const groupDragIds = new Set<string>();
+/** The group drag that moves a piece stack by its badge (see `markStackDrag`). */
+let stackDragKey = '';
 
 function liftToTop(node: Konva.Node | undefined): void {
   if (!node) return;
@@ -185,6 +188,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     if (inGroupSelection(o.id)) {
       if (!s.draggingId) {
         groupDragKey = `group-drag:${++groupDragSeq}`;
+        stackDragKey = takeStackDrag() ? groupDragKey : '';
         groupDragIds.clear();
         // The selection is lifted above everything else while it moves, keeping its own order.
         const layer = e.target.getLayer();
@@ -247,6 +251,8 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
           return m && n ? [{ id, position: { x: Math.round(n.x() - m.width / 2), y: Math.round(n.y() - m.height / 2) } }] : [];
         });
         s.dispatch(resolveGroupDrop(table, moves, leaderId ?? o.id, s.mode, { free }));
+        // After every member has landed (they all get their dragend in this same pointer-up).
+        if (groupDragKey === stackDragKey) setTimeout(() => useTableStore.getState().select(leaderId ?? o.id), 0);
       }
     } else {
       dropObject(o.id, position, free);

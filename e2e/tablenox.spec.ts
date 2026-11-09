@@ -2989,7 +2989,7 @@ test('a token image makes the token that image, at its own size and in its own s
   await expect.poll(() => storeState(page, "(s) => s.history.present.objects.find(o => o.kind === 'token').shape")).toBe('circle');
 });
 
-test('different pieces in a holder stack up with one count badge; dragging the badge moves the whole stack (Play mode)', async ({
+test('different pieces in a holder stack up with one count badge; its badge moves the whole stack, a pile on the table; tokens pile up loose (Play mode)', async ({
   page,
 }) => {
   await newGame(page, 'Piece stacks');
@@ -3050,7 +3050,7 @@ test('different pieces in a holder stack up with one count badge; dragging the b
   const box = (await page.getByTestId('table-canvas').boundingBox())!;
   const badge = (await badgeOf())!;
   await drag(page, { x: box.x + badge.x, y: box.y + badge.y }, 260, 180);
-  // The whole stack left the holder together (same shift for every piece); the holder stayed put; no badge off a holder.
+  // The whole stack left the holder together (same shift for every piece); the holder stayed put.
   await expect.poll(inHolder).toBe(0);
   const after = await centres();
   const shift = { x: after[0].x - before[0].x, y: after[0].y - before[0].y };
@@ -3062,15 +3062,36 @@ test('different pieces in a holder stack up with one count badge; dragging the b
   expect(await storeState(page, `(s) => s.history.present.objects.find(o => o.id === ${JSON.stringify(ids.holder)}).position`)).toEqual(
     holderBefore,
   );
+  // On the table it stays a pile with its badge, like a pile of cards; only its top piece stays selected.
+  await expect.poll(async () => (await badgeOf())?.on).toBe(ids.pieces[2]);
+  await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([ids.pieces[2]]);
+  // Dragging the top piece itself takes just that piece off the pile.
+  const scale = await storeState<number>(page, '(s) => s.camera.scale');
+  await drag(page, await worldToPage(page, after[2].x, after[2].y), 0, 220);
+  await expect.poll(async () => (await badgeOf())?.on).toBe(ids.pieces[1]);
+  // The rest of the pile, dragged by its badge back onto the holder, goes in and stacks there again.
+  const rest = (await badgeOf())!;
+  await drag(page, { x: box.x + rest.x, y: box.y + rest.y }, -shift.x * scale, -shift.y * scale);
+  await expect.poll(inHolder).toBe(2);
+  await expect.poll(async () => (await badgeOf())?.on).toBe(ids.pieces[1]);
+
+  // A token dropped on another loose token makes a pile with a badge, like a card dropped on a card.
+  const centreOf = (id: string) =>
+    storeState<{ x: number; y: number }>(
+      page,
+      `(s) => { const o = s.history.present.objects.find(x => x.id === ${JSON.stringify(id)}); return { x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 }; }`,
+    );
+  const inPile = await centreOf(ids.pieces[1]);
+  const pawn = await worldToPage(page, inPile.x, inPile.y);
+  await drag(page, pawn, 0, 260);
+  await expect.poll(inHolder).toBe(1);
+  await drag(page, pawn, 300, 0);
+  await expect.poll(inHolder).toBe(0);
   await expect.poll(badgeOf).toBe(null);
-  // Still selected together: dragged back onto the holder they all go in and stack again.
-  const top = await worldToPage(page, after[2].x, after[2].y);
-  await drag(
-    page,
-    top,
-    -shift.x * (await storeState<number>(page, '(s) => s.camera.scale')),
-    -shift.y * (await storeState<number>(page, '(s) => s.camera.scale')),
-  );
-  await expect.poll(inHolder).toBe(3);
-  await expect.poll(async () => (await badgeOf()) !== null).toBe(true);
+  const loose = await centreOf(ids.pieces[0]);
+  const target = await worldToPage(page, loose.x, loose.y);
+  await drag(page, { x: pawn.x, y: pawn.y + 260 }, target.x - pawn.x, target.y - pawn.y - 260);
+  await expect.poll(async () => (await badgeOf())?.on).toBe(ids.pieces[1]);
+  expect(await inHolder()).toBe(0);
+  expect(await centreOf(ids.pieces[1])).toEqual(await centreOf(ids.pieces[0]));
 });
