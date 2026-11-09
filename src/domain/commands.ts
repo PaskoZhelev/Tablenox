@@ -469,14 +469,9 @@ function bagPut(state: TableState, bagId: string, objectId: string, index?: numb
   if (!bag || bag.kind !== 'bag' || !obj || obj.id === bag.id || !bagAccepts(obj)) return state;
   const { holderId: _holder, ...loose } = obj;
   const item: BagItem = { ...(loose as BagItem), bagId: bag.id };
-  const same = item.kind === 'token' ? bag.items.findIndex((i) => i.kind === 'token' && sameTokenLook(i, item)) : -1;
-  let items: BagItem[];
-  const found = same >= 0 ? bag.items[same] : undefined;
-  if (item.kind === 'token' && found?.kind === 'token' && tokenCount(found) + tokenCount(item) <= MAX_TOKEN_STACK) {
-    items = bag.items.map((i) => (i === found ? withTokenCount(found, tokenCount(found) + tokenCount(item)) : i));
-  } else {
-    items = insertBagItems(bag.items, item, index);
-  }
+  // Every piece keeps its own entry and id (identical tokens too), so it comes out as the very same object and
+  // automation steps that list it still find it.
+  const items = insertBagItems(bag.items, item, index);
   return { ...state, objects: state.objects.filter((o) => o.id !== obj.id).map((o) => (o.id === bag.id ? { ...bag, items } : o)) };
 }
 

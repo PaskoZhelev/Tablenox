@@ -653,6 +653,10 @@ function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
     ? { fill: '#000', opacity: 0.28 }
     : { fill: o.color, stroke, strokeWidth: 2, shadowColor: '#000', shadowBlur: 4, shadowOpacity: 0.3, shadowOffsetY: 2 };
   if (img && shadeOnly && o.shape !== 'circle') return <Rect width={w} height={h} {...common} />;
+  if (o.shape === 'image' && !img) {
+    // No picture (yet): a plain tile, or an invisible but clickable box while the image loads.
+    return o.assetId ? <Rect width={w} height={h} fill="transparent" /> : <Rect width={w} height={h} cornerRadius={4} {...common} />;
+  }
   if (img && !shadeOnly) {
     return o.shape === 'circle' ? (
       <Group clipFunc={(ctx) => ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2)}>
@@ -664,6 +668,7 @@ function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
   }
   switch (o.shape) {
     case 'square':
+    case 'image':
       return <Rect width={w} height={h} cornerRadius={4} {...common} />;
     case 'triangle':
       return <Line points={[w / 2, 0, w, h, 0, h]} closed {...common} />;
@@ -691,7 +696,7 @@ function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
 
 /** Outlines of the figure-like token shapes in a 100 × 100 box (scaled to the token), with optional shaded detail. */
 const TOKEN_PATHS: Record<
-  Exclude<TokenShape, 'circle' | 'square' | 'triangle' | 'star' | 'hexagon'>,
+  Exclude<TokenShape, 'circle' | 'square' | 'triangle' | 'star' | 'hexagon' | 'image'>,
   { outline: string; detail?: string }
 > = {
   diamond: { outline: 'M50 2 L94 50 L50 98 L6 50 Z' },

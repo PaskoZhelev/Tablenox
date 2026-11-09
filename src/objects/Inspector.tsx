@@ -84,6 +84,7 @@ import {
   type DieObject,
   type HoverZoom,
   type TabletopObject,
+  type TokenObject,
 } from '../domain/types';
 import { holderShapeAspect } from '../domain/geometry';
 import { useTableStore } from '../state/tableStore';
@@ -334,6 +335,37 @@ async function fitToImage(o: TabletopObject, assetId: string | undefined, update
   } catch {
     // ignore
   }
+}
+
+/** The token's box at the image's own size, around the token's current centre (`null` if the image can't load). */
+async function tokenBoxForImage(o: TabletopObject, assetId: string): Promise<ObjectPatch | null> {
+  try {
+    const img = await loadAssetImage(assetId);
+    const now = useTableStore.getState().history.present.objects.find((x) => x.id === o.id) ?? o;
+    const width = Math.max(1, img.naturalWidth);
+    const height = Math.max(1, img.naturalHeight);
+    const cx = now.position.x + now.width / 2;
+    const cy = now.position.y + now.height / 2;
+    return { width, height, position: { x: Math.round(cx - width / 2), y: Math.round(cy - height / 2) } };
+  } catch {
+    return null;
+  }
+}
+
+/** A new token image makes the token that image, at its own size and in its own shape; removing it leaves a plain token. */
+async function setTokenImage(o: TokenObject, assetId: string | undefined, update: Update) {
+  if (!assetId) {
+    update(o.shape === 'image' ? { assetId: undefined, shape: 'circle' } : { assetId: undefined });
+    return;
+  }
+  const box = await tokenBoxForImage(o, assetId);
+  update(box ? { assetId, shape: 'image', ...box } : { assetId });
+}
+
+async function fitTokenToImage(o: TokenObject, assetId: string | undefined, update: Update) {
+  if (!assetId) return;
+  const box = await tokenBoxForImage(o, assetId);
+  if (box) update(box);
 }
 
 /**
@@ -1206,11 +1238,19 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
           <SelectField
             label="Shape"
             value={o.shape}
-            options={TOKEN_SHAPES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))}
+            options={TOKEN_SHAPES.filter((s) => s !== 'image' || o.assetId || o.shape === 'image').map((s) => ({
+              value: s,
+              label: s === 'image' ? 'Image (its own shape)' : s[0].toUpperCase() + s.slice(1),
+            }))}
             onChange={(shape) => update({ shape })}
           />
           <ColorField label="Colour" value={o.color} onChange={(color) => update({ color }, `color:${o.id}`)} />
-          <ImageField label="Image (optional)" assetId={o.assetId} onChange={(assetId) => update({ assetId })} />
+          <ImageField label="Image (optional)" assetId={o.assetId} onChange={(assetId) => setTokenImage(o, assetId, update)} />
+          {o.assetId && (
+            <button type="button" className="btn btn-small" onClick={() => fitTokenToImage(o, o.assetId, update)}>
+              Use the image's size
+            </button>
+          )}
           <NumberField
             label="Tokens in stack"
             value={tokenCount(o)}

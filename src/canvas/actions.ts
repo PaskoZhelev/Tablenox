@@ -691,17 +691,17 @@ export async function addObject(
   }
   if (opts.assetId && (obj.kind === 'board' || obj.kind === 'image' || obj.kind === 'token')) {
     obj.assetId = opts.assetId;
-    if (obj.kind !== 'token') {
-      try {
-        const img = await loadAssetImage(opts.assetId);
-        const maxW = 2000;
-        const scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
-        obj.width = Math.round(img.naturalWidth * scale);
-        obj.height = Math.round(img.naturalHeight * scale);
-        obj.position = { x: Math.round(center.x - obj.width / 2), y: Math.round(center.y - obj.height / 2) };
-      } catch {
-        // keep default size
-      }
+    try {
+      const img = await loadAssetImage(opts.assetId);
+      // An image token is the picture itself, at its own size.
+      const maxW = obj.kind === 'token' ? Infinity : 2000;
+      const scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
+      obj.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      obj.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      obj.position = { x: Math.round(center.x - obj.width / 2), y: Math.round(center.y - obj.height / 2) };
+      if (obj.kind === 'token') obj.shape = 'image';
+    } catch {
+      // keep default size
     }
   }
   if (kind === 'board') {

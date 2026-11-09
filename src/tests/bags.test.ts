@@ -192,13 +192,13 @@ describe('bags', () => {
     }
   });
 
-  it('stacks identical tokens in the bag and gives them out one at a time', () => {
+  it('keeps identical tokens as separate entries, and gives a stack out one token at a time', () => {
     const { state, bag, token } = setup();
     const twin = { ...token, id: 'twin', count: 3 };
     let s = { ...state, objects: [...state.objects, twin] };
     s = applyCommand(s, { type: 'BagPut', bagId: bag.id, objectId: token.id });
     s = applyCommand(s, { type: 'BagPut', bagId: bag.id, objectId: twin.id });
-    expect(get<BagObject>(s, bag.id)!.items).toHaveLength(1);
+    expect(get<BagObject>(s, bag.id)!.items.map((i) => i.id)).toEqual(['twin', token.id]);
     expect(bagCount(get<BagObject>(s, bag.id)!)).toBe(4);
     const draw = bagDrawCommand(get<BagObject>(s, bag.id)!, 0)!;
     if (draw.type !== 'BagDraw') throw new Error('expected a draw');
@@ -207,6 +207,32 @@ describe('bags', () => {
     expect(out.count).toBeUndefined();
     expect(out.bagId).toBe(bag.id);
     expect(bagCount(get<BagObject>(s, bag.id)!)).toBe(3);
+    // The single token comes out as itself.
+    const single = bagDrawCommand(get<BagObject>(s, bag.id)!, 1)!;
+    s = applyCommand(s, single);
+    expect(get<TokenObject>(s, token.id)).toBeDefined();
+  });
+
+  it('lets an automation move duplicated image tokens into a bag again after they were drawn out', () => {
+    const { state, bag, button } = setup();
+    const tokens = ['a', 'a2', 'b', 'b2'].map(
+      (id, i) =>
+        ({
+          ...createObject('token', { center: { x: 1500 + i * 100, y: 1500 }, zIndex: 60 + i }),
+          id,
+          assetId: id.startsWith('a') ? 'img-a' : 'img-b',
+        }) as TokenObject,
+    );
+    const ids = tokens.map((t) => t.id);
+    const fill = { ...button, steps: [step('move', ids, { targetIds: [bag.id] })] };
+    let s = run({ ...state, objects: [...state.objects, ...tokens] }, fill);
+    expect(ids.every((id) => !get(s, id))).toBe(true);
+    expect(bagCount(get<BagObject>(s, bag.id)!)).toBe(4);
+    s = applyCommand(s, drawManyFromBagCommand(s, get<BagObject>(s, bag.id)!, 4, seededSource(2))!);
+    expect(ids.every((id) => !!get(s, id))).toBe(true);
+    s = run(s, fill);
+    expect(s.objects.filter((o) => o.kind === 'token' && ids.includes(o.id))).toHaveLength(0);
+    expect(bagCount(get<BagObject>(s, bag.id)!)).toBe(4);
   });
 
   it('draws an entry out as the very same object, on top and face as stored', () => {

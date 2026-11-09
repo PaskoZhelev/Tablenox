@@ -53,6 +53,43 @@ export function pointInRect(p: Vec2, r: Rect): boolean {
   return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
 }
 
+type Box = Pick<TabletopObject, 'position' | 'width' | 'height' | 'rotation'>;
+
+function boxCorners(o: Box): Vec2[] {
+  const c = objectCenter(o);
+  const rad = (o.rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ].map(([sx, sy]) => {
+    const x = (sx * o.width) / 2;
+    const y = (sy * o.height) / 2;
+    return { x: c.x + x * cos - y * sin, y: c.y + x * sin + y * cos };
+  });
+}
+
+/** True when the (possibly rotated) boxes of two objects share some area; touching edges don't count. */
+export function boxesOverlap(a: Box, b: Box): boolean {
+  const ca = boxCorners(a);
+  const cb = boxCorners(b);
+  // Separating axis test: the boxes are apart if their shadows on one of the four edge normals don't overlap.
+  for (const corners of [ca, cb]) {
+    for (let i = 0; i < 2; i++) {
+      const ax = corners[i + 1].x - corners[i].x;
+      const ay = corners[i + 1].y - corners[i].y;
+      const project = (ps: Vec2[]) => ps.map((p) => p.x * -ay + p.y * ax);
+      const pa = project(ca);
+      const pb = project(cb);
+      if (Math.max(...pa) <= Math.min(...pb) + 1e-9 || Math.max(...pb) <= Math.min(...pa) + 1e-9) return false;
+    }
+  }
+  return true;
+}
+
 /** Sides and the angle of the first corner (degrees, 0 = right, clockwise) of the polygon holder shapes. */
 const POLYGONS: Partial<Record<HolderShape, { sides: number; start: number }>> = {
   hexagon: { sides: 6, start: -90 },

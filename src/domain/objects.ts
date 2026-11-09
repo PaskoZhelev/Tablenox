@@ -1,5 +1,5 @@
 import { newId } from './ids';
-import { objectCenter } from './geometry';
+import { boxesOverlap } from './geometry';
 import type {
   BagItem,
   BagObject,
@@ -553,17 +553,6 @@ export function sortByZ(objects: TabletopObject[]): TabletopObject[] {
 /** Boards and images are what holders are laid out on. */
 const isHolderBase = (o: TabletopObject) => o.kind === 'board' || o.kind === 'image';
 
-/** True when `p` lies inside the (possibly rotated) box of `o`. */
-function inBox(p: Vec2, o: TabletopObject): boolean {
-  const c = objectCenter(o);
-  const r = (-o.rotation * Math.PI) / 180;
-  const dx = p.x - c.x;
-  const dy = p.y - c.y;
-  const lx = dx * Math.cos(r) - dy * Math.sin(r);
-  const ly = dx * Math.sin(r) + dy * Math.cos(r);
-  return Math.abs(lx) <= o.width / 2 && Math.abs(ly) <= o.height / 2;
-}
-
 const rankCache = new WeakMap<TabletopObject[], { ranks: Map<string, number>; draw: DrawEntry[] }>();
 
 /** One Konva node of the objects layer: an object, or the zone (outline, fill, label) of holder `id`. */
@@ -592,9 +581,10 @@ function stackingLayout(objects: TabletopObject[]): { ranks: Map<string, number>
   const holdersOn = new Map<string | null, TabletopObject[]>();
   for (const h of byZ) {
     if (!isHolder(h)) continue;
-    const c = objectCenter(h);
+    // The top-most board below the holder (by zIndex) that it lies on, even partly, so Front / Back still work for
+    // a holder hanging over a board's edge.
     let base: TabletopObject | undefined;
-    for (const b of bases) if (b.zIndex <= h.zIndex && inBox(c, b)) base = b;
+    for (const b of bases) if (b.zIndex <= h.zIndex && boxesOverlap(h, b)) base = b;
     const key = base?.id ?? null;
     holdersOn.set(key, [...(holdersOn.get(key) ?? []), h]);
   }
@@ -615,10 +605,10 @@ function stackingLayout(objects: TabletopObject[]): { ranks: Map<string, number>
 
 /**
  * Where each object is drawn, from the bottom (0) up. Everything follows `zIndex`, except holders: a holder lies
- * right above the board (or image) under its centre that is below it, and under every other piece, so cards,
- * tokens and the like are never covered by a holder, while a holder laid out on a board stays on it. A holder on
- * the bare table lies below everything. Among the holders of one board this is the order of their zones (see
- * `drawOrder` for their cards).
+ * right above the top-most board (or image) below it that it overlaps (even partly), and under every other piece,
+ * so cards, tokens and the like are never covered by a holder, while a holder laid out on a board stays on it. A
+ * holder that overlaps no board below it lies below everything. Among the holders of one board this is the order
+ * of their zones (see `drawOrder` for their cards).
  */
 export function stackingRanks(objects: TabletopObject[]): Map<string, number> {
   return stackingLayout(objects).ranks;

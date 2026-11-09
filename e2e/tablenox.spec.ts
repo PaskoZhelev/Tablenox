@@ -2956,3 +2956,35 @@ test('copy objects in one game and paste them into another (also after a reload)
   await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('a token image makes the token that image, at its own size and in its own shape', async ({ page }) => {
+  await newGame(page, 'Image tokens');
+  await page.getByRole('button', { name: 'Add object' }).click();
+  await page.getByRole('menuitem', { name: 'Token', exact: true }).click();
+  await expect.poll(() => storeState<number>(page, "(s) => s.history.present.objects.filter(o => o.kind === 'token').length")).toBe(1);
+  await page.getByRole('button', { name: 'Properties panel' }).click();
+  const centre = () =>
+    storeState<{ x: number; y: number }>(
+      page,
+      "(s) => { const o = s.history.present.objects.find(o => o.kind === 'token'); return { x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 }; }",
+    );
+  const before = await centre();
+  await page
+    .locator('.image-field input[type="file"]')
+    .first()
+    .setInputFiles({ name: 'tile.png', mimeType: 'image/png', buffer: await makePng(page, 150, 90, 'T') });
+  await expect
+    .poll(() =>
+      storeState(
+        page,
+        "(s) => { const o = s.history.present.objects.find(o => o.kind === 'token'); return [o.shape, o.width, o.height]; }",
+      ),
+    )
+    .toEqual(['image', 150, 90]);
+  const after = await centre();
+  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole('combobox', { name: 'Shape' })).toHaveValue('image');
+  await page.getByRole('button', { name: 'Remove Image (optional)' }).click();
+  await expect.poll(() => storeState(page, "(s) => s.history.present.objects.find(o => o.kind === 'token').shape")).toBe('circle');
+});

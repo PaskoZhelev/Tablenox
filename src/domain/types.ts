@@ -185,11 +185,13 @@ export const TOKEN_SHAPES = [
   'meeple',
   'cube',
   'cylinder',
+  'image',
 ] as const;
 export type TokenShape = (typeof TOKEN_SHAPES)[number];
 
 export interface TokenObject extends BaseObject {
   kind: 'token';
+  /** `image`: the token is its image as it is (its own outline, transparent parts included), not cut to a shape. */
   shape: TokenShape;
   color: string;
   assetId?: string;

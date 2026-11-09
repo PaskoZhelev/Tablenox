@@ -885,7 +885,10 @@ describe('deck rules', () => {
     const top = maxZ(s.objects);
     const at = (id: string) => sortByStacking(s.objects).findIndex((o) => o.id === id);
     // The holder is moved onto the board (it comes to the front): it lies above the board, below the token.
-    s = { ...s, objects: s.objects.map((o) => (o.id === board.id ? { ...o, zIndex: top + 1 } : o.id === token.id ? { ...o, zIndex: 0 } : o)) };
+    s = {
+      ...s,
+      objects: s.objects.map((o) => (o.id === board.id ? { ...o, zIndex: top + 1 } : o.id === token.id ? { ...o, zIndex: 0 } : o)),
+    };
     s = applyCommand(s, resolveDrop(s, holder.id, { x: board.position.x + 20, y: board.position.y + 20 }, 'edit'));
     s = applyCommand(s, { type: 'MoveObject', id: token.id, position: { x: board.position.x + 30, y: board.position.y + 30 } });
     expect(at(holder.id)).toBeGreaterThan(at(board.id));
@@ -900,6 +903,32 @@ describe('deck rules', () => {
     s = applyCommand(s, { type: 'MoveObject', id: holder.id, position: { x: -9000, y: -9000 }, toFront: true });
     const pieces = s.objects.filter((o) => !(o.kind === 'deck' && !o.isPile));
     expect(at(holder.id)).toBeLessThan(Math.min(...pieces.map((o) => at(o.id))));
+  });
+
+  it('a holder hanging over a board’s edge comes to the front of the board and goes back behind it', () => {
+    const board = { ...createObject('board', { center: { x: 8000, y: 8000 }, zIndex: 1 }), id: 'b' };
+    const holder = {
+      ...createObject('deck', { center: { x: board.position.x - 30, y: 8000 }, zIndex: 0 }),
+      id: 'h',
+      cards: [],
+    };
+    // Its centre is off the board, only part of it lies on it.
+    expect(holder.position.x + holder.width / 2).toBeLessThan(board.position.x);
+    let s = { ...tableOf(fixtureGame()), objects: [board, holder] } as ReturnType<typeof tableOf>;
+    const at = (id: string) => sortByStacking(s.objects).findIndex((o) => o.id === id);
+    expect(at('h')).toBeLessThan(at('b'));
+    s = applyCommand(s, { type: 'SetZIndex', id: 'h', direction: 'front' });
+    expect(at('h')).toBeGreaterThan(at('b'));
+    expect(drawOrder(s.objects).map((e) => e.id)).toEqual(['b', 'h', 'h']);
+    s = applyCommand(s, { type: 'SetZIndex', id: 'h', direction: 'back' });
+    expect(at('h')).toBeLessThan(at('b'));
+    // Turned, it still counts as lying on the board.
+    s = applyCommand(s, { type: 'SetZIndex', id: 'h', direction: 'front' });
+    s = { ...s, objects: s.objects.map((o) => (o.id === 'h' ? { ...o, rotation: 45 } : o)) };
+    expect(at('h')).toBeGreaterThan(at('b'));
+    // Clear of the board, it lies below it again.
+    s = applyCommand(s, { type: 'MoveObject', id: 'h', position: { x: board.position.x - 2000, y: 8000 } });
+    expect(at('h')).toBeLessThan(at('b'));
   });
 
   it('a dropped piece lands on top of what it is put on, also when it shares the top level or is a pile', () => {
@@ -935,7 +964,12 @@ describe('deck rules', () => {
     s = applyCommand(s, draw);
     const card = s.objects.find((o) => o.id === (draw as { cardId: string }).cardId)!;
     // Dropped on the uncovered part of the lower holder.
-    const drop = resolveDrop(s, card.id, { x: lower.position.x + 10 - card.width / 2, y: lower.position.y + lower.height / 2 - card.height / 2 }, 'play');
+    const drop = resolveDrop(
+      s,
+      card.id,
+      { x: lower.position.x + 10 - card.width / 2, y: lower.position.y + lower.height / 2 - card.height / 2 },
+      'play',
+    );
     expect(drop).toMatchObject({ type: 'AddCardToDeck', deckId: 'lower', toFront: true });
     s = applyCommand(s, drop);
     // The zones (and what lies above what for drops) are unchanged; the lower holder's cards are drawn on top.
