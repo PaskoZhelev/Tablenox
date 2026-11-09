@@ -456,6 +456,7 @@ function CountBadge({
   width = 50,
   height = 26,
   handle = true,
+  extraName,
 }: {
   x: number;
   y: number;
@@ -464,8 +465,10 @@ function CountBadge({
   height?: number;
   /** Whether dragging the badge moves the whole stack; bags only show their count. */
   handle?: boolean;
+  /** Another name for the badge's nodes, telling what kind of stack it moves. */
+  extraName?: string;
 }) {
-  const name = handle ? 'deck-handle' : undefined;
+  const name = handle ? `deck-handle${extraName ? ` ${extraName}` : ''}` : undefined;
   // The container whose cursor this badge turned into a hand, so it can be restored.
   const grabbed = useRef<HTMLDivElement | null>(null);
   const inside = useRef(false);
@@ -620,12 +623,25 @@ export function BagVisual({ o }: { o: BagObject }) {
 /** Offset of each token drawn under the top one of a stack, in world units. */
 const TOKEN_STACK_EDGE = 3;
 
-export function TokenVisual({ o }: { o: TokenObject }) {
+/** Size and place of the count badge at the top right of a `w` × `h` piece, in its own frame. */
+function pieceBadgeBox(w: number, h: number, count: number) {
+  const height = Math.max(18, Math.min(26, Math.round(Math.min(w, h) * 0.4)));
+  const width = Math.max(height * 1.4, height * 0.6 * String(count).length + height * 0.8);
+  return { x: w - width * 0.6, y: -height * 0.5, width, height };
+}
+
+/**
+ * Count badge on the top piece of a holder's piece stack (see `pieceStacks`): the number of pieces in it. Dragging it
+ * moves the whole stack (`name="deck-handle piece-stack"`).
+ */
+export function PieceStackBadge({ o, count }: { o: TabletopObject; count: number }) {
+  return <CountBadge {...pieceBadgeBox(o.width, o.height, count)} count={count} extraName="piece-stack" />;
+}
+
+export function TokenVisual({ o, badge = true }: { o: TokenObject; badge?: boolean }) {
   const count = tokenCount(o);
   if (count < 2) return <TokenShape o={o} />;
   const layers = count > 2 ? 2 : 1;
-  const badgeH = Math.max(18, Math.min(26, Math.round(Math.min(o.width, o.height) * 0.4)));
-  const badgeW = Math.max(badgeH * 1.4, badgeH * 0.6 * String(count).length + badgeH * 0.8);
   return (
     <>
       {/* Coloured tokens underneath peek out below the top one; an image token stack shows just the top token and its badge. */}
@@ -637,7 +653,7 @@ export function TokenVisual({ o }: { o: TokenObject }) {
           </Group>
         ))}
       <TokenShape o={o} />
-      <CountBadge x={o.width - badgeW * 0.6} y={-badgeH * 0.5} count={count} width={badgeW} height={badgeH} />
+      {badge && <CountBadge {...pieceBadgeBox(o.width, o.height, count)} count={count} />}
     </>
   );
 }
@@ -1233,6 +1249,7 @@ export function ObjectVisual({
   onTimer,
   pressed,
   holderZone,
+  stackBadge = true,
 }: {
   o: TabletopObject;
   mode: Mode;
@@ -1241,6 +1258,8 @@ export function ObjectVisual({
   pressed?: boolean;
   /** Holders: whether their zone is drawn here (`shown`, default) or by its own node (`ghost`). */
   holderZone?: 'shown' | 'ghost';
+  /** Token stacks: whether they show their own count badge (not when a holder's piece stack badge replaces it). */
+  stackBadge?: boolean;
 }) {
   switch (o.kind) {
     case 'board':
@@ -1252,7 +1271,7 @@ export function ObjectVisual({
     case 'deck':
       return <DeckVisual o={o} mode={mode} zone={holderZone} />;
     case 'token':
-      return <TokenVisual o={o} />;
+      return <TokenVisual o={o} badge={stackBadge} />;
     case 'counter':
       return <CounterVisual o={o} onStep={onStep ?? (() => {})} />;
     case 'die':

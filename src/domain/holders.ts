@@ -1,5 +1,5 @@
 import { objectCenter, pointInHolderShape } from './geometry';
-import { cardRotationOf, cardSizeOf, cardTurnOf, isHolder, ownerDeckOf, resolveCardLook } from './objects';
+import { cardRotationOf, cardSizeOf, cardTurnOf, isHolder, ownerDeckOf, resolveCardLook, sortByStacking } from './objects';
 import type { DeckObject, TableState, TabletopObject, Vec2 } from './types';
 
 export const HOLDER_PADDING = 10;
@@ -99,6 +99,46 @@ const NO_PIECES: TabletopObject[] = [];
  */
 export function holderPieces(objects: readonly TabletopObject[], deck: DeckObject): TabletopObject[] {
   return (!deck.isPile && piecesByHolder(objects).get(deck.id)) || NO_PIECES;
+}
+
+/** Whether a holder piles the pieces put into it on its centre as one stack (a stacked holder that centres pieces). */
+export function stacksPieces(deck: DeckObject): boolean {
+  return !deck.isPile && !isSpread(deck) && deck.snapToCenter !== false;
+}
+
+/** Pieces a piece counts for in a stack: every token of a token stack, one for anything else. */
+const pieceWeight = (o: TabletopObject) => (o.kind === 'token' ? (o.count ?? 1) : 1);
+
+/** The pieces stacked in a holder, bottom first, and how many pieces that makes. */
+export interface PieceStack {
+  holderId: string;
+  ids: string[];
+  count: number;
+}
+
+const pieceStackCache = new WeakMap<readonly TabletopObject[], Map<string, PieceStack>>();
+
+/**
+ * Top piece id -> the stack it tops, for every stacked holder (`stacksPieces`) holding 2+ pieces (a token stack counts
+ * each token). Like a holder's cards, the stack shows one count badge on its top piece, which drags the whole stack.
+ * Cached per (immutable) objects array, so store selectors can call it.
+ */
+export function pieceStacks(objects: readonly TabletopObject[]): Map<string, PieceStack> {
+  let map = pieceStackCache.get(objects);
+  if (!map) {
+    map = new Map();
+    const all = objects as TabletopObject[];
+    for (const [holderId, pieces] of piecesByHolder(objects)) {
+      const holder = objects.find((o) => o.id === holderId);
+      if (holder?.kind !== 'deck' || !stacksPieces(holder)) continue;
+      const count = pieces.reduce((n, p) => n + pieceWeight(p), 0);
+      if (count < 2) continue;
+      const ids = sortByStacking(pieces, all).map((p) => p.id);
+      map.set(ids[ids.length - 1], { holderId, ids, count });
+    }
+    pieceStackCache.set(objects, map);
+  }
+  return map;
 }
 
 /** The pieces of a spread holder in their order along it (first = nearest the start of the row / column). */

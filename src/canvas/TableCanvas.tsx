@@ -35,6 +35,7 @@ import {
   cardIndexAt,
   drawCardCommand,
   drawRandomFromBagCommand,
+  pieceStacks,
   pressPreviewOf,
   splitTokensCommand,
   takeStackCommand,
@@ -486,6 +487,20 @@ export function TableCanvas() {
         if (!obj) {
           if (marquee) startMarquee(null);
           else startPan(null);
+          return;
+        }
+        const pieceStack = deckHandleOf(e.target)?.hasName('piece-stack') ? pieceStacks(currentTable().objects).get(obj.id) : undefined;
+        if (pieceStack && node && !obj.locked) {
+          // The count badge of a holder's piece stack drags the whole stack (as a selection that moves together), as a
+          // holder's card badge lifts all its cards; dropped on the table the pieces leave the holder, on a holder they go in.
+          const table = currentTable().objects;
+          const ids = pieceStack.ids.filter((id) => {
+            const p = table.find((x) => x.id === id);
+            return !!p && (s.mode === 'edit' || movableInPlay(p));
+          });
+          s.setSelection(ids);
+          s.setSelectionBar(null);
+          if (!node.draggable()) gesture.current = { kind: 'group', id: obj.id, start: screen };
           return;
         }
         if (s.mode === 'play' && node && s.selectedIds.length > 1 && s.selectedIds.includes(obj.id) && movableInPlay(obj)) {

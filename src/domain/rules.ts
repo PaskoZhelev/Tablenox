@@ -1,7 +1,17 @@
 import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
 import { objectCenter } from './geometry';
-import { holderPieces, isSpread, joinsHolder, pointInObject, spreadLayout, spreadsVertically, toLocal, type CardSlot } from './holders';
+import {
+  holderPieces,
+  isSpread,
+  joinsHolder,
+  pointInObject,
+  spreadLayout,
+  spreadsVertically,
+  stacksPieces,
+  toLocal,
+  type CardSlot,
+} from './holders';
 import {
   alignsRotation,
   bagAccepts,
@@ -107,8 +117,18 @@ export function cardSlots(objects: TabletopObject[], deck: DeckObject): CardSlot
 }
 
 export { cardRotationOf, cardTurnOf } from './objects';
-export { holderPieces, isSpread, pointInObject, rotatedBox, spreadLayout, spreadsVertically, toLocal } from './holders';
-export type { CardSlot, PieceSlot } from './holders';
+export {
+  holderPieces,
+  isSpread,
+  pieceStacks,
+  pointInObject,
+  rotatedBox,
+  spreadLayout,
+  spreadsVertically,
+  stacksPieces,
+  toLocal,
+} from './holders';
+export type { CardSlot, PieceSlot, PieceStack } from './holders';
 
 function normalizeDegrees(d: number): number {
   const n = ((Math.round(d) % 360) + 360) % 360;
@@ -227,7 +247,7 @@ export function tokenStackInHolder(
   extra: readonly TokenObject[] = [],
   counts?: ReadonlyMap<string, number>,
 ): TokenObject | undefined {
-  if (holder.isPile || isSpread(holder) || holder.snapToCenter === false) return undefined;
+  if (!stacksPieces(holder)) return undefined;
   const candidates = [...sortByStacking(holderPieces(state.objects, holder), state.objects), ...extra];
   const n = (t: TokenObject) => counts?.get(t.id) ?? tokenCount(t);
   for (let i = candidates.length - 1; i >= 0; i--) {

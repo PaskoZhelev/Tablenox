@@ -2988,3 +2988,89 @@ test('a token image makes the token that image, at its own size and in its own s
   await page.getByRole('button', { name: 'Remove Image (optional)' }).click();
   await expect.poll(() => storeState(page, "(s) => s.history.present.objects.find(o => o.kind === 'token').shape")).toBe('circle');
 });
+
+test('different pieces in a holder stack up with one count badge; dragging the badge moves the whole stack (Play mode)', async ({
+  page,
+}) => {
+  await newGame(page, 'Piece stacks');
+  for (const item of ['Holder', 'Token', 'Pawn', 'Die']) {
+    await page.getByRole('button', { name: 'Add object' }).click();
+    await page.getByRole('menuitem', { name: item, exact: true }).click();
+  }
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(4);
+  // Put the three pieces into the holder (centred on it), the die last so it lies on top.
+  const ids = await page.evaluate(() => {
+    type O = { id: string; kind: string; position: { x: number; y: number }; width: number; height: number };
+    type Store = { history: { present: { objects: O[] } }; dispatch(c: unknown): void; select(id: null): void };
+    const store = (window as unknown as { __tablenoxStore: { getState(): Store } }).__tablenoxStore;
+    const objects = store.getState().history.present.objects;
+    const holder = objects.find((o) => o.kind === 'deck')!;
+    const cx = holder.position.x + holder.width / 2;
+    const cy = holder.position.y + holder.height / 2;
+    const pieces = ['token', 'die'].flatMap((k) => objects.filter((o) => o.kind === k));
+    for (const p of pieces) {
+      store.getState().dispatch({
+        type: 'MoveObject',
+        id: p.id,
+        position: { x: cx - p.width / 2, y: cy - p.height / 2 },
+        holderId: holder.id,
+      });
+      store.getState().dispatch({ type: 'SetZIndex', id: p.id, direction: 'front' });
+    }
+    store.getState().select(null);
+    return { holder: holder.id, pieces: pieces.map((p) => p.id) };
+  });
+  await switchMode(page, 'play');
+  const badgeOf = () =>
+    page.evaluate(() => {
+      type N = { getParent(): N | null; id(): string; getClientRect(): { x: number; y: number; width: number; height: number } };
+      const stage = (window as unknown as { Konva: { stages: { find(s: string): N[] }[] } }).Konva.stages[0];
+      const badges = stage.find('.piece-stack').filter((n) => n.getClientRect().width > 0);
+      if (badges.length === 0) return null;
+      const r = badges[0].getClientRect();
+      let n: N | null = badges[0];
+      while (n && !n.id()) n = n.getParent();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, on: n?.id() ?? '' };
+    });
+  const inHolder = () =>
+    storeState<number>(page, `(s) => s.history.present.objects.filter(o => o.holderId === ${JSON.stringify(ids.holder)}).length`);
+  const centres = () =>
+    storeState<{ x: number; y: number }[]>(
+      page,
+      `(s) => ${JSON.stringify(ids.pieces)}.map(id => { const o = s.history.present.objects.find(x => x.id === id); return { x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 }; })`,
+    );
+  expect(await inHolder()).toBe(3);
+  // One badge, on the top piece (the die).
+  await expect.poll(async () => (await badgeOf())?.on).toBe(ids.pieces[2]);
+  const holderBefore = await storeState(
+    page,
+    `(s) => s.history.present.objects.find(o => o.id === ${JSON.stringify(ids.holder)}).position`,
+  );
+  const before = await centres();
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const badge = (await badgeOf())!;
+  await drag(page, { x: box.x + badge.x, y: box.y + badge.y }, 260, 180);
+  // The whole stack left the holder together (same shift for every piece); the holder stayed put; no badge off a holder.
+  await expect.poll(inHolder).toBe(0);
+  const after = await centres();
+  const shift = { x: after[0].x - before[0].x, y: after[0].y - before[0].y };
+  expect(shift.x).toBeGreaterThan(50);
+  for (let i = 1; i < 3; i++) {
+    expect(Math.abs(after[i].x - before[i].x - shift.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after[i].y - before[i].y - shift.y)).toBeLessThanOrEqual(1);
+  }
+  expect(await storeState(page, `(s) => s.history.present.objects.find(o => o.id === ${JSON.stringify(ids.holder)}).position`)).toEqual(
+    holderBefore,
+  );
+  await expect.poll(badgeOf).toBe(null);
+  // Still selected together: dragged back onto the holder they all go in and stack again.
+  const top = await worldToPage(page, after[2].x, after[2].y);
+  await drag(
+    page,
+    top,
+    -shift.x * (await storeState<number>(page, '(s) => s.camera.scale')),
+    -shift.y * (await storeState<number>(page, '(s) => s.camera.scale')),
+  );
+  await expect.poll(inHolder).toBe(3);
+  await expect.poll(async () => (await badgeOf()) !== null).toBe(true);
+});

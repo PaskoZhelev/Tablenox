@@ -3,7 +3,15 @@ import { applyCommand } from '../domain/commands';
 import { objectCenter } from '../domain/geometry';
 import { createObject } from '../domain/objects';
 import { pasteObjects, copyObjects } from '../domain/clipboard';
-import { cardSlots, findGroupDropTarget, resolveDrop, resolveGroupDrop, spreadLayout, splitTokensCommand } from '../domain/rules';
+import {
+  cardSlots,
+  findGroupDropTarget,
+  pieceStacks,
+  resolveDrop,
+  resolveGroupDrop,
+  spreadLayout,
+  splitTokensCommand,
+} from '../domain/rules';
 import {
   MAX_TOKEN_STACK,
   type BagObject,
@@ -263,5 +271,44 @@ describe('pieces in holders', () => {
     expect(pasted[0].holderId).toBeUndefined();
     const both = pasteObjects(copyObjects(s.objects, [token.id, h.id], '')!, s, { x: 0, y: 0 });
     expect(both.find((o) => o.kind === 'token')!.holderId).toBe(both.find((o) => o.kind === 'deck')!.id);
+  });
+  it('different pieces in a stacked holder form one stack: its top piece carries the count, a badge drag moves them all', () => {
+    let s = setup();
+    const h = holderOf(s);
+    s = applyCommand(s, { type: 'UpdateObject', id: h.id, patch: { layout: 'stack' } });
+    const a = { ...createObject('token', { center: { x: 2000, y: 2400 }, zIndex: 60 }), id: 'ta', assetId: 'img-a' } as TokenObject;
+    const b = {
+      ...createObject('token', { center: { x: 2100, y: 2400 }, zIndex: 61 }),
+      id: 'tb',
+      assetId: 'img-b',
+      count: 3,
+    } as TokenObject;
+    s = { ...s, objects: [...s.objects, a, b] };
+    s = dropAt(s, 'ta', objectCenter(holderOf(s)));
+    expect(pieceStacks(s.objects).size).toBe(0);
+    s = dropAt(s, 'tb', objectCenter(holderOf(s)));
+    s = dropAt(s, 'd1', objectCenter(holderOf(s)));
+    // Different looks don't merge, but they stack: the top piece (the die dropped last) shows 1 + 3 + 1.
+    expect(
+      s.objects
+        .filter((o) => o.holderId === h.id)
+        .map((o) => o.id)
+        .sort(),
+    ).toEqual(['d1', 'ta', 'tb']);
+    expect(pieceStacks(s.objects).get('d1')).toEqual({ holderId: h.id, ids: ['ta', 'tb', 'd1'], count: 5 });
+    // Dragging the badge moves the stack as a selection: onto the table they all leave the holder�
+    const off = (id: string) => ({ id, position: centredAt(find(s, id), { x: 9000, y: 9000 }) });
+    const out = applyCommand(s, resolveGroupDrop(s, ['ta', 'tb', 'd1'].map(off), 'd1', 'play'));
+    expect(['ta', 'tb', 'd1'].every((id) => !find(out, id).holderId)).toBe(true);
+    expect(pieceStacks(out.objects).size).toBe(0);
+    // �and onto another stacked holder they go in and stack there.
+    const other = { ...createObject('deck', { center: { x: 6000, y: 6000 }, zIndex: 1 }), id: 'other', cards: [] } as DeckObject;
+    let t: TableState = { ...s, objects: [...s.objects, other] };
+    const onto = (id: string) => ({ id, position: centredAt(find(t, id), { x: 6000, y: 6000 }) });
+    t = applyCommand(t, resolveGroupDrop(t, ['ta', 'tb', 'd1'].map(onto), 'd1', 'play'));
+    expect(pieceStacks(t.objects).get('d1')).toMatchObject({ holderId: 'other', count: 5 });
+    // A spread lays its pieces out instead, and one that doesn't centre pieces leaves them where they were dropped.
+    expect(pieceStacks(applyCommand(t, { type: 'UpdateObject', id: 'other', patch: { layout: 'spread' } }).objects).size).toBe(0);
+    expect(pieceStacks(applyCommand(t, { type: 'UpdateObject', id: 'other', patch: { snapToCenter: false } }).objects).size).toBe(0);
   });
 });

@@ -2,7 +2,15 @@ import { memo, useEffect, useRef, useState } from 'react';
 import Konva from 'konva';
 import { Group, Rect } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { cardIndexAt, findGroupDropTarget, findHoverTarget, isSpread, resolveGroupDrop, spreadInsertIndex } from '../domain/rules';
+import {
+  cardIndexAt,
+  findGroupDropTarget,
+  findHoverTarget,
+  isSpread,
+  pieceStacks,
+  resolveGroupDrop,
+  spreadInsertIndex,
+} from '../domain/rules';
 import { isHolder, raisedWhenMoved, sortByStacking } from '../domain/objects';
 import { isMarkAnchor } from '../domain/annotations';
 import { screenToWorld, worldToScreen } from '../domain/camera';
@@ -25,7 +33,7 @@ import {
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
 import { LIFTED_ATTR } from '../canvas/stageRegistry';
-import { HolderZoneShape, HolderZoneVisual, ObjectVisual } from './visuals';
+import { HolderZoneShape, HolderZoneVisual, ObjectVisual, PieceStackBadge } from './visuals';
 
 interface Props {
   object: TabletopObject;
@@ -98,6 +106,8 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     latest.current = o;
   });
   const shuffleSeq = useTableStore((s) => (s.shuffled?.ids.includes(o.id) ? s.shuffled.seq : 0));
+  // Top piece of a holder's piece stack: the number of pieces in it, shown on its badge (0 = no badge).
+  const stackCount = useTableStore((s) => pieceStacks(s.history.present.objects).get(o.id)?.count ?? 0);
   // Edit mode with "Snap to grid": the grid size a drag snaps to (0 = free).
   const gridSize = useTableStore((s) => (s.mode === 'edit' && s.ui.snapToGrid ? s.ui.gridSize : 0));
 
@@ -369,6 +379,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
           mode={mode}
           holderZone="ghost"
           pressed={pressed}
+          stackBadge={stackCount === 0}
           onStep={(d) => (useTableStore.getState().picking ? pickOnTable([o.id], 'toggle') : incrementCounter(o.id, d))}
           onTimer={(a) => {
             if (useTableStore.getState().picking) pickOnTable([o.id], 'toggle');
@@ -377,6 +388,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
           }}
         />
         {isMarkAnchor(o) && <SheetMarks objectId={o.id} />}
+        {stackCount > 0 && <PieceStackBadge o={o} count={stackCount} />}
       </Group>
       {focused && (
         <Rect
