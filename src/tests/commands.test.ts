@@ -49,6 +49,7 @@ import {
   HOLDER_MARGIN,
   cardGroups,
   moveCardGroup,
+  moveCardGroupTo,
   setCardCopies,
   movableInPlay,
   ownerDeckOf,
@@ -519,6 +520,21 @@ describe('deck rules', () => {
     const up = moveCardGroup(out, ids[1], -1)!;
     expect(up.initialCards.map((c) => c.id)).toEqual([ids[1], ids[0], ...ids.slice(2)]);
     expect(up.cards).toBe(out.cards);
+  });
+
+  it('moves a card-list row straight to any position, shifting the rows in between', () => {
+    const deck = deckOf(tableOf(fixtureGame()));
+    const ids = deck.initialCards.map((c) => c.id);
+    const last = ids.length - 1;
+    const top = moveCardGroupTo(deck, ids[last], 0)!;
+    expect(top.initialCards.map((c) => c.id)).toEqual([ids[last], ...ids.slice(0, last)]);
+    expect(top.cards.map((c) => c.id)).toEqual([ids[last], ...ids.slice(0, last)]);
+    const down = moveCardGroupTo(deck, ids[0], 2)!;
+    expect(down.initialCards.map((c) => c.id)).toEqual([ids[1], ids[2], ids[0], ...ids.slice(3)]);
+    expect(moveCardGroupTo(deck, ids[0], 0)).toBeNull();
+    expect(moveCardGroupTo(deck, ids[0], -1)).toBeNull();
+    expect(moveCardGroupTo(deck, ids[0], ids.length)).toBeNull();
+    expect(moveCardGroupTo(deck, 'missing', 1)).toBeNull();
   });
 
   it('card copies: identical neighbours form one row; set the number of copies; rows move as a whole', () => {

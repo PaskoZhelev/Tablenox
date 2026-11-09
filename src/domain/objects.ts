@@ -280,11 +280,20 @@ export function setAllCardCopies(deck: DeckObject, copies: number): CardLists | 
  * every card in list order (not shuffled, none out), its cards follow the new order. Returns null when it can't move.
  */
 export function moveCardGroup(deck: DeckObject, id: string, delta: -1 | 1): CardLists | null {
+  const from = cardGroups(deck.initialCards).findIndex((g) => g.some((c) => c.id === id));
+  return from < 0 ? null : moveCardGroupTo(deck, id, from + delta);
+}
+
+/**
+ * Moves the card-list row holding card `id` to row `to` (0 = top), shifting the rows in between (see `moveCardGroup`).
+ * Returns null when `to` is out of range or the row is already there.
+ */
+export function moveCardGroupTo(deck: DeckObject, id: string, to: number): CardLists | null {
   const groups = cardGroups(deck.initialCards);
   const from = groups.findIndex((g) => g.some((c) => c.id === id));
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= groups.length) return null;
-  [groups[from], groups[to]] = [groups[to], groups[from]];
+  if (from < 0 || !Number.isInteger(to) || to < 0 || to >= groups.length || to === from) return null;
+  const [row] = groups.splice(from, 1);
+  groups.splice(to, 0, row);
   const initialCards = groups.flat();
   const inListOrder = deck.cards.length === deck.initialCards.length && deck.cards.every((c, i) => c.id === deck.initialCards[i].id);
   if (!inListOrder) return { initialCards, cards: deck.cards };

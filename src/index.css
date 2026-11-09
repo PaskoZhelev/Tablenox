@@ -1562,6 +1562,23 @@ input[type='color'] {
   font-size: 12px;
   min-width: 0;
 }
+/* Reads as a plain number until hovered or focused; typing another position moves the row there. */
+.card-def-row input.card-def-index {
+  width: 26px;
+  flex: none;
+  padding: 3px 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  background: transparent;
+  border-color: transparent;
+}
+.card-def-row input.card-def-index:hover,
+.card-def-row input.card-def-index:focus {
+  color: var(--text);
+  background: #10141a;
+  border-color: var(--border);
+}
 .card-def-row > .btn-icon {
   width: 26px;
   flex: none;

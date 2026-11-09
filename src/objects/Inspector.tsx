@@ -48,6 +48,7 @@ import {
   cardGroups,
   MAX_CARD_COPIES,
   moveCardGroup,
+  moveCardGroupTo,
   setAllCardCopies,
   setCardCopies,
   sortByStacking,
@@ -423,6 +424,38 @@ function CopiesInput({ value, label, onCommit }: { value: number; label: string;
   );
 }
 
+/** A card-list row's position (1 = top): typing another number and pressing Enter (or leaving the field) moves the row there. */
+function PositionInput({ index, count, onMoveTo }: { index: number; count: number; onMoveTo: (to: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Math.round(Number(draft));
+    setDraft(null);
+    if (draft.trim() === '' || !Number.isFinite(n)) return;
+    const to = Math.max(1, Math.min(count, n)) - 1;
+    if (to !== index) onMoveTo(to);
+  };
+  return (
+    <input
+      className="card-def-index"
+      inputMode="numeric"
+      aria-label={`Position of card ${index + 1}`}
+      title={`Position in the list (1 = top): type 1–${count} and press Enter to move the card there`}
+      value={draft ?? String(index + 1)}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        else if (e.key === 'Escape') {
+          setDraft(null);
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 const CardDefRow = memo(function CardDefRow({
   def,
   index,
@@ -433,6 +466,7 @@ const CardDefRow = memo(function CardDefRow({
   onChange,
   onCopies,
   onMove,
+  onMoveTo,
   onRemove,
 }: {
   /** The row's card (all its copies look the same). */
@@ -446,11 +480,13 @@ const CardDefRow = memo(function CardDefRow({
   onChange: (patch: Partial<CardDef>) => void;
   onCopies: (n: number) => void;
   onMove: (delta: -1 | 1) => void;
+  /** Moves the row to row `to` (0 = top). */
+  onMoveTo: (to: number) => void;
   onRemove: () => void;
 }) {
   return (
     <li className="card-def-row">
-      <span className="card-def-index">{index + 1}</span>
+      <PositionInput index={index} count={count} onMoveTo={onMoveTo} />
       <span className="card-def-move">
         <button
           type="button"
@@ -738,6 +774,10 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
                   const moved = moveCardGroup(o, g[0].id, delta);
                   if (moved) update(moved);
                 }}
+                onMoveTo={(to) => {
+                  const moved = moveCardGroupTo(o, g[0].id, to);
+                  if (moved) update(moved);
+                }}
                 onRemove={() => removeCard(g[0].id)}
               />
             ))}
@@ -768,7 +808,8 @@ function DeckEditor({ o, update, part }: { o: DeckObject; update: Update; part: 
         {showList && rows.length > 0 && (
           <p className="hint">
             The number with − / + is how many copies of a card are in the deck (e.g. 12 of one image, 10 of another);{' '}
-            <em>Set copies for all cards…</em> applies one number to every card. Face text is only shown on cards without an image.
+            <em>Set copies for all cards…</em> applies one number to every card. To move a card far, type its new position into the number
+            on the left and press Enter. Face text is only shown on cards without an image.
           </p>
         )}
       </div>

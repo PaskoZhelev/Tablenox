@@ -1014,6 +1014,15 @@ test('holder properties: card list with fronts then backs, the holder zone, then
   expect(await obj<string[]>(page, 'Bonus deck', 'o.cards.map(c => c.id)')).toEqual([ids[1], ids[0], ...ids.slice(2)]);
   await panel.getByRole('button', { name: 'Move card 2 up' }).click();
   await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual(ids);
+  // Typing a position moves a card straight there (the last card to the top, then back); out-of-range numbers clamp.
+  const position = (n: number) => panel.getByRole('textbox', { name: `Position of card ${n}`, exact: true });
+  await position(12).fill('1');
+  await position(12).press('Enter');
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual([ids[11], ...ids.slice(0, 11)]);
+  await expect(position(1)).toHaveValue('1');
+  await position(1).fill('99');
+  await position(1).press('Enter');
+  await expect.poll(() => obj<string[]>(page, 'Bonus deck', 'o.initialCards.map(c => c.id)')).toEqual(ids);
 
   // Every card gets its front as its back.
   await backs.getByRole('button', { name: 'Use fronts as backs' }).click();
