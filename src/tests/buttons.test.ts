@@ -23,6 +23,7 @@ import { seededSource } from '../domain/random';
 import { cardRotationOf } from '../domain/rules';
 import { parseGame, SchemaError } from '../domain/schema';
 import type {
+  BagObject,
   ButtonObject,
   ButtonStep,
   CardObject,
@@ -298,21 +299,54 @@ describe('automation buttons', () => {
     expect(new Set(get<DeckObject>(after, holder.id).cards.map((c) => c.id))).toEqual(new Set([c1.id, c3.id]));
     expect(get<DeckObject>(after, holder.id).cards.every((c) => c.faceUp)).toBe(true);
     expect(get<DeckObject>(after, deck.id).cards).toHaveLength(3);
-    // planButton gives the same result; a card already gone (drawn by an earlier step) is skipped.
+    // planButton gives the same result; a card that has left the holder is fetched from where it is now.
     const unshuffled = run(state, { ...button, steps: [pick] });
     expect(get<DeckObject>(unshuffled, holder.id).cards.map((c) => c.id)).toEqual([c1.id, c3.id]);
     const firstDrawn = run(state, {
       ...button,
       steps: [step<MoveStep>('move', [deck.id], { targetIds: [holder.id], count: 1 }), { ...pick, targetIds: [] }],
     });
-    expect(piles(firstDrawn)).toHaveLength(0);
-    expect(cardsOnTable(firstDrawn).map((c) => c.cardDefId)).toContain(c3.id);
+    expect(piles(firstDrawn).map((p) => p.cards.map((c) => c.id))).toEqual([[c3.id, c1.id]]);
+    expect(get<DeckObject>(firstDrawn, holder.id).cards).toHaveLength(0);
     // Nothing set up for the holder: nothing happens.
     expect(planButton(state, { ...button, steps: [{ ...pick, cards: undefined }] })).toBeNull();
     expect(describeStep(state, pick)).toBe(`Pick 2 chosen cards from ${deck.name} to ${holder.name} face up`);
     expect(describeStep(state, { ...pick, targetIds: [], cards: { [deck.id]: [c4.id] } })).toBe(
       `Pick 1 chosen card from ${deck.name} to next to the holder face up`,
     );
+  });
+
+  it('pick step with cards chosen in Edit mode fetches the ones that have left the holder', () => {
+    const { state, button, deck, holder } = setup();
+    const bag = byKind<BagObject>(state, 'bag');
+    const [c1, c2, c3, c4] = deck.initialCards;
+    // c1 already lies in the destination, c2 is loose on the table, c4 is in a bag; c3 is still in the deck.
+    let s = run(state, { ...button, steps: [step<MoveStep>('move', [deck.id], { targetIds: [holder.id], count: 1 })] });
+    s = applyCommand(s, { type: 'DrawCard', deckId: deck.id, cardId: 'loose', position: { x: 2000, y: 2000 }, faceUp: false });
+    const at4 = get<DeckObject>(s, deck.id).cards.findIndex((c) => c.id === c4.id);
+    s = applyCommand(s, { type: 'DrawCard', deckId: deck.id, cardId: 'bagged', position: { x: 2000, y: 0 }, faceUp: false, index: at4 });
+    s = applyCommand(s, { type: 'BagPut', bagId: bag.id, objectId: 'bagged' });
+    const chosen = [c4.id, c3.id, c2.id, c1.id];
+    const pick = step<PickStep>('pick', [deck.id], { targetIds: [holder.id], orientation: 'faceUp', cards: { [deck.id]: chosen } });
+    const after = run(s, { ...button, steps: [pick] });
+    // From the holder first, then the fetched ones in definition order; the one already there stays below.
+    expect(get<DeckObject>(after, holder.id).cards.map((c) => [c.id, c.faceUp])).toEqual([
+      [c3.id, true],
+      [c2.id, true],
+      [c4.id, true],
+      [c1.id, get<DeckObject>(s, holder.id).cards[0].faceUp],
+    ]);
+    expect(cardsOnTable(after).filter((c) => chosen.includes(c.cardDefId!))).toHaveLength(0);
+    expect(get<BagObject>(after, bag.id).items).toHaveLength(0);
+    // Without a destination they form one pile next to the holder, even when none is left in it.
+    const empty = { ...s, objects: s.objects.map((o) => (o.id === deck.id ? { ...deck, cards: [] } : o)) };
+    const nextTo = run(empty, { ...button, steps: [{ ...pick, targetIds: [], cards: { [deck.id]: [c2.id, c1.id] } }] });
+    expect(piles(nextTo).map((p) => [p.position, p.cards.map((c) => c.id)])).toEqual([
+      [{ x: deck.position.x + deck.width + 24, y: deck.position.y }, [c1.id, c2.id]],
+    ]);
+    // Cards the player chooses when the button runs come from the holder only.
+    const asked = { ...pick, id: 'p', choose: 'run' as const, cards: undefined };
+    expect(planButton(s, { ...button, steps: [asked] }, seededSource(1), 0, { [pickKey('p', deck.id)]: [c2.id] })).toBeNull();
   });
 
   it('a Setup button recalls, then takes the preset cards and shuffles the rest', () => {

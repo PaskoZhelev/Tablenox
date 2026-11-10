@@ -556,10 +556,88 @@ function drawChosen(plan: Plan, deckId: ObjectId, picked: CardDef[], orientation
   return ids;
 }
 
+/** Whether a card lies on / in one of the step's destinations already (so it stays where it is). */
+function onTarget(plan: Plan, targets: readonly TabletopObject[], o: TabletopObject): boolean {
+  const cmp = stackingComparator(plan.state.objects);
+  return targets.some((t) => t.kind !== 'deck' && t.kind !== 'bag' && cmp(o, t) > 0 && pointInObject(objectCenter(o), t));
+}
+
 /**
- * Pick step: takes chosen cards from each listed holder / pile: the ones set up with the step, or the ones the
- * player chose while the button runs (`plan.picks`; an interactive run stops here to ask). They go onto the
- * destination (dealt in turn with several), or next to the holder (one pile).
+ * Takes a card (by definition id) out of wherever it is now (another holder or pile, a bag, or lying loose on
+ * the table) as a loose card with the step's side; returns its id. Cards already in or on a destination, and
+ * ones in a pile inside a bag, stay where they are.
+ */
+function fetchCard(plan: Plan, defId: string, skip: ReadonlySet<ObjectId>, targets: readonly TabletopObject[], o: StepOrientation) {
+  for (const obj of plan.state.objects) {
+    if (skip.has(obj.id)) continue;
+    if (obj.kind === 'card' && obj.cardDefId === defId) {
+      if (onTarget(plan, targets, obj)) return undefined;
+      setOrientation(plan, obj, o);
+      return obj.id;
+    }
+    if (obj.kind === 'deck') {
+      const def = obj.cards.find((c) => c.id === defId);
+      if (def) return drawChosen(plan, obj.id, [def], o)[0];
+    }
+    if (obj.kind === 'bag') {
+      const item = obj.items.find((i) => i.kind === 'card' && i.cardDefId === defId);
+      if (!item) continue;
+      plan.emit({ type: 'BagDraw', bagId: obj.id, itemId: item.id, newId: newId(), position: defaultBagDrawPosition(obj) });
+      const drawn = plan.find(item.id);
+      if (drawn?.kind !== 'card') return undefined;
+      setOrientation(plan, drawn, o);
+      return drawn.id;
+    }
+  }
+  return undefined;
+}
+
+/** Cards set up for a Pick step that have left the holder / pile: fetched from wherever they are, in holder order. */
+function fetchMissing(plan: Plan, deck: DeckObject, chosen: readonly string[], targets: readonly TabletopObject[], o: StepOrientation) {
+  const here = new Set(deck.cards.map((c) => c.id));
+  const order = pickableCards(deck).map((c) => c.id);
+  const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+  const missing = [...new Set(chosen)].filter((id) => !here.has(id)).sort((a, b) => rank(a) - rank(b));
+  const skip = new Set<ObjectId>([deck.id, ...targets.map((t) => t.id)]);
+  return missing.map((id) => fetchCard(plan, id, skip, targets, o)).filter((id): id is string => !!id);
+}
+
+/** Puts a Pick step's chosen cards next to the holder: one card, or one pile (holder order, top first). */
+function pickNextTo(plan: Plan, step: PickStep, deck: DeckObject, picked: CardDef[], chosen: readonly string[] | null): void {
+  const position = defaultDrawPosition(deck);
+  let spot: string | undefined;
+  if (picked.length === 1) spot = drawChosen(plan, deck.id, picked, step.orientation)[0];
+  else if (picked.length > 1) {
+    spot = newId();
+    const ids = picked.map((c) => c.id);
+    plan.emit({ type: 'DrawCards', deckId: deck.id, pileId: spot, position, count: ids.length, cardIds: ids });
+    const pile = plan.find(spot);
+    if (pile?.kind === 'deck' && step.orientation !== 'keep') {
+      const faceUp = step.orientation === 'faceUp';
+      plan.emit({ type: 'UpdateObject', id: spot, patch: { cards: pile.cards.map((c) => ({ ...c, faceUp })) } });
+    }
+  }
+  if (!chosen) return;
+  // Cards fetched from elsewhere go under the ones taken from the holder.
+  for (const cardId of fetchMissing(plan, deck, chosen, [], step.orientation)) {
+    const there = plan.find(spot);
+    if (there?.kind === 'deck') {
+      plan.emit({ type: 'AddCardToDeck', cardId, deckId: there.id, index: there.cards.length });
+      continue;
+    }
+    plan.emit({ type: 'MoveObject', id: cardId, position, toFront: true });
+    if (there?.kind === 'card') {
+      spot = newId();
+      plan.emit({ type: 'MergeCards', cardId: there.id, targetCardId: cardId, pileId: spot });
+    } else spot = cardId;
+  }
+}
+
+/**
+ * Pick step: takes chosen cards from each listed holder / pile: the ones set up with the step (fetched from
+ * wherever they are now when they have left it), or the ones the player chose while the button runs
+ * (`plan.picks`; an interactive run stops here to ask). They go onto the destination (dealt in turn with
+ * several), or next to the holder (one pile).
  */
 function planPick(plan: Plan, step: PickStep): void {
   const targets = step.targetIds.map((id) => plan.find(id)).filter((t): t is TabletopObject => !!t);
@@ -567,32 +645,24 @@ function planPick(plan: Plan, step: PickStep): void {
   let turn = 0;
   for (const id of step.objectIds) {
     const deck = plan.find(id);
-    if (deck?.kind !== 'deck' || deck.cards.length === 0) continue;
+    if (deck?.kind !== 'deck' || (!preset && deck.cards.length === 0)) continue;
     const key = pickKey(step.id, deck.id);
     const chosen = preset ? (step.cards?.[deck.id] ?? []) : plan.picks[key];
     if (!chosen) {
       if (plan.interactive) throw new PickNeeded({ key, step, deck });
       continue;
     }
+    if (chosen.length === 0) continue;
     const wanted = new Set(chosen);
     const picked = deck.cards.filter((c) => wanted.has(c.id));
-    if (picked.length === 0) continue;
     if (targets.length === 0) {
-      if (picked.length === 1) {
-        drawChosen(plan, deck.id, picked, step.orientation);
-        continue;
-      }
-      const pileId = newId();
-      const ids = picked.map((c) => c.id);
-      plan.emit({ type: 'DrawCards', deckId: deck.id, pileId, position: defaultDrawPosition(deck), count: ids.length, cardIds: ids });
-      const pile = plan.find(pileId);
-      if (pile?.kind === 'deck' && step.orientation !== 'keep') {
-        const faceUp = step.orientation === 'faceUp';
-        plan.emit({ type: 'UpdateObject', id: pileId, patch: { cards: pile.cards.map((c) => ({ ...c, faceUp })) } });
-      }
+      pickNextTo(plan, step, deck, picked, preset ? chosen : null);
       continue;
     }
-    const ids = drawChosen(plan, deck.id, picked, step.orientation);
+    const ids = [
+      ...drawChosen(plan, deck.id, picked, step.orientation),
+      ...(preset ? fetchMissing(plan, deck, chosen, targets, step.orientation) : []),
+    ];
     if (targets.length === 1) {
       const target = targets[0];
       // The last card put into a holder / bag ends on top, so add from the one that has to end up lowest.

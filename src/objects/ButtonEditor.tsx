@@ -38,7 +38,7 @@ const STEP_ICONS: Record<StepType, IconName> = {
 
 const STEP_HINTS: Record<StepType, string> = {
   move: 'Moves objects onto a destination. A holder, pile or bag gives up its cards or pieces (the container itself stays); pieces lying on a listed holder move too. A bag destination takes cards, piles, tokens, dice and the like in. A bag gives up its top or bottom pieces: add a Shuffle step first to draw at random.',
-  pick: 'Takes chosen cards from holders or piles and puts them onto the destination (dealt in turn with several), or next to the holder without one. Choose the cards now (e.g. for a scenario set-up button), or let the player choose them in a dialog when the button runs (Cancel stops the whole button). Only cards still in the holder at that point are taken: put a Recall step first to gather them.',
+  pick: 'Takes chosen cards from holders or piles and puts them onto the destination (dealt in turn with several), or next to the holder without one. Choose the cards now (e.g. for a scenario set-up button), or let the player choose them in a dialog when the button runs (Cancel stops the whole button). Cards chosen now that have left the holder are fetched from wherever they are (another holder, a pile, a bag or the table).',
   recall:
     'Sends things back where they came from: cards to their holder, tokens to the stack they were taken from, pieces to their bag. A holder with its own card list gathers all its cards back (like "Gather & reset"); a token stack gathers its tokens; a bag takes back everything that came out of it.',
   rotate: 'Rotates objects about their centre.',

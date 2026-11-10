@@ -235,7 +235,7 @@ export async function chooseStepCards(buttonId: string, stepId: string, holderId
   if (cards.length === 0) return;
   const chosen = await pickManyDialog({
     title: `Cards to take from ${displayName(deck)}`,
-    message: 'Click the cards this step takes when the button runs (the ones still in the holder at that point).',
+    message: 'Click the cards this step takes when the button runs (cards that have left the holder are fetched from wherever they are).',
     listLabel: 'Cards',
     items: cardPickItems(deck, cards),
     selectedIds: step.cards?.[holderId] ?? [],

@@ -397,7 +397,7 @@ export interface PickStep extends StepBase {
   orientation: StepOrientation;
   /** Missing means `run` (steps from earlier builds). */
   choose?: PickChoice;
-  /** `choose: 'edit'`: card definition ids per holder / pile id. Cards no longer in it when the button runs are skipped. */
+  /** `choose: 'edit'`: card definition ids per holder / pile id. Cards no longer in it when the button runs are fetched from wherever they are. */
   cards?: Record<ObjectId, string[]>;
 }
 
