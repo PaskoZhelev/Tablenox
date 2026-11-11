@@ -7,7 +7,7 @@ import {
   findGroupDropTarget,
   findHoverTarget,
   isSpread,
-  pieceStacks,
+  pieceStacksWhileMoving,
   resolveGroupDrop,
   spreadInsertIndex,
 } from '../domain/rules';
@@ -110,8 +110,13 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     latest.current = o;
   });
   const shuffleSeq = useTableStore((s) => (s.shuffled?.ids.includes(o.id) ? s.shuffled.seq : 0));
-  // Top piece of a holder's piece stack: the number of pieces in it, shown on its badge (0 = no badge).
-  const stackCount = useTableStore((s) => pieceStacks(s.history.present.objects).get(o.id)?.count ?? 0);
+  // Top piece of a piece stack: the number of pieces in it, shown on its badge (0 = no badge). A piece dragged off a
+  // stack leaves the badge behind on the stack's new top piece.
+  const stackCount = useTableStore((s) => {
+    const dragged = s.draggingId;
+    const moving = !dragged ? [] : s.selectedIds.length > 1 && s.selectedIds.includes(dragged) ? s.selectedIds : [dragged];
+    return pieceStacksWhileMoving(s.history.present.objects, moving).get(o.id)?.count ?? 0;
+  });
   // Edit mode with "Snap to grid": the grid size a drag snaps to (0 = free).
   const gridSize = useTableStore((s) => (s.mode === 'edit' && s.ui.snapToGrid ? s.ui.gridSize : 0));
 

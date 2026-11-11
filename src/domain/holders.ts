@@ -168,6 +168,27 @@ export function pieceStacks(objects: readonly TabletopObject[]): Map<string, Pie
   return map;
 }
 
+let movingStacksCache: { objects: readonly TabletopObject[]; key: string; map: Map<string, PieceStack> } | null = null;
+
+/**
+ * `pieceStacks` while the pieces `moving` are being dragged: a stack only some of whose pieces are dragged off splits
+ * into what stays (its badge moves to the new top piece) and what is dragged (a badge only if 2+ pieces go). A stack
+ * dragged as a whole (e.g. by its badge) keeps its badge.
+ */
+export function pieceStacksWhileMoving(objects: readonly TabletopObject[], moving: readonly string[]): Map<string, PieceStack> {
+  const stacks = pieceStacks(objects);
+  if (moving.length === 0) return stacks;
+  const set = new Set(moving);
+  const split = [...stacks.values()].some((s) => s.ids.some((id) => set.has(id)) && !s.ids.every((id) => set.has(id)));
+  if (!split) return stacks;
+  const key = [...set].sort().join('\n');
+  if (movingStacksCache?.objects !== objects || movingStacksCache.key !== key) {
+    const part = (dragged: boolean) => pieceStacks(objects.filter((o) => !joinsHolder(o) || set.has(o.id) === dragged));
+    movingStacksCache = { objects, key, map: new Map([...part(false), ...part(true)]) };
+  }
+  return movingStacksCache.map;
+}
+
 /** The loose pile `o` lies in (2+ pieces), if any. */
 export function loosePileOf(objects: readonly TabletopObject[], o: TabletopObject): PieceStack | undefined {
   if (!o.stackId || o.holderId) return undefined;

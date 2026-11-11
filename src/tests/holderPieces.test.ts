@@ -7,6 +7,7 @@ import {
   cardSlots,
   findGroupDropTarget,
   pieceStacks,
+  pieceStacksWhileMoving,
   resolveDrop,
   resolveGroupDrop,
   spreadLayout,
@@ -340,6 +341,19 @@ describe('loose piles of pieces', () => {
     s = dropAt(s, 'c', at, true);
     expect(find(s, 'c').stackId).toBeUndefined();
     expect(pieceStacks(s.objects).get('b')?.count).toBe(3);
+  });
+
+  it('while the top piece is dragged off a pile, the badge stays on the pile; dragged as a whole, it moves with it', () => {
+    let s = table(token('a', 7000, { assetId: 'img-a' }), token('b', 7300, { assetId: 'img-b', count: 2 }), token('c', 7600));
+    const at = objectCenter(find(s, 'a'));
+    s = dropAt(s, 'b', at);
+    s = dropAt(s, 'c', at);
+    expect(pieceStacksWhileMoving(s.objects, ['c']).get('b')).toMatchObject({ ids: ['a', 'b'], count: 3 });
+    expect(pieceStacksWhileMoving(s.objects, ['c']).has('c')).toBe(false);
+    // Two pieces dragged off together keep a badge of their own.
+    expect(pieceStacksWhileMoving(s.objects, ['b', 'c']).get('c')).toMatchObject({ ids: ['b', 'c'], count: 3 });
+    expect(pieceStacksWhileMoving(s.objects, ['b', 'c']).has('a')).toBe(false);
+    expect(pieceStacksWhileMoving(s.objects, ['a', 'b', 'c'])).toBe(pieceStacks(s.objects));
   });
 
   it('identical tokens still merge into one stack', () => {

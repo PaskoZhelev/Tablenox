@@ -160,6 +160,7 @@ export {
   isSpread,
   loosePileOf,
   pieceStacks,
+  pieceStacksWhileMoving,
   pointInObject,
   rotatedBox,
   spreadLayout,
