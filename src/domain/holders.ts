@@ -221,6 +221,40 @@ function spreadPieces(objects: readonly TabletopObject[], deck: DeckObject): Tab
   return [...holderPieces(objects, deck)].sort((a, b) => along(a) - along(b) || a.zIndex - b.zIndex);
 }
 
+/** The spread holder that holder `id` is, or that piece `id` lies in, with its pieces in their order along it. */
+export function spreadPiecesOf(objects: readonly TabletopObject[], id: string): { holder: DeckObject; pieces: TabletopObject[] } | undefined {
+  const o = objects.find((x) => x.id === id);
+  const holder = o?.kind === 'deck' ? o : objects.find((x) => x.id === o?.holderId);
+  if (holder?.kind !== 'deck' || !isSpread(holder)) return undefined;
+  const pieces = spreadPieces(objects, holder);
+  return o === holder || pieces.some((p) => p.id === id) ? { holder, pieces } : undefined;
+}
+
+/** Ids of the separate pieces a shuffle of holder or piece `id` reorders: a spread holder's row, or a piece stack. */
+export function shufflablePieces(objects: readonly TabletopObject[], id: string): string[] {
+  const spread = spreadPiecesOf(objects, id);
+  if (spread) return spread.pieces.map((p) => p.id);
+  return pieceStackOf(objects, id)?.ids ?? [];
+}
+
+/** World top-left that puts `o`'s centre on the centre of `slot` (in `holder`'s own frame). */
+function slotPosition(holder: DeckObject, slot: { x: number; y: number; width: number; height: number }, o: TabletopObject): Vec2 {
+  const c = objectCenter(holder);
+  const off = rotateVec({ x: slot.x + slot.width / 2 - holder.width / 2, y: slot.y + slot.height / 2 - holder.height / 2 }, holder.rotation);
+  return { x: Math.round(c.x + off.x - o.width / 2), y: Math.round(c.y + off.y - o.height / 2) };
+}
+
+/**
+ * Positions that put the pieces of spread holder `holder` in the order `ids` along it (each one on the place the
+ * piece at that index has now; `settleHolderPieces` then lines them up exactly). Null unless `ids` are its pieces.
+ */
+export function spreadReorder(objects: readonly TabletopObject[], holder: DeckObject, ids: readonly string[]): Map<string, Vec2> | null {
+  const { pieces: slots } = spreadLayout(objects, holder);
+  if (slots.length !== ids.length || !slots.every((s) => ids.includes(s.id))) return null;
+  const byId = new Map(objects.map((o) => [o.id, o]));
+  return new Map(ids.map((id, j) => [id, slotPosition(holder, slots[j], byId.get(id)!)]));
+}
+
 /** Size of a piece's box in the holder's frame (a piece turned with the holder is upright there). */
 function pieceBox(o: TabletopObject, deck: DeckObject): { width: number; height: number } {
   return rotatedBox(o, normalizeDegrees(o.rotation - deck.rotation));
@@ -363,12 +397,10 @@ export function settleHolderPieces(prev: TableState, next: TableState): TableSta
     const holder = byId.get(holderId);
     if (!isHolder(holder) || !isSpread(holder)) continue;
     const { pieces } = spreadLayout(objects, holder);
-    const c = objectCenter(holder);
     const own = new Map(members.map((m) => [m.id, m]));
     for (const p of pieces) {
       const o = own.get(p.id)!;
-      const off = rotateVec({ x: p.x + p.width / 2 - holder.width / 2, y: p.y + p.height / 2 - holder.height / 2 }, holder.rotation);
-      const position = { x: Math.round(c.x + off.x - o.width / 2), y: Math.round(c.y + off.y - o.height / 2) };
+      const position = slotPosition(holder, p, o);
       if (position.x !== o.position.x || position.y !== o.position.y) moves.set(o.id, position);
     }
   }

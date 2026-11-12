@@ -1,6 +1,6 @@
 import { applyPermutation } from './random';
 import { followResizedSheets, withoutMarksOn } from './annotations';
-import { carryHolderPieces, joinsHolder, settleHolderPieces } from './holders';
+import { carryHolderPieces, isSpread, joinsHolder, settleHolderPieces, spreadReorder } from './holders';
 import {
   bagAccepts,
   cardDefFromObject,
@@ -91,8 +91,8 @@ export type Command =
   | { type: 'FlipCard'; id: string }
   | { type: 'ShuffleDeck'; id: string; order: number[] }
   /**
-   * Restacks the pieces `ids` (one stack: in a holder or a loose pile) in this order, bottom first: they swap their
-   * places in the drawing order (`zIndex`) among themselves.
+   * Reorders the pieces `ids` of one stack (in a holder or a loose pile; bottom first: they swap their places in the
+   * drawing order, `zIndex`) or of one spread holder (first = start of the row: they also swap their places along it).
    */
   | { type: 'ShufflePieces'; ids: string[] }
   /** Orders a deck/pile by the original deck order or by card name, or reverses its current order. */
@@ -682,7 +682,15 @@ function applyOne(state: TableState, cmd: Command): TableState {
       const zs = pieces.map((p) => p!.zIndex).sort((a, b) => a - b);
       for (let i = 1; i < zs.length; i++) if (zs[i] <= zs[i - 1]) zs[i] = zs[i - 1] + 1;
       const zById = new Map(cmd.ids.map((id, i) => [id, zs[i]]));
-      return { ...state, objects: state.objects.map((o) => (zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)! } : o)) };
+      // The pieces of a spread holder also swap their places along it (first id = start of the row).
+      const holder = findObject(state, pieces[0]!.holderId ?? '');
+      const spread = holder?.kind === 'deck' && isSpread(holder) ? spreadReorder(state.objects, holder, cmd.ids) : null;
+      return {
+        ...state,
+        objects: state.objects.map((o) =>
+          zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)!, ...(spread?.has(o.id) ? { position: spread.get(o.id)! } : {}) } : o,
+        ),
+      };
     }
 
     case 'SortDeck':

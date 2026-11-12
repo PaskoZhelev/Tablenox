@@ -204,6 +204,12 @@ describe('card, token, die, bag and control actions', () => {
     expect([...(useTableStore.getState().shuffled?.ids ?? [])].sort()).toEqual(['pa', 'pb']);
     run(holder.id, 'shuffle');
     expect(useTableStore.getState().shuffled?.seq).toBe(2);
+    // Spread out, the pieces lie in a row that shuffles the same way.
+    useTableStore.getState().dispatch({ type: 'UpdateObject', id: holder.id, patch: { layout: 'spread' } });
+    expect(actionsOf('pa').find((a) => a.id === 'shuffle-stack')?.label).toBe('Shuffle pieces');
+    expect(ids(actionsOf(holder.id))).toContain('shuffle');
+    run('pa', 'shuffle-stack');
+    expect([...(useTableStore.getState().shuffled?.ids ?? [])].sort()).toEqual(['pa', 'pb']);
     // A piece on its own has nothing to shuffle.
     expect(ids(actionsOf(objects().find((o) => o.kind === 'die')!.id))).not.toContain('shuffle-stack');
   });

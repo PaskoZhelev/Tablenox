@@ -11,6 +11,7 @@ import {
   pieceStacks,
   pointInObject,
   spreadLayout,
+  spreadPiecesOf,
   spreadsVertically,
   stacksPieces,
   toLocal,
@@ -170,7 +171,9 @@ export {
   pieceStacksWhileMoving,
   pointInObject,
   rotatedBox,
+  shufflablePieces,
   spreadLayout,
+  spreadPiecesOf,
   spreadsVertically,
   stacksPieces,
   toLocal,
@@ -559,15 +562,22 @@ export function shuffleBagCommand(bag: BagObject, source: RandomSource = secureR
 }
 
 /**
- * Shuffles the piece stack that holder `id` holds or piece `id` lies in (a holder's stack or a loose pile): null when it
- * has fewer than two separate pieces. Like drawing from a bag, a token stack counts once per token, so the more tokens
- * a stack has, the likelier it ends up higher.
+ * Shuffles the pieces that holder `id` holds or piece `id` lies in: the row of a spread holder (every piece equally
+ * likely at each place), or a piece stack (a holder's stack or a loose pile). Null when there are fewer than two
+ * separate pieces. In a stack, like drawing from a bag, a token stack counts once per token, so the more tokens a
+ * stack has, the likelier it ends up higher.
  */
 export function shufflePiecesCommand(
   objects: TabletopObject[],
   id: string,
   source: RandomSource = secureRandomSource,
 ): Command | null {
+  const spread = spreadPiecesOf(objects, id);
+  if (spread) {
+    const { pieces } = spread;
+    if (pieces.length < 2) return null;
+    return { type: 'ShufflePieces', ids: shuffledIndices(pieces.length, source).map((i) => pieces[i].id) };
+  }
   const stack = pieceStackOf(objects, id);
   if (!stack || stack.ids.length < 2) return null;
   const left = stack.ids.map((pid) => {

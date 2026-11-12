@@ -509,6 +509,34 @@ describe('shuffling piece stacks', () => {
     expect(shuffledBy(holderCmd).sort()).toEqual(['d1', 'ta', 'tb']);
   });
 
+  it('a spread holder shuffles the pieces in its row: they swap places and line up again', () => {
+    let s = setup();
+    const h = holderOf(s);
+    const cy = h.position.y + h.height / 2;
+    s = dropAt(s, 'd1', { x: h.position.x + 100, y: cy });
+    s = dropAt(s, 'd2', { x: h.position.x + 300, y: cy });
+    s = dropAt(s, 'd3', { x: h.position.x + 500, y: cy });
+    const row = (t: TableState) => spreadLayout(t.objects, holderOf(t)).pieces.map((p) => p.id);
+    const xs = (t: TableState) => row(t).map((id) => find(t, id).position.x);
+    expect(row(s)).toEqual(['d1', 'd2', 'd3']);
+    const orders = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) {
+      const cmd = shufflePiecesCommand(s.objects, 'd2', seededSource(seed))!;
+      const ids = (cmd as { ids: string[] }).ids;
+      const out = applyCommand(s, cmd);
+      expect(row(out)).toEqual(ids);
+      // The same places as before, now taken by the pieces in the new order, all still in the holder.
+      expect(xs(out)).toEqual(xs(s));
+      expect(ids.every((id) => find(out, id).holderId === h.id)).toBe(true);
+      orders.add(ids.join());
+    }
+    expect(orders.size).toBeGreaterThan(3);
+    // The holder's own Shuffle does the same (it has no cards).
+    expect(shuffleHolderCommand(s.objects, holderOf(s), seededSource(1))?.type).toBe('ShufflePieces');
+    // One piece alone has nothing to shuffle.
+    expect(shufflePiecesCommand(dropAt(dropAt(s, 'd1', { x: 0, y: 0 }), 'd2', { x: 0, y: 0 }).objects, 'd3')).toBeNull();
+  });
+
   it('needs two separate pieces; bad orders change nothing; equal zIndex values are made distinct', () => {
     const { s, h } = stacked();
     const single = s.objects.filter((o) => o.id !== 'ta' && o.id !== 'd1');
