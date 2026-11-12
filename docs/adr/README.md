@@ -342,3 +342,15 @@ A single click only selects, so dice can be dragged without accidental rolls. Ro
 - **Not restored on reload** (`loadUiPrefs` forces it off) and still shown in the collapsed tool column while on, so stacking never seems broken without a visible reason.
 
 **Consequences:** while it is on nothing stacks or goes into a holder by dragging, in either mode; menu and automation actions are unaffected.
+
+## ADR-0038: free-zone holders, shuffling piece stacks
+
+**Context:** with *Snap pieces to the centre* off, pieces dropped on a stacked holder stayed where they landed, but cards still went into its centred stack, and every drag over the holder still faded it and drew the yellow drop outline. Different pieces piled up in a holder (or a loose pile) could not be shuffled: *Shuffle* only reordered cards.
+
+**Decision:**
+
+- **Free zones.** `collectsDrops(deck)` (`domain/holders.ts`): piles, spreads and holders that centre pieces take dropped cards; a stacked holder with `snapToCenter: false` doesn't. `findDropTarget` / `findPileTarget` skip it and `takesInGroup` keeps cards and piles out, so they stay loose where they land (they can still pile up on a card lying there). Pieces still join it (`holderId`, uncentred) so they move with it. `highlightsDrop(target)` keeps it from being highlighted, in `findHoverTarget` and for group drags in `ObjectNode`. Automation moves and *Return to holder* / Gather & reset still put cards into it.
+- **`ShufflePieces { ids }`** (bottom first) restacks one piece stack by handing the pieces' own `zIndex` values (made distinct) out in the new order; it always produces a new state so the shuffle animation (`shuffledBy` returns every piece) and an undo step happen even if the order is unchanged. `shufflePiecesCommand(objects, id)` (`id` = the holder or any piece of the stack, `pieceStackOf`) draws the order top-down weighted like a bag (a token stack counts once per token); null for fewer than two separate pieces.
+- **Where.** A piece in a stack gets *Shuffle stack* (`S`); a holder's *Shuffle* (`shuffleHolderCommand`) shuffles its cards and its piece stack and is offered when either has something to shuffle; an automation Shuffle step on a holder shuffles its pieces too.
+
+**Consequences:** a deck whose snap option is off can't be refilled by dropping cards on it; turn the option back on (the default) for that. Identical tokens stay one `TokenObject`, so a stack's count moves as a unit in a shuffle.

@@ -2,10 +2,12 @@ import { applyCommand, type Command } from './commands';
 import { newId } from './ids';
 import { objectCenter } from './geometry';
 import {
+  collectsDrops,
   holderPieces,
   isSpread,
   joinsHolder,
   loosePileOf,
+  pieceStackOf,
   pieceStacks,
   pointInObject,
   spreadLayout,
@@ -45,15 +47,17 @@ function topmostContaining<T extends TabletopObject>(all: TabletopObject[], obje
   return objects.filter((o) => o.visible && pointInObject(p, o)).sort((a, b) => cmp(b, a))[0];
 }
 
+/** Holders, piles, bags and cards that a dragged card or pile `id` can join (free-zone holders take no cards). */
+function cardTargets(state: TableState, id: string): (DeckObject | CardObject | BagObject)[] {
+  return state.objects.filter(
+    (o): o is DeckObject | CardObject | BagObject =>
+      o.id !== id && ((o.kind === 'deck' && collectsDrops(o)) || o.kind === 'card' || o.kind === 'bag'),
+  );
+}
+
 /** The holder, pile, bag or card a dragged card would join if released with its centre at `center`. */
 export function findDropTarget(state: TableState, cardId: string, center: Vec2): DeckObject | CardObject | BagObject | undefined {
-  return topmostContaining(
-    state.objects,
-    state.objects.filter(
-      (o): o is DeckObject | CardObject | BagObject => o.id !== cardId && (o.kind === 'deck' || o.kind === 'card' || o.kind === 'bag'),
-    ),
-    center,
-  );
+  return topmostContaining(state.objects, cardTargets(state, cardId), center);
 }
 
 /**
@@ -61,13 +65,7 @@ export function findDropTarget(state: TableState, cardId: string, center: Vec2):
  * the card goes to the bottom of the pile).
  */
 export function findPileTarget(state: TableState, pileId: string, center: Vec2): DeckObject | CardObject | BagObject | undefined {
-  return topmostContaining(
-    state.objects,
-    state.objects.filter(
-      (o): o is DeckObject | CardObject | BagObject => o.id !== pileId && (o.kind === 'deck' || o.kind === 'card' || o.kind === 'bag'),
-    ),
-    center,
-  );
+  return topmostContaining(state.objects, cardTargets(state, pileId), center);
 }
 
 const isPile = (o: TabletopObject): o is DeckObject => o.kind === 'deck' && o.isPile;
@@ -120,7 +118,8 @@ function pileUpCommand(token: TabletopObject, target: TabletopObject): Command {
 /**
  * The object highlighted while `id` is dragged with its centre at `center`: for cards the holder/pile/card it
  * would join, for piles the holder/pile it would merge into, for tokens an identical token they would stack on,
- * for other pieces the holder underneath. Boards and holders themselves never highlight anything.
+ * for other pieces the holder underneath (not a free-zone holder, see `collectsDrops`). Boards and holders themselves
+ * never highlight anything.
  */
 export function findHoverTarget(state: TableState, id: string, center: Vec2): TabletopObject | undefined {
   const obj = state.objects.find((o) => o.id === id);
@@ -133,7 +132,13 @@ export function findHoverTarget(state: TableState, id: string, center: Vec2): Ta
     const pile = findLoosePileTarget(state, id, center);
     if (pile) return pile;
   }
-  return topmostSurface(state.objects, obj, center);
+  const surface = topmostSurface(state.objects, obj, center);
+  return surface && highlightsDrop(surface) ? surface : undefined;
+}
+
+/** Whether a drag over drop target `target` highlights it: not a free-zone holder (see `collectsDrops`). */
+export function highlightsDrop(target: TabletopObject): boolean {
+  return target.kind !== 'deck' || collectsDrops(target);
 }
 
 /** The holder (or, for pieces a bag accepts, the bag) lying under `center`, other than `obj` itself. */
@@ -156,9 +161,11 @@ export function cardSlots(objects: TabletopObject[], deck: DeckObject): CardSlot
 
 export { cardRotationOf, cardTurnOf } from './objects';
 export {
+  collectsDrops,
   holderPieces,
   isSpread,
   loosePileOf,
+  pieceStackOf,
   pieceStacks,
   pieceStacksWhileMoving,
   pointInObject,
@@ -317,7 +324,7 @@ function putOnHolder(holder: DeckObject, obj: TabletopObject, position: Vec2): {
 /** Whether `target` takes in `o` when a selection is dropped on it (anything else in the selection just moves). */
 function takesInGroup(target: DeckObject | BagObject, o: TabletopObject): boolean {
   if (target.kind === 'bag') return bagAccepts(o);
-  if (o.kind === 'card' || isPile(o)) return true;
+  if (o.kind === 'card' || isPile(o)) return collectsDrops(target);
   return !target.isPile && joinsHolder(o);
 }
 
@@ -549,6 +556,43 @@ export function shuffleDeckCommand(deck: DeckObject, source: RandomSource = secu
 
 export function shuffleBagCommand(bag: BagObject, source: RandomSource = secureRandomSource): Command {
   return { type: 'ShuffleBag', id: bag.id, order: shuffledIndices(bag.items.length, source) };
+}
+
+/**
+ * Shuffles the piece stack that holder `id` holds or piece `id` lies in (a holder's stack or a loose pile): null when it
+ * has fewer than two separate pieces. Like drawing from a bag, a token stack counts once per token, so the more tokens
+ * a stack has, the likelier it ends up higher.
+ */
+export function shufflePiecesCommand(
+  objects: TabletopObject[],
+  id: string,
+  source: RandomSource = secureRandomSource,
+): Command | null {
+  const stack = pieceStackOf(objects, id);
+  if (!stack || stack.ids.length < 2) return null;
+  const left = stack.ids.map((pid) => {
+    const o = objects.find((x) => x.id === pid);
+    return { id: pid, weight: o?.kind === 'token' ? tokenCount(o) : 1 };
+  });
+  // Picked from the top down, each with a chance in proportion to its weight.
+  const topFirst: string[] = [];
+  while (left.length > 0) {
+    let r = randomInt(left.reduce((n, p) => n + p.weight, 0), source);
+    let i = 0;
+    while (r >= left[i].weight) r -= left[i++].weight;
+    topFirst.push(left.splice(i, 1)[0].id);
+  }
+  return { type: 'ShufflePieces', ids: topFirst.reverse() };
+}
+
+/** Shuffles holder `deck`: its cards, and the stack of pieces in it. Null when there is nothing to shuffle. */
+export function shuffleHolderCommand(objects: TabletopObject[], deck: DeckObject, source: RandomSource = secureRandomSource): Command | null {
+  const commands: Command[] = [];
+  if (deck.cards.length > 1) commands.push(shuffleDeckCommand(deck, source));
+  const pieces = deck.isPile ? null : shufflePiecesCommand(objects, deck.id, source);
+  if (pieces) commands.push(pieces);
+  if (commands.length < 2) return commands[0] ?? null;
+  return { type: 'Batch', commands };
 }
 
 export function defaultBagDrawPosition(bag: BagObject): Vec2 {

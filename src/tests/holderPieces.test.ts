@@ -5,17 +5,27 @@ import { createObject } from '../domain/objects';
 import { pasteObjects, copyObjects } from '../domain/clipboard';
 import {
   cardSlots,
+  findDropTarget,
   findGroupDropTarget,
+  findHoverTarget,
+  highlightsDrop,
   pieceStacks,
   pieceStacksWhileMoving,
   resolveDrop,
   resolveGroupDrop,
+  shuffleHolderCommand,
+  shufflePiecesCommand,
   spreadLayout,
   splitTokensCommand,
 } from '../domain/rules';
+import { createStep, planButton } from '../domain/buttons';
+import { seededSource } from '../domain/random';
+import { shuffledBy } from '../state/tableStore';
 import {
   MAX_TOKEN_STACK,
   type BagObject,
+  type ButtonObject,
+  type CardObject,
   type DeckObject,
   type TableState,
   type TabletopObject,
@@ -402,5 +412,133 @@ describe('loose piles of pieces', () => {
     const bag = s.objects.find((o): o is BagObject => o.kind === 'bag')!;
     s = applyCommand(s, { type: 'BagPut', bagId: bag.id, objectId: 'b' });
     expect((find(s, bag.id) as BagObject).items.find((i) => i.id === 'b')!.stackId).toBeUndefined();
+  });
+});
+
+describe('free-zone holders (snap to centre off)', () => {
+  function zone(snap: boolean): { s: TableState; h: DeckObject; card: CardObject } {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    s = applyCommand(s, { type: 'TransformObject', id: holder.id, position: { x: 3000, y: 3000 }, width: 400, height: 300, rotation: 0 });
+    if (!snap) s = applyCommand(s, { type: 'UpdateObject', id: holder.id, patch: { snapToCenter: false } });
+    const die = { ...createObject('die', { center: { x: 2000, y: 2000 }, zIndex: 50 }), id: 'd1' };
+    s = { ...s, objects: [...s.objects, die] };
+    return { s, h: holderOf(s), card: s.objects.find((o): o is CardObject => o.kind === 'card')! };
+  }
+
+  it('cards and pieces dropped on it stay where they land, and dragging over it highlights nothing', () => {
+    let { s, h, card } = zone(false);
+    const at = { x: objectCenter(h).x + 60, y: objectCenter(h).y + 40 };
+    expect(findDropTarget(s, card.id, at)).toBeUndefined();
+    expect(findHoverTarget(s, card.id, at)).toBeUndefined();
+    expect(findHoverTarget(s, 'd1', at)).toBeUndefined();
+    s = dropAt(s, card.id, at);
+    expect(holderOf(s).cards).toHaveLength(0);
+    expect(objectCenter(find(s, card.id))).toEqual(at);
+    // A piece still goes in (it moves with the holder), but is not centred.
+    s = dropAt(s, 'd1', { x: at.x - 120, y: at.y });
+    expect(find(s, 'd1').holderId).toBe(h.id);
+    expect(objectCenter(find(s, 'd1'))).toEqual({ x: at.x - 120, y: at.y });
+  });
+
+  it('a selection dropped on it: pieces go in, cards stay loose, and it is not highlighted', () => {
+    const { s, h, card } = zone(false);
+    const c = objectCenter(h);
+    const moves = [
+      { id: card.id, position: centredAt(card, { x: c.x - 80, y: c.y }) },
+      { id: 'd1', position: centredAt(find(s, 'd1'), { x: c.x + 80, y: c.y }) },
+    ];
+    const target = findGroupDropTarget(s, [card.id, 'd1'], { x: c.x - 80, y: c.y })!;
+    expect(target.id).toBe(h.id);
+    expect(highlightsDrop(target)).toBe(false);
+    expect(findGroupDropTarget(s, [card.id], { x: c.x - 80, y: c.y })).toBeUndefined();
+    const out = applyCommand(s, resolveGroupDrop(s, moves, card.id, 'play'));
+    expect(holderOf(out).cards).toHaveLength(0);
+    expect(objectCenter(find(out, card.id))).toEqual({ x: c.x - 80, y: c.y });
+    expect(find(out, 'd1').holderId).toBe(h.id);
+    expect(objectCenter(find(out, 'd1'))).toEqual({ x: c.x + 80, y: c.y });
+  });
+
+  it('with snap on, the holder highlights and takes cards in', () => {
+    let { s, h, card } = zone(true);
+    const at = { x: objectCenter(h).x + 60, y: objectCenter(h).y + 40 };
+    const target = findHoverTarget(s, card.id, at)!;
+    expect(target.id).toBe(h.id);
+    expect(highlightsDrop(target)).toBe(true);
+    expect(findHoverTarget(s, 'd1', at)?.id).toBe(h.id);
+    s = dropAt(s, card.id, at);
+    expect(holderOf(s).cards).toHaveLength(1);
+  });
+});
+
+describe('shuffling piece stacks', () => {
+  /** A stacked holder with two different tokens (the second a stack of 3) and a die piled on its centre. */
+  function stacked(): { s: TableState; h: DeckObject } {
+    let s = tableOf(fixtureGame());
+    const holder = holderOf(s);
+    s = applyCommand(s, { type: 'TransformObject', id: holder.id, position: { x: 3000, y: 3000 }, width: 300, height: 300, rotation: 0 });
+    const ta = { ...createObject('token', { center: { x: 2000, y: 2000 }, zIndex: 50 }), id: 'ta', assetId: 'img-a' } as TokenObject;
+    const tb = { ...createObject('token', { center: { x: 2200, y: 2000 }, zIndex: 51 }), id: 'tb', assetId: 'img-b', count: 3 } as TokenObject;
+    const d1 = { ...createObject('die', { center: { x: 2400, y: 2000 }, zIndex: 52 }), id: 'd1' };
+    s = { ...s, objects: [...s.objects, ta, tb, d1] };
+    for (const id of ['ta', 'tb', 'd1']) s = dropAt(s, id, objectCenter(holderOf(s)));
+    return { s, h: holderOf(s) };
+  }
+  const order = (s: TableState) => [...pieceStacks(s.objects).values()][0].ids;
+
+  it('restacks the pieces in a random order, a token stack weighing as many tokens as it has', () => {
+    const { s, h } = stacked();
+    expect(order(s)).toEqual(['ta', 'tb', 'd1']);
+    const tops = new Map<string, number>();
+    for (let seed = 1; seed <= 200; seed++) {
+      const cmd = shufflePiecesCommand(s.objects, h.id, seededSource(seed))!;
+      expect(cmd.type).toBe('ShufflePieces');
+      const ids = (cmd as { ids: string[] }).ids;
+      expect([...ids].sort()).toEqual(['d1', 'ta', 'tb']);
+      const out = applyCommand(s, cmd);
+      expect(order(out)).toEqual(ids);
+      expect(pieceStacks(out.objects).get(ids[2])).toMatchObject({ holderId: h.id, count: 5 });
+      tops.set(ids[2], (tops.get(ids[2]) ?? 0) + 1);
+    }
+    expect([...tops.keys()].sort()).toEqual(['d1', 'ta', 'tb']);
+    expect(tops.get('tb')!).toBeGreaterThan(tops.get('ta')!);
+    // Any piece of the stack shuffles it, and so does the holder's Shuffle (it has no cards: just the pieces).
+    expect(shufflePiecesCommand(s.objects, 'ta', seededSource(1))).toEqual(shufflePiecesCommand(s.objects, h.id, seededSource(1)));
+    const holderCmd = shuffleHolderCommand(s.objects, h, seededSource(1))!;
+    expect(holderCmd.type).toBe('ShufflePieces');
+    expect(shuffledBy(holderCmd).sort()).toEqual(['d1', 'ta', 'tb']);
+  });
+
+  it('needs two separate pieces; bad orders change nothing; equal zIndex values are made distinct', () => {
+    const { s, h } = stacked();
+    const single = s.objects.filter((o) => o.id !== 'ta' && o.id !== 'd1');
+    expect(shufflePiecesCommand(single, h.id)).toBeNull();
+    expect(applyCommand(s, { type: 'ShufflePieces', ids: ['ta', 'ta'] })).toBe(s);
+    expect(applyCommand(s, { type: 'ShufflePieces', ids: ['ta', 'missing'] })).toBe(s);
+    expect(order(applyCommand(s, { type: 'ShufflePieces', ids: ['ta', 'tb', 'd1'] }))).toEqual(['ta', 'tb', 'd1']);
+    const flat: TableState = { ...s, objects: s.objects.map((o) => (o.holderId === h.id ? { ...o, zIndex: 5 } : o)) };
+    const out = applyCommand(flat, { type: 'ShufflePieces', ids: ['d1', 'tb', 'ta'] });
+    expect(['d1', 'tb', 'ta'].map((id) => find(out, id).zIndex)).toEqual([5, 6, 7]);
+    expect(order(out)).toEqual(['d1', 'tb', 'ta']);
+  });
+
+  it('a loose pile shuffles too, and a Shuffle step on the holder shuffles its pieces', () => {
+    let s = tableOf(fixtureGame());
+    const a = { ...createObject('token', { center: { x: 7000, y: 7000 }, zIndex: 70 }), id: 'a', assetId: 'img-a' } as TokenObject;
+    const b = { ...createObject('token', { center: { x: 7300, y: 7000 }, zIndex: 71 }), id: 'b', assetId: 'img-b' } as TokenObject;
+    s = { ...s, objects: [...s.objects, a, b] };
+    s = dropAt(s, 'b', objectCenter(find(s, 'a')));
+    expect(shufflePiecesCommand(s.objects, 'a', seededSource(1))?.type).toBe('ShufflePieces');
+
+    const { s: t, h } = stacked();
+    const button = { ...createObject('button', { center: { x: 0, y: 500 }, zIndex: 99 }), steps: [{ ...createStep('shuffle'), objectIds: [h.id] }] };
+    const withButton: TableState = { ...t, objects: [...t.objects, button] };
+    const tops = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) {
+      const cmd = planButton(withButton, button as ButtonObject, seededSource(seed));
+      const out = cmd ? applyCommand(withButton, cmd) : withButton;
+      tops.add(order(out)[2]);
+    }
+    expect(tops.size).toBeGreaterThan(1);
   });
 });

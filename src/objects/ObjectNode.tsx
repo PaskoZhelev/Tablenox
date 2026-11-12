@@ -6,6 +6,7 @@ import {
   cardIndexAt,
   findGroupDropTarget,
   findHoverTarget,
+  highlightsDrop,
   isSpread,
   pieceStacksWhileMoving,
   resolveGroupDrop,
@@ -224,7 +225,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
         return m?.kind === 'card' || (m?.kind === 'deck' && m.isPile);
       });
       const index = withCards && target?.kind === 'deck' && isSpread(target) ? spreadInsertIndex(table.objects, target, center) : null;
-      s.setDropTarget(target?.id ?? null, index);
+      s.setDropTarget(target && highlightsDrop(target) ? target.id : null, index);
       return;
     }
     const dragsCards = o.kind === 'card' || o.kind === 'deck';

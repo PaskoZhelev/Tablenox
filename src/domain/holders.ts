@@ -106,6 +106,15 @@ export function stacksPieces(deck: DeckObject): boolean {
   return !deck.isPile && !isSpread(deck) && deck.snapToCenter !== false;
 }
 
+/**
+ * Whether cards and piles dropped on `deck` go into it, and whether a drag over it highlights it: always for piles and
+ * spreads, for a stacked holder only when it centres pieces. A stacked holder with *Snap pieces to the centre* off is a
+ * free zone: what is dropped on it stays where it lands (pieces still join it, without a highlight).
+ */
+export function collectsDrops(deck: DeckObject): boolean {
+  return deck.isPile || isSpread(deck) || deck.snapToCenter !== false;
+}
+
 /** Pieces a piece counts for in a stack: every token of a token stack, one for anything else. */
 const pieceWeight = (o: TabletopObject) => (o.kind === 'token' ? (o.count ?? 1) : 1);
 
@@ -193,6 +202,12 @@ export function pieceStacksWhileMoving(objects: readonly TabletopObject[], movin
 export function loosePileOf(objects: readonly TabletopObject[], o: TabletopObject): PieceStack | undefined {
   if (!o.stackId || o.holderId) return undefined;
   for (const s of pieceStacks(objects).values()) if (s.stackId === o.stackId && s.ids.includes(o.id)) return s;
+  return undefined;
+}
+
+/** The piece stack that holder `id` holds, or that piece `id` lies in (in a holder or a loose pile), if any. */
+export function pieceStackOf(objects: readonly TabletopObject[], id: string): PieceStack | undefined {
+  for (const s of pieceStacks(objects).values()) if (s.holderId === id || s.ids.includes(id)) return s;
   return undefined;
 }
 

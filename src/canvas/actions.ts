@@ -34,6 +34,8 @@ import {
   rollDieCommand,
   shuffleBagCommand,
   shuffleDeckCommand,
+  shuffleHolderCommand,
+  shufflePiecesCommand,
   splitTokensCommand,
   tokensTakenFrom,
 } from '../domain/rules';
@@ -315,7 +317,16 @@ export function drawFromDeck(id: string, position?: Vec2): string | null {
 
 export function shuffleDeck(id: string): void {
   const o = find(id);
-  if (o?.kind === 'deck') useTableStore.getState().dispatch(shuffleDeckCommand(o));
+  if (o?.kind !== 'deck') return;
+  const s = useTableStore.getState();
+  // Holders shuffle their pieces too; with nothing to shuffle the (no-op) card shuffle still runs.
+  s.dispatch(shuffleHolderCommand(currentTable().objects, o) ?? shuffleDeckCommand(o));
+}
+
+/** Shuffles the stack of pieces (in a holder or a loose pile) that piece `id` lies in. */
+export function shufflePieceStack(id: string): void {
+  const cmd = shufflePiecesCommand(currentTable().objects, id);
+  if (cmd) useTableStore.getState().dispatch(cmd);
 }
 
 export function drawCardsFromDeck(id: string, count: number, from: 'top' | 'bottom'): void {

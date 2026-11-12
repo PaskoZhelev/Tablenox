@@ -224,9 +224,10 @@ const COALESCE_WINDOW_MS = 1200;
 
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 
-/** Ids of the holders / piles / bags a command shuffles (also inside batches). */
+/** Ids of the holders / piles / bags / pieces a command shuffles (also inside batches). */
 export function shuffledBy(cmd: Command): string[] {
   if (cmd.type === 'ShuffleDeck' || cmd.type === 'ShuffleBag') return [cmd.id];
+  if (cmd.type === 'ShufflePieces') return cmd.ids;
   if (cmd.type === 'Batch') return [...new Set(cmd.commands.flatMap(shuffledBy))];
   return [];
 }

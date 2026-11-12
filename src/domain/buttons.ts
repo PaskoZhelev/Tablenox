@@ -29,6 +29,7 @@ import {
   rollDieCommand,
   shuffleBagCommand,
   shuffleDeckCommand,
+  shufflePiecesCommand,
   tokenSourceOf,
   tokenStackInHolder,
   tokensTakenFrom,
@@ -897,6 +898,9 @@ function planStep(plan: Plan, step: ButtonStep, random: RandomSource, now: numbe
       for (const o of resolveTargets(plan.state, step.objectIds)) {
         if (o.kind === 'deck' && o.cards.length > 1) plan.emit(shuffleDeckCommand(o, random));
         else if (o.kind === 'bag' && o.items.length > 1) plan.emit(shuffleBagCommand(o, random));
+        // A holder also shuffles the stack of pieces in it.
+        const pieces = isHolder(o) ? shufflePiecesCommand(plan.state.objects, o.id, random) : null;
+        if (pieces) plan.emit(pieces);
       }
       return;
     case 'sort':

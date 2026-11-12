@@ -187,6 +187,27 @@ describe('card, token, die, bag and control actions', () => {
     expect(ids(actionsOf(stack.id))).not.toContain('recall-tokens');
   });
 
+  it('a stack of different pieces in a holder shuffles from its pieces and from the holder', () => {
+    load('play');
+    const holder = named<DeckObject>('Holder');
+    const at = { x: holder.position.x + holder.width / 2, y: holder.position.y + holder.height / 2 };
+    const piece = (id: string, z: number, assetId: string) =>
+      ({ ...createObject('token', { center: at, zIndex: z }), id, assetId, holderId: holder.id }) as TabletopObject;
+    useTableStore.getState().dispatch({
+      type: 'Batch',
+      commands: [piece('pa', 60, 'img-a'), piece('pb', 61, 'img-b')].map((object) => ({ type: 'AddObject', object })),
+    });
+    expect(ids(actionsOf('pb'))).toContain('shuffle-stack');
+    expect(ids(actionsOf('pa'))).toContain('shuffle-stack');
+    expect(ids(actionsOf(holder.id))).toContain('shuffle');
+    run('pb', 'shuffle-stack');
+    expect([...(useTableStore.getState().shuffled?.ids ?? [])].sort()).toEqual(['pa', 'pb']);
+    run(holder.id, 'shuffle');
+    expect(useTableStore.getState().shuffled?.seq).toBe(2);
+    // A piece on its own has nothing to shuffle.
+    expect(ids(actionsOf(objects().find((o) => o.kind === 'die')!.id))).not.toContain('shuffle-stack');
+  });
+
   it('a die rolls and returns to the bag it came from; the bag draws, shuffles and recalls', async () => {
     load('play');
     const die = objects().find((o) => o.kind === 'die')!;

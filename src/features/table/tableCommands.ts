@@ -13,6 +13,7 @@ import {
   selectAll,
   shuffleBag,
   shuffleDeck,
+  shufflePieceStack,
   toggleLock,
   toggleLockMany,
   zoomIn,
@@ -128,6 +129,7 @@ export function useTableShortcuts(onHelp?: () => void): void {
       if (key === 'f' && selected?.kind === 'deck') return flipDeck(selected.id);
       if (key === 's' && selected?.kind === 'deck') return shuffleDeck(selected.id);
       if (key === 's' && selected?.kind === 'bag') return shuffleBag(selected.id);
+      if (key === 's' && selected) return shufflePieceStack(selected.id);
       if (key === 'r' && selected) {
         if (selected.kind === 'die') return rollDie(selected.id);
         if (!selected.locked && !(s.mode === 'play' && fixedInPlay(selected))) return rotateStep(selected.id, e.shiftKey ? -1 : 1);

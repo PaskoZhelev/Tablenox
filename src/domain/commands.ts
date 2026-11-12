@@ -90,6 +90,11 @@ export type Command =
   | { type: 'ToggleLock'; id: string }
   | { type: 'FlipCard'; id: string }
   | { type: 'ShuffleDeck'; id: string; order: number[] }
+  /**
+   * Restacks the pieces `ids` (one stack: in a holder or a loose pile) in this order, bottom first: they swap their
+   * places in the drawing order (`zIndex`) among themselves.
+   */
+  | { type: 'ShufflePieces'; ids: string[] }
   /** Orders a deck/pile by the original deck order or by card name, or reverses its current order. */
   | { type: 'SortDeck'; id: string; by: SortBy }
   /** Takes a card out of a holder/pile: the top one, the bottom one, or the one at `index` (spread holders). */
@@ -669,6 +674,16 @@ function applyOne(state: TableState, cmd: Command): TableState {
         if (o.kind !== 'deck' || o.cards.length < 2 || cmd.order.length !== o.cards.length) return o;
         return { ...o, cards: applyPermutation(o.cards, cmd.order) };
       });
+
+    case 'ShufflePieces': {
+      const pieces = cmd.ids.map((id) => findObject(state, id));
+      if (pieces.length < 2 || new Set(cmd.ids).size !== cmd.ids.length || pieces.some((p) => !p)) return state;
+      // The pieces' own zIndex values, made distinct, handed out bottom first in the new order.
+      const zs = pieces.map((p) => p!.zIndex).sort((a, b) => a - b);
+      for (let i = 1; i < zs.length; i++) if (zs[i] <= zs[i - 1]) zs[i] = zs[i - 1] + 1;
+      const zById = new Map(cmd.ids.map((id, i) => [id, zs[i]]));
+      return { ...state, objects: state.objects.map((o) => (zById.has(o.id) ? { ...o, zIndex: zById.get(o.id)! } : o)) };
+    }
 
     case 'SortDeck':
       return sortDeck(state, cmd.id, cmd.by);

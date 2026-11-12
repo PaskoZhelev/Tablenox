@@ -1222,7 +1222,8 @@ function KindFields({ o, update }: { o: TabletopObject; update: Update }) {
               alignment. With <em>Rotate objects to match holder</em>, cards put in lie at the card rotation and pieces take the holder's
               rotation; without it, cards and pieces keep the angle they had (and cards come out at that angle). With{' '}
               <em>Snap pieces to the centre</em>, tokens, dice and other pieces dropped on the holder are centred on it (Shift+drag places
-              them freely); its shape is set under <em>Object</em>.
+              them freely) and stack up there (a stack can be shuffled); without it, a stacked holder is a free zone: cards and pieces
+              stay where they are dropped and dragging over it doesn't highlight it. Its shape is set under <em>Object</em>.
             </p>
           </Section>
           <DeckEditor o={o} update={update} part="settings" />

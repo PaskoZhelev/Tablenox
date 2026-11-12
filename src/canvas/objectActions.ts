@@ -1,5 +1,5 @@
 import type { IconName } from '../components/Icon';
-import { bagOf, homeDeckOf, nextRotation, pileableObjects, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
+import { bagOf, homeDeckOf, nextRotation, pieceStackOf, pileableObjects, pileHasHome, tokenSourceOf, tokensTakenFrom } from '../domain/rules';
 import { fixedInPlay, hasPlayMovable, tokenCount } from '../domain/objects';
 import type { DrawSide, Mode, TableState, TabletopObject } from '../domain/types';
 import { ALIGN_LABELS, DISTRIBUTE_LABELS, type AlignMode } from '../domain/align';
@@ -39,6 +39,7 @@ import {
   setHolderLayout,
   shuffleBag,
   shuffleDeck,
+  shufflePieceStack,
   sortDeck,
   takeTokens,
   toggleLock,
@@ -243,9 +244,14 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
           primary: true,
         });
       }
+      const piecesShuffle = !o.isPile && (pieceStackOf(table.objects, o.id)?.ids.length ?? 0) > 1;
       if (hasCards) {
         actions.push({ id: 'draw', label: 'Draw a card', icon: 'draw', run: () => drawFromDeck(o.id), primary: true });
+      }
+      if (hasCards || piecesShuffle) {
         actions.push({ id: 'shuffle', label: 'Shuffle', icon: 'shuffle', run: () => shuffleDeck(o.id), primary: true, shortcut: 'S' });
+      }
+      if (hasCards) {
         actions.push({ id: 'flipdeck', label: 'Flip all cards', icon: 'flip', run: () => flipDeck(o.id), primary: true, shortcut: 'F' });
         actions.push({ id: 'draw-top', label: 'Draw cards from top…', icon: 'draw', run: () => void promptDrawCards(o.id, 'top') });
         actions.push({
@@ -364,6 +370,17 @@ export function getObjectActions(o: TabletopObject, mode: Mode, table: TableStat
       break;
     default:
       break;
+  }
+  // A piece in a stack of separate pieces (in a holder or a loose pile) can shuffle that stack.
+  if (o.kind !== 'deck' && (pieceStackOf(table.objects, o.id)?.ids.length ?? 0) > 1) {
+    actions.push({
+      id: 'shuffle-stack',
+      label: 'Shuffle stack',
+      icon: 'shuffle',
+      run: () => shufflePieceStack(o.id),
+      primary: true,
+      shortcut: 'S',
+    });
   }
   if (!edit) return actions;
   actions.push({

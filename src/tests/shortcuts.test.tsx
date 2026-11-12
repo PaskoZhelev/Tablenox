@@ -79,6 +79,17 @@ describe('keyboard shortcuts', () => {
     expect(get<TabletopObject & { rollCount: number }>(die.id).rollCount).toBe(die.rollCount + 1);
   });
 
+  it('S shuffles the stack of pieces the selected piece lies in', () => {
+    load('play');
+    const holder = objects().find((o): o is DeckObject => o.kind === 'deck' && o.name === 'Holder')!;
+    const at = { x: holder.position.x + 5, y: holder.position.y + 5 };
+    const piece = (id: string, z: number) => ({ ...ofKind('token'), id, position: at, zIndex: z, holderId: holder.id, assetId: id });
+    s().dispatch({ type: 'Batch', commands: [piece('pa', 60), piece('pb', 61)].map((object) => ({ type: 'AddObject', object })) });
+    s().select('pb');
+    press('s');
+    expect([...(s().shuffled?.ids ?? [])].sort()).toEqual(['pa', 'pb']);
+  });
+
   it('undo / redo with Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y', () => {
     load('play');
     const card = ofKind('card');
