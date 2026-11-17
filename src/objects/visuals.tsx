@@ -577,6 +577,7 @@ export function BagVisual({ o }: { o: BagObject }) {
         stroke={stroke}
         strokeWidth={2}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={5}
         shadowOpacity={0.3}
         shadowOffsetY={2}
@@ -667,7 +668,16 @@ function TokenShape({ o, shadeOnly }: { o: TokenObject; shadeOnly?: boolean }) {
   const stroke = shade(o.color, -60);
   const common = shadeOnly
     ? { fill: '#000', opacity: 0.28 }
-    : { fill: o.color, stroke, strokeWidth: 2, shadowColor: '#000', shadowBlur: 4, shadowOpacity: 0.3, shadowOffsetY: 2 };
+    : {
+        fill: o.color,
+        stroke,
+        strokeWidth: 2,
+        shadowColor: '#000',
+        shadowForStrokeEnabled: false,
+        shadowBlur: 4,
+        shadowOpacity: 0.3,
+        shadowOffsetY: 2,
+      };
   if (img && shadeOnly && o.shape !== 'circle') return <Rect width={w} height={h} {...common} />;
   if (o.shape === 'image' && !img) {
     // No picture (yet): a plain tile, or an invisible but clickable box while the image loads.
@@ -783,6 +793,7 @@ export function CounterVisual({ o, onStep }: { o: CounterObject; onStep: (dir: 1
         stroke="#9aa4b2"
         strokeWidth={1.5}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={4}
         shadowOpacity={0.2}
         shadowOffsetY={1}
@@ -840,6 +851,7 @@ function CustomDieFace({ o, stroke }: { o: DieObject; stroke: string }) {
         crop={{ x: (img.naturalWidth - cropWidth) / 2, y: (img.naturalHeight - cropHeight) / 2, width: cropWidth, height: cropHeight }}
         cornerRadius={s * 0.18}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={5}
         shadowOpacity={0.3}
         shadowOffsetY={2}
@@ -856,6 +868,7 @@ function CustomDieFace({ o, stroke }: { o: DieObject; stroke: string }) {
         stroke={stroke}
         strokeWidth={2}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={5}
         shadowOpacity={0.3}
         shadowOffsetY={2}
@@ -912,6 +925,7 @@ export function DieVisual({ o }: { o: DieObject }) {
             stroke={stroke}
             strokeWidth={2}
             shadowColor="#000"
+            shadowForStrokeEnabled={false}
             shadowBlur={5}
             shadowOpacity={0.3}
             shadowOffsetY={2}
@@ -932,6 +946,7 @@ export function DieVisual({ o }: { o: DieObject }) {
             stroke={stroke}
             strokeWidth={2}
             shadowColor="#000"
+            shadowForStrokeEnabled={false}
             shadowBlur={5}
             shadowOpacity={0.3}
             shadowOffsetY={2}
@@ -1005,6 +1020,7 @@ export function ButtonVisual({ o, pressed = false }: { o: ButtonObject; pressed?
         stroke={shade(o.color, -60)}
         strokeWidth={2}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={pressed ? 1 : 5}
         shadowOpacity={pressed ? 0.2 : 0.3}
         shadowOffsetY={pressed ? 0 : 2}
@@ -1193,6 +1209,7 @@ export function TimerVisual({ o, onTimer }: { o: TimerObject; onTimer: (action: 
         stroke="#9aa4b2"
         strokeWidth={1.5}
         shadowColor="#000"
+        shadowForStrokeEnabled={false}
         shadowBlur={4}
         shadowOpacity={0.2}
         shadowOffsetY={1}

@@ -1,16 +1,16 @@
 import { Shape } from 'react-konva';
-import type { CameraState } from '../domain/types';
 import { DEFAULT_GRID_SIZE } from '../domain/geometry';
 
-/** Infinite-looking grid drawn only for the visible world rectangle. Zoomed far out, every 2nd / 4th… line shows. */
+/**
+ * Infinite-looking grid drawn only for the visible world rectangle. Zoomed far out, every 2nd / 4th… line shows. The
+ * camera is read from the stage while drawing, so panning and zooming redraw it without a React render.
+ */
 export function Grid({
-  camera,
   width,
   height,
   light,
   spacing: base = DEFAULT_GRID_SIZE,
 }: {
-  camera: CameraState;
   width: number;
   height: number;
   light?: boolean;
@@ -23,7 +23,10 @@ export function Grid({
     <Shape
       listening={false}
       perfectDrawEnabled={false}
-      sceneFunc={(ctx) => {
+      sceneFunc={(ctx, shape) => {
+        const stage = shape.getStage();
+        if (!stage) return;
+        const camera = { x: stage.x(), y: stage.y(), scale: stage.scaleX() };
         let spacing = base;
         while (spacing * camera.scale < 18) spacing *= 2;
         const x0 = -camera.x / camera.scale;

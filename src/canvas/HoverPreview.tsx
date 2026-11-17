@@ -72,10 +72,12 @@ export function HoverPreview() {
   const hovered = useTableStore((s) => s.history.present.objects.find((o) => o.id === hoverId));
   const table = useTableStore((s) => s.history.present);
   const mode = useTableStore((s) => s.mode);
-  const camera = useTableStore((s) => s.camera);
   const viewport = useTableStore((s) => s.viewport);
   const [readyId, setReadyId] = useState<string | null>(null);
   const zoom = hovered ? effectiveHoverZoom(table, hovered, hovered.kind === 'deck' && isSpread(hovered) ? hoverCardId : null) : 'off';
+  const shown = zoom !== 'off' && !!hovered && (readyId === hoverId || pressId === hoverId);
+  // Follows the camera only while a preview shows, so panning doesn't re-render it otherwise.
+  const camera = useTableStore((s) => (shown ? s.camera : null));
 
   useEffect(() => {
     if (zoom === 'off' || !hoverId) return;
@@ -84,7 +86,7 @@ export function HoverPreview() {
   }, [zoom, hoverId]);
 
   // A held-down card shows at once; the mouse hover waits a moment so passing over objects doesn't flash previews.
-  if (zoom === 'off' || !hovered || (readyId !== hoverId && pressId !== hoverId)) return null;
+  if (!shown || !hovered || !camera) return null;
   const preview = previewOf(hovered, table, mode, hoverCardId);
   if (!preview) return null;
 

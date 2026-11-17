@@ -46,6 +46,7 @@ import { resetDoubleClick } from './doubleClick';
 import { Grid } from './Grid';
 import { isLightColor } from './colors';
 import { LIFTED_ATTR, notifyStageLeaving, registerStage } from './stageRegistry';
+import { applyCamera, isCameraMoving, releaseCamera, settleCamera } from './cameraMotion';
 import { pickOnTable } from './actions';
 import { pickedIds } from '../domain/buttons';
 import { allowTaps, LONG_PRESS_MS, LONG_PRESS_SLOP, suppressTaps, tapsSuppressed, TOUCH_DRAG_DISTANCE } from './touch';
@@ -152,7 +153,6 @@ export function TableCanvas() {
 
   const viewport = useTableStore((s) => s.viewport);
   const setViewport = useTableStore((s) => s.setViewport);
-  const camera = useTableStore((s) => s.camera);
   const objects = useTableStore((s) => s.history.present.objects);
   const annotations = useTableStore((s) => s.history.present.annotations);
   const mode = useTableStore((s) => s.mode);
@@ -191,8 +191,36 @@ export function TableCanvas() {
   useLayoutEffect(() => () => notifyStageLeaving(), []);
 
   const setStageRef = useCallback((s: Konva.Stage | null) => {
+    releaseCamera(stageRef.current);
     stageRef.current = s;
+    if (s) applyCamera(s, useTableStore.getState().camera, false);
     registerStage(s);
+  }, []);
+
+  // The camera is applied to the stage outside React (see `applyCamera`): a pan or zoom then only redraws the canvas.
+  useEffect(
+    () =>
+      useTableStore.subscribe((s, prev) => {
+        if (s.camera !== prev.camera && stageRef.current) applyCamera(stageRef.current, s.camera);
+      }),
+    [],
+  );
+
+  // A press (or a mouse move that isn't a drag) right after the camera moved needs an up-to-date hit graph to find its
+  // target; these listeners run before Konva's own.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const press = () => settleCamera();
+    const hover = (e: PointerEvent) => {
+      if (e.buttons === 0 && isCameraMoving()) settleCamera();
+    };
+    el.addEventListener('pointerdown', press, true);
+    el.addEventListener('pointermove', hover, true);
+    return () => {
+      el.removeEventListener('pointerdown', press, true);
+      el.removeEventListener('pointermove', hover, true);
+    };
   }, []);
 
   useEffect(() => {
@@ -1023,10 +1051,6 @@ export function TableCanvas() {
           ref={setStageRef}
           width={viewport.width}
           height={viewport.height}
-          x={camera.x}
-          y={camera.y}
-          scaleX={camera.scale}
-          scaleY={camera.scale}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onClick={onClick}
@@ -1036,7 +1060,7 @@ export function TableCanvas() {
         >
           {mode === 'edit' && showGrid && (
             <Layer name="grid-layer" listening={false}>
-              <Grid camera={camera} width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} spacing={gridSize} />
+              <Grid width={viewport.width} height={viewport.height} light={isLightColor(tableColor)} spacing={gridSize} />
             </Layer>
           )}
           <Layer ref={objectsLayerRef}>

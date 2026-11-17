@@ -154,7 +154,6 @@ export function SelectionBar() {
   const selectedIds = useTableStore((s) => s.selectedIds);
   const table = useTableStore((s) => s.history.present);
   const mode = useTableStore((s) => s.mode);
-  useTableStore((s) => s.camera);
   useTableStore((s) => s.viewport);
   const multi = selectedIds.length > 1;
   const hidden = useTableStore(
@@ -165,6 +164,8 @@ export function SelectionBar() {
       !!s.editingText ||
       !!s.contextMenu,
   );
+  // Follows the camera only while shown (`barPosition` reads it), so panning doesn't re-render a hidden bar.
+  useTableStore((s) => (selected && !hidden ? s.camera : null));
   const [sizeRef, size] = useElementSize<HTMLDivElement>();
 
   if (!selected || hidden) return null;

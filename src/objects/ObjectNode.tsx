@@ -35,6 +35,7 @@ import {
 import { registerPrimaryClick, resetDoubleClick } from '../canvas/doubleClick';
 import { tapsSuppressed } from '../canvas/touch';
 import { LIFTED_ATTR } from '../canvas/stageRegistry';
+import { isCameraMoving } from '../canvas/cameraMotion';
 import { HolderZoneShape, HolderZoneVisual, ObjectVisual, PieceStackBadge } from './visuals';
 import { takeStackDrag } from './stackDrag';
 
@@ -339,6 +340,8 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
 
   /** Reports the object (and, for a holder/pile, the card) under the mouse for the hover preview. */
   const hoverAt = (e: KonvaEventObject<MouseEvent>) => {
+    // While the camera moves, Konva finds the pointer's target on an outdated hit graph.
+    if (isCameraMoving()) return;
     let cardId: string | null = null;
     if (o.kind === 'deck') {
       const world = e.target.getStage()?.getRelativePointerPosition();
@@ -369,12 +372,14 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       onTouchStart={onPress}
       onDblTap={onDblTap}
       onMouseEnter={(e) => {
+        if (isCameraMoving()) return;
         hoverAt(e);
         const c = e.target.getStage()?.container();
         if (clickInPlay && c) c.style.cursor = 'pointer';
       }}
       onMouseMove={o.kind === 'deck' ? hoverAt : undefined}
       onMouseLeave={(e) => {
+        if (isCameraMoving()) return;
         useTableStore.getState().setHover(null);
         const c = e.target.getStage()?.container();
         if (clickInPlay && c) c.style.cursor = '';
@@ -484,7 +489,9 @@ function HolderZoneNodeImpl({ o, mode, dropTarget }: { o: DeckObject; mode: Mode
     e.target.getLayer()?.findOne((n: Konva.Node) => n.id() === o.id && n.hasName('object'));
   // Handing the press over starts Konva's drag of the holder (Edit mode) just as a press on the holder itself would.
   const press = (e: KonvaEventObject<MouseEvent | TouchEvent>) => holderNode(e)?.fire(e.type, e, false);
-  const hover = () => useTableStore.getState().setHover(o.id, null);
+  const hover = () => {
+    if (!isCameraMoving()) useTableStore.getState().setHover(o.id, null);
+  };
 
   return (
     <Group
@@ -502,7 +509,9 @@ function HolderZoneNodeImpl({ o, mode, dropTarget }: { o: DeckObject; mode: Mode
       onTouchStart={press}
       onMouseEnter={hover}
       onMouseMove={hover}
-      onMouseLeave={() => useTableStore.getState().setHover(null)}
+      onMouseLeave={() => {
+        if (!isCameraMoving()) useTableStore.getState().setHover(null);
+      }}
     >
       <HolderZoneVisual o={o} mode={mode} />
     </Group>

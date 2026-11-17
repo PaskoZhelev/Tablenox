@@ -243,11 +243,27 @@ function toggleFullscreen() {
   });
 }
 
+/** The zoom percentage (resets to 100%); its own component so zooming doesn't re-render the whole tool column. */
+function ZoomLevel() {
+  const pct = useTableStore((s) => Math.round(s.camera.scale * 100));
+  return (
+    <button
+      type="button"
+      className="hud-btn zoom-pct"
+      title="Reset to 100% (0)"
+      aria-label={`Zoom ${pct}%, reset to 100%`}
+      onClick={zoomReset}
+      data-testid="zoom-level"
+    >
+      {pct}%
+    </button>
+  );
+}
+
 /** Compact vertical tool column; collapses to a single button. */
 export function Toolbar() {
   const tool = useTableStore((s) => s.tool);
   const setTool = useTableStore((s) => s.setTool);
-  const scale = useTableStore((s) => s.camera.scale);
   const mode = useTableStore((s) => s.mode);
   const open = useTableStore((s) => s.ui.toolbarOpen);
   const showGrid = useTableStore((s) => s.ui.showGrid);
@@ -337,16 +353,7 @@ export function Toolbar() {
         <button type="button" className="hud-btn" aria-label="Zoom in (+)" title="Zoom in (+)" onClick={zoomIn}>
           <Icon name="zoomIn" size={18} />
         </button>
-        <button
-          type="button"
-          className="hud-btn zoom-pct"
-          title="Reset to 100% (0)"
-          aria-label={`Zoom ${Math.round(scale * 100)}%, reset to 100%`}
-          onClick={zoomReset}
-          data-testid="zoom-level"
-        >
-          {Math.round(scale * 100)}%
-        </button>
+        <ZoomLevel />
         <button type="button" className="hud-btn" aria-label="Zoom out (-)" title="Zoom out (-)" onClick={zoomOut}>
           <Icon name="zoomOut" size={18} />
         </button>
