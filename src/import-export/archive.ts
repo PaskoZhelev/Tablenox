@@ -85,11 +85,7 @@ const ENTRY_OVERHEAD_BYTES = 512;
  * their sizes plus the manifest JSON are a safe upper bound). An image shared by games in the same group counts once.
  * Order is kept; a game that is too large on its own gets a group of its own.
  */
-export async function planLibraryParts(
-  games: Game[],
-  database: TablenoxDB = defaultDb,
-  maxBytes = MAX_IMPORT_BYTES,
-): Promise<Game[][]> {
+export async function planLibraryParts(games: Game[], database: TablenoxDB = defaultDb, maxBytes = MAX_IMPORT_BYTES): Promise<Game[][]> {
   const sizes = new Map<string, number>();
   const idsOf = games.map((g) => {
     const ids = new Set<string>();

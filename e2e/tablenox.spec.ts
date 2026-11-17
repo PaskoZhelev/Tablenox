@@ -627,9 +627,11 @@ test('roll-and-write: marks, stamps and text belong to the sheet and move with i
     '(s) => s.history.present.annotations.strokes[0]',
   );
   expect(stamp).toMatchObject({ objectId: sheet.id, straight: true });
-  // The middle of the cross (its third point) is where the click was, in the sheet's own coordinates.
-  expect(stamp.points[4]).toBeCloseTo(200, 0);
-  expect(stamp.points[5]).toBeCloseTo(300, 0);
+  // The middle of the cross (its third point) is where the click was, in the sheet's own coordinates. The browser may round
+  // the click to a whole pixel, so allow a pixel and a half at the current zoom.
+  const pixel = 1 / (await storeState<number>(page, '(s) => s.camera.scale'));
+  expect(Math.abs(stamp.points[4] - 200)).toBeLessThanOrEqual(1.5 * pixel);
+  expect(Math.abs(stamp.points[5] - 300)).toBeLessThanOrEqual(1.5 * pixel);
 
   // Text typed on a sheet belongs to it too.
   await page.keyboard.press('t');
@@ -914,8 +916,20 @@ test('dragging the count badge lifts the whole stack out of the holder; the hold
   const badge = await handleOf(deckId);
   await page.mouse.move(box.x + badge.x, box.y + badge.y);
   await page.mouse.down();
-  await page.mouse.move(cardAt.x - 40, cardAt.y + 40, { steps: 5 });
-  await page.mouse.move(cardAt.x, cardAt.y, { steps: 5 });
+  const via = { x: cardAt.x - 40, y: cardAt.y + 40 };
+  await page.mouse.move(via.x, via.y, { steps: 5 });
+  // The pile hangs from its badge (a corner), so aim the pile's centre at the card, not the pointer: with the pointer on
+  // the card's centre the pile's centre would sit right on the card's edge.
+  const pileCenter = await page.evaluate(() => {
+    type N = { id(): string; hasName(n: string): boolean; getAbsolutePosition(): { x: number; y: number } };
+    const w = window as unknown as {
+      Konva: { stages: { findOne(f: (n: N) => boolean): N }[] };
+      __tablenoxStore: { getState(): { draggingId: string } };
+    };
+    const id = w.__tablenoxStore.getState().draggingId;
+    return w.Konva.stages[0].findOne((n) => n.id() === id && n.hasName('object')).getAbsolutePosition();
+  });
+  await page.mouse.move(via.x + cardAt.x - (box.x + pileCenter.x), via.y + cardAt.y - (box.y + pileCenter.y), { steps: 5 });
   await expect.poll(() => storeState(page, '(s) => s.dropTargetId')).not.toBe(null);
   await page.mouse.up();
   const merged = await storeState<{ position: { x: number; y: number }; bottom: string; n: number } | undefined>(

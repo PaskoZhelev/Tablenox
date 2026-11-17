@@ -478,7 +478,12 @@ describe('shuffling piece stacks', () => {
     const holder = holderOf(s);
     s = applyCommand(s, { type: 'TransformObject', id: holder.id, position: { x: 3000, y: 3000 }, width: 300, height: 300, rotation: 0 });
     const ta = { ...createObject('token', { center: { x: 2000, y: 2000 }, zIndex: 50 }), id: 'ta', assetId: 'img-a' } as TokenObject;
-    const tb = { ...createObject('token', { center: { x: 2200, y: 2000 }, zIndex: 51 }), id: 'tb', assetId: 'img-b', count: 3 } as TokenObject;
+    const tb = {
+      ...createObject('token', { center: { x: 2200, y: 2000 }, zIndex: 51 }),
+      id: 'tb',
+      assetId: 'img-b',
+      count: 3,
+    } as TokenObject;
     const d1 = { ...createObject('die', { center: { x: 2400, y: 2000 }, zIndex: 52 }), id: 'd1' };
     s = { ...s, objects: [...s.objects, ta, tb, d1] };
     for (const id of ['ta', 'tb', 'd1']) s = dropAt(s, id, objectCenter(holderOf(s)));
@@ -559,7 +564,10 @@ describe('shuffling piece stacks', () => {
     expect(shufflePiecesCommand(s.objects, 'a', seededSource(1))?.type).toBe('ShufflePieces');
 
     const { s: t, h } = stacked();
-    const button = { ...createObject('button', { center: { x: 0, y: 500 }, zIndex: 99 }), steps: [{ ...createStep('shuffle'), objectIds: [h.id] }] };
+    const button = {
+      ...createObject('button', { center: { x: 0, y: 500 }, zIndex: 99 }),
+      steps: [{ ...createStep('shuffle'), objectIds: [h.id] }],
+    };
     const withButton: TableState = { ...t, objects: [...t.objects, button] };
     const tops = new Set<string>();
     for (let seed = 1; seed <= 30; seed++) {

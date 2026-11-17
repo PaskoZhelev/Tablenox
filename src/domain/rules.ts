@@ -567,11 +567,7 @@ export function shuffleBagCommand(bag: BagObject, source: RandomSource = secureR
  * separate pieces. In a stack, like drawing from a bag, a token stack counts once per token, so the more tokens a
  * stack has, the likelier it ends up higher.
  */
-export function shufflePiecesCommand(
-  objects: TabletopObject[],
-  id: string,
-  source: RandomSource = secureRandomSource,
-): Command | null {
+export function shufflePiecesCommand(objects: TabletopObject[], id: string, source: RandomSource = secureRandomSource): Command | null {
   const spread = spreadPiecesOf(objects, id);
   if (spread) {
     const { pieces } = spread;
@@ -587,7 +583,10 @@ export function shufflePiecesCommand(
   // Picked from the top down, each with a chance in proportion to its weight.
   const topFirst: string[] = [];
   while (left.length > 0) {
-    let r = randomInt(left.reduce((n, p) => n + p.weight, 0), source);
+    let r = randomInt(
+      left.reduce((n, p) => n + p.weight, 0),
+      source,
+    );
     let i = 0;
     while (r >= left[i].weight) r -= left[i++].weight;
     topFirst.push(left.splice(i, 1)[0].id);
@@ -596,7 +595,11 @@ export function shufflePiecesCommand(
 }
 
 /** Shuffles holder `deck`: its cards, and the stack of pieces in it. Null when there is nothing to shuffle. */
-export function shuffleHolderCommand(objects: TabletopObject[], deck: DeckObject, source: RandomSource = secureRandomSource): Command | null {
+export function shuffleHolderCommand(
+  objects: TabletopObject[],
+  deck: DeckObject,
+  source: RandomSource = secureRandomSource,
+): Command | null {
   const commands: Command[] = [];
   if (deck.cards.length > 1) commands.push(shuffleDeckCommand(deck, source));
   const pieces = deck.isPile ? null : shufflePiecesCommand(objects, deck.id, source);

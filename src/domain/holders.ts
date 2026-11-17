@@ -222,7 +222,10 @@ function spreadPieces(objects: readonly TabletopObject[], deck: DeckObject): Tab
 }
 
 /** The spread holder that holder `id` is, or that piece `id` lies in, with its pieces in their order along it. */
-export function spreadPiecesOf(objects: readonly TabletopObject[], id: string): { holder: DeckObject; pieces: TabletopObject[] } | undefined {
+export function spreadPiecesOf(
+  objects: readonly TabletopObject[],
+  id: string,
+): { holder: DeckObject; pieces: TabletopObject[] } | undefined {
   const o = objects.find((x) => x.id === id);
   const holder = o?.kind === 'deck' ? o : objects.find((x) => x.id === o?.holderId);
   if (holder?.kind !== 'deck' || !isSpread(holder)) return undefined;
@@ -240,7 +243,10 @@ export function shufflablePieces(objects: readonly TabletopObject[], id: string)
 /** World top-left that puts `o`'s centre on the centre of `slot` (in `holder`'s own frame). */
 function slotPosition(holder: DeckObject, slot: { x: number; y: number; width: number; height: number }, o: TabletopObject): Vec2 {
   const c = objectCenter(holder);
-  const off = rotateVec({ x: slot.x + slot.width / 2 - holder.width / 2, y: slot.y + slot.height / 2 - holder.height / 2 }, holder.rotation);
+  const off = rotateVec(
+    { x: slot.x + slot.width / 2 - holder.width / 2, y: slot.y + slot.height / 2 - holder.height / 2 },
+    holder.rotation,
+  );
   return { x: Math.round(c.x + off.x - o.width / 2), y: Math.round(c.y + off.y - o.height / 2) };
 }
 
