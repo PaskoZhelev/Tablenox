@@ -91,9 +91,17 @@ export function findTokenTarget(state: TableState, id: string, center: Vec2): To
 export function findLoosePileTarget(state: TableState, id: string, center: Vec2): TabletopObject | undefined {
   const obj = state.objects.find((o) => o.id === id);
   if (obj?.kind !== 'token') return undefined;
+  return loosePieceAt(state, new Set([id]), center);
+}
+
+/**
+ * The top-most piece at `center` (other than `except`) when pieces can pile up on it: a token or a piece of a loose
+ * pile, not in a holder and not locked.
+ */
+function loosePieceAt(state: TableState, except: ReadonlySet<string>, center: Vec2): TabletopObject | undefined {
   const top = topmostContaining(
     state.objects,
-    state.objects.filter((o) => o.id !== id && !isSurface(o)),
+    state.objects.filter((o) => !except.has(o.id) && !isSurface(o)),
     center,
   );
   if (!top || top.holderId || top.locked || !joinsHolder(top)) return undefined;
@@ -114,6 +122,37 @@ function pileUpCommand(token: TabletopObject, target: TabletopObject): Command {
   };
   if (target.stackId) return moveIn;
   return { type: 'Batch', commands: [{ type: 'MoveObject', id: target.id, position: target.position, stackId }, moveIn] };
+}
+
+/**
+ * Pieces of a selection dropped on loose piece `target`: centred on it, in its pile (a new pile when `target` lies alone),
+ * from the bottom of the selection up as if dropped one by one, so a token identical to the piece then on top merges
+ * into it (when the stack has room).
+ */
+function pileUpGroup(state: TableState, pieces: readonly TabletopObject[], target: TabletopObject): Command[] {
+  const c = objectCenter(target);
+  const stackId = target.stackId ?? newId();
+  const commands: Command[] = target.stackId ? [] : [{ type: 'MoveObject', id: target.id, position: target.position, stackId }];
+  let top = target;
+  for (const o of sortByStacking([...pieces], state.objects)) {
+    if (o.kind === 'token' && top.kind === 'token' && sameTokenLook(o, top) && tokenCount(o) + tokenCount(top) <= MAX_TOKEN_STACK) {
+      commands.push({ type: 'MergeTokens', id: o.id, targetId: top.id });
+      // The merged stack keeps the id of the stack the other was split off (see `MergeTokens`).
+      const rootDropped = !o.sourceId && top.sourceId === o.id;
+      const { sourceId, ...rest } = top;
+      top = { ...rest, ...(rootDropped ? { id: o.id } : { sourceId }), count: tokenCount(o) + tokenCount(top) };
+      continue;
+    }
+    commands.push({
+      type: 'MoveObject',
+      id: o.id,
+      position: { x: Math.round(c.x - o.width / 2), y: Math.round(c.y - o.height / 2) },
+      stackId,
+      ...(o.holderId ? { holderId: null } : {}),
+    });
+    top = o;
+  }
+  return commands;
 }
 
 /**
@@ -325,8 +364,9 @@ function putOnHolder(holder: DeckObject, obj: TabletopObject, position: Vec2): {
 }
 
 /** Whether `target` takes in `o` when a selection is dropped on it (anything else in the selection just moves). */
-function takesInGroup(target: DeckObject | BagObject, o: TabletopObject): boolean {
+function takesInGroup(target: TabletopObject, o: TabletopObject): boolean {
   if (target.kind === 'bag') return bagAccepts(o);
+  if (target.kind !== 'deck') return joinsHolder(o);
   if (o.kind === 'card' || isPile(o)) return collectsDrops(target);
   return !target.isPile && joinsHolder(o);
 }
@@ -358,11 +398,16 @@ function pilesMovedTogether(state: TableState, moved: readonly TabletopObject[])
 
 /**
  * The holder, pile or bag a dragged selection (`ids`) goes into when released with the dragged object's centre at
- * `center`: the top-most one there that takes in at least one of its objects.
+ * `center`: the top-most one there that takes in at least one of its objects. A selection of pieces only (e.g. a pile
+ * dragged by its badge) piles up on a loose token or pile piece there instead, like a single token does.
  */
-export function findGroupDropTarget(state: TableState, ids: readonly string[], center: Vec2): DeckObject | BagObject | undefined {
+export function findGroupDropTarget(state: TableState, ids: readonly string[], center: Vec2): TabletopObject | undefined {
   const set = new Set(ids);
   const members = state.objects.filter((o) => set.has(o.id));
+  if (members.length > 0 && members.every(joinsHolder)) {
+    const piece = loosePieceAt(state, set, center);
+    if (piece) return piece;
+  }
   const target = topmostContaining(
     state.objects,
     state.objects.filter((o): o is DeckObject | BagObject => !set.has(o.id) && (o.kind === 'deck' || o.kind === 'bag')),
@@ -375,7 +420,8 @@ export function findGroupDropTarget(state: TableState, ids: readonly string[], c
  * Turns "a selection was dragged to these positions" into one command. Dropped on a holder, pile or bag (under the
  * centre of the dragged object `leaderId`), each object goes in as it would on its own: cards and piles join the
  * holder / pile (side by side in a spread, in their order along it), pieces are put into the holder, the bag takes
- * what it accepts. Everything else just moves; the selection comes to the front, keeping its order.
+ * what it accepts; a selection of pieces dropped on a loose token / pile piece piles up on it. Everything else just
+ * moves; the selection comes to the front, keeping its order.
  */
 export function resolveGroupDrop(
   state: TableState,
@@ -424,6 +470,8 @@ export function resolveGroupDrop(
   if (target?.kind === 'bag') {
     // The last one put in ends on top: put them in from the bottom of the selection up.
     for (const o of sortByStacking(takenIn, state.objects)) commands.push({ type: 'BagPut', bagId: target.id, objectId: o.id });
+  } else if (target && target.kind !== 'deck') {
+    commands.push(...pileUpGroup(state, takenIn, target));
   } else if (target) {
     const definition = mode === 'edit' && !target.isPile;
     const index = isSpread(target)

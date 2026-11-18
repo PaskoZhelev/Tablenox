@@ -399,6 +399,48 @@ describe('loose piles of pieces', () => {
     expect(pieceStacks(s.objects).size).toBe(0);
   });
 
+  it('a pile dragged by its badge onto a loose token or another pile highlights it and joins its pile', () => {
+    let s = table(
+      token('a', 7000, { assetId: 'img-a' }),
+      token('b', 7300, { assetId: 'img-b' }),
+      token('c', 7600, { assetId: 'img-b' }),
+      token('d', 7900, { assetId: 'img-d' }),
+      token('e', 8200, { assetId: 'img-b', count: 2 }),
+    );
+    s = dropAt(s, 'b', objectCenter(find(s, 'a')));
+    const to = (st: TableState, id: string, p: Vec2) => ({ id, position: centredAt(find(st, id), p) });
+    // Onto a single token: it is the target, and all three make one pile centred on it.
+    const at = objectCenter(find(s, 'c'));
+    expect(findGroupDropTarget(s, ['a', 'b'], at)?.id).toBe('c');
+    s = applyCommand(s, resolveGroupDrop(s, [to(s, 'a', at), to(s, 'b', at)], 'b', 'play'));
+    expect(pieceStacks(s.objects).get('b')).toMatchObject({ ids: ['c', 'a', 'b'], count: 3 });
+    expect(objectCenter(find(s, 'a'))).toEqual(at);
+    // Onto another pile, whose top token looks like the dragged pile's bottom one: that one merges into it.
+    s = dropAt(s, 'e', objectCenter(find(s, 'd')));
+    const pile = find(s, 'd').stackId;
+    const dAt = objectCenter(find(s, 'd'));
+    expect(findGroupDropTarget(s, ['c', 'a', 'b'], dAt)?.id).toBe('e');
+    s = applyCommand(
+      s,
+      resolveGroupDrop(
+        s,
+        ['c', 'a', 'b'].map((id) => to(s, id, dAt)),
+        'b',
+        'play',
+      ),
+    );
+    expect(['e', 'a', 'b'].map((id) => find(s, id).stackId)).toEqual([pile, pile, pile]);
+    expect(find(s, 'c')).toBeUndefined();
+    expect((find(s, 'e') as TokenObject).count).toBe(3);
+    expect(pieceStacks(s.objects).get('b')).toMatchObject({ ids: ['d', 'e', 'a', 'b'], count: 6 });
+    // Shift places a pile freely, and a selection with a card in it does not pile up.
+    expect(resolveGroupDrop(s, [to(s, 'a', at), to(s, 'b', at)], 'b', 'play', { free: true })).toMatchObject({
+      commands: [{ id: 'a' }, { id: 'b' }, { type: 'RaiseObjects' }],
+    });
+    const card = s.objects.find((o) => o.kind === 'card')!;
+    expect(findGroupDropTarget(s, [card.id, 'a'], dAt)).toBeUndefined();
+  });
+
   it('bags, splits, duplicates and pastes keep pile ids to themselves', () => {
     let s = table(token('a', 7000, { assetId: 'img-a', count: 3 }), token('b', 7300, { assetId: 'img-b' }));
     s = dropAt(s, 'b', objectCenter(find(s, 'a')));

@@ -3163,3 +3163,77 @@ test('different pieces in a holder stack up with one count badge; its badge move
   expect(await inHolder()).toBe(0);
   expect(await centreOf(ids.pieces[1])).toEqual(await centreOf(ids.pieces[0]));
 });
+
+test('a pile of tokens dragged by its badge shows no selection outline, fades the token it is over and piles up on it (Play mode)', async ({
+  page,
+}) => {
+  await newGame(page, 'Pile on pile');
+  for (const item of ['Token', 'Pawn', 'Meeple']) {
+    await page.getByRole('button', { name: 'Add object' }).click();
+    await page.getByRole('menuitem', { name: item, exact: true }).click();
+  }
+  await expect.poll(() => storeState<number>(page, '(s) => s.history.present.objects.length')).toBe(3);
+  // The pawn lies on the token in a loose pile; the meeple lies alone to the right.
+  const ids = await page.evaluate(() => {
+    type O = { id: string; position: { x: number; y: number }; width: number; height: number };
+    type Store = { history: { present: { objects: O[] } }; dispatch(c: unknown): void; select(id: null): void };
+    const store = (window as unknown as { __tablenoxStore: { getState(): Store } }).__tablenoxStore;
+    const [token, pawn, meeple] = store.getState().history.present.objects;
+    const c = { x: token.position.x + token.width / 2, y: token.position.y + token.height / 2 };
+    const at = (o: O, dx: number) => ({ x: c.x + dx - o.width / 2, y: c.y - o.height / 2 });
+    store.getState().dispatch({ type: 'MoveObject', id: token.id, position: token.position, stackId: 'pile' });
+    store.getState().dispatch({ type: 'MoveObject', id: pawn.id, position: at(pawn, 0), stackId: 'pile', toFront: true });
+    store.getState().dispatch({ type: 'MoveObject', id: meeple.id, position: at(meeple, 250) });
+    store.getState().select(null);
+    return { token: token.id, pawn: pawn.id, meeple: meeple.id, c };
+  });
+  await switchMode(page, 'play');
+  const badge = () =>
+    page.evaluate(() => {
+      type N = { getParent(): N | null; id(): string; getClientRect(): { x: number; y: number; width: number; height: number } };
+      const stage = (window as unknown as { Konva: { stages: { find(s: string): N[] }[] } }).Konva.stages[0];
+      const b = stage.find('.piece-stack').find((n) => n.getClientRect().width > 0);
+      if (!b) return null;
+      const r = b.getClientRect();
+      let n: N | null = b;
+      while (n && !n.id()) n = n.getParent();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, on: n?.id() ?? '' };
+    });
+  const outlineShown = () =>
+    page.evaluate(() => {
+      type N = { isVisible(): boolean; nodes(): unknown[] };
+      const stage = (window as unknown as { Konva: { stages: { find(s: string): N[] }[] } }).Konva.stages[0];
+      return stage.find('Transformer').some((t) => t.isVisible() && t.nodes().length > 0);
+    });
+  const opacityOf = (id: string) =>
+    page.evaluate((id) => {
+      type N = { opacity(): number; id(): string; hasName(n: string): boolean };
+      const stage = (window as unknown as { Konva: { stages: { findOne(f: (n: N) => boolean): N | undefined }[] } }).Konva.stages[0];
+      return stage.findOne((n) => n.id() === id && n.hasName('object'))?.opacity();
+    }, id);
+  await expect.poll(async () => (await badge())?.on).toBe(ids.pawn);
+  const box = (await page.getByTestId('table-canvas').boundingBox())!;
+  const from = (await badge())!;
+  const scale = await storeState<number>(page, '(s) => s.camera.scale');
+  // The pile moves by the meeple's offset from it, so the pile's centre lands on the meeple.
+  const to = { x: box.x + from.x + 250 * scale, y: box.y + from.y };
+  await page.mouse.move(box.x + from.x, box.y + from.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + from.x + 30, box.y + from.y, { steps: 5 });
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  // While held, the pile moves as one, like a pile of cards: no selection outline; the meeple under it fades.
+  expect(await outlineShown()).toBe(false);
+  await expect.poll(() => storeState(page, '(s) => s.dropTargetId')).toBe(ids.meeple);
+  expect(await opacityOf(ids.meeple)).toBeLessThan(1);
+  await page.mouse.up();
+  // Dropped, it piles up on the meeple: one pile of three with the badge on top, and only its top piece selected.
+  await expect.poll(async () => (await badge())?.on).toBe(ids.pawn);
+  await expect.poll(() => storeState<number>(page, `(s) => new Set(s.history.present.objects.map(o => o.stackId)).size`)).toBe(1);
+  const centres = await storeState<{ x: number; y: number }[]>(
+    page,
+    `(s) => s.history.present.objects.map(o => ({ x: o.position.x + o.width / 2, y: o.position.y + o.height / 2 }))`,
+  );
+  for (const c of centres) expect(c).toEqual(centres[0]);
+  await expect.poll(() => storeState<string[]>(page, '(s) => s.selectedIds')).toEqual([ids.pawn]);
+  expect(await opacityOf(ids.meeple)).toBe(1);
+});

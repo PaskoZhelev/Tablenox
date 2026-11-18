@@ -8,6 +8,11 @@ export function markStackDrag(on: boolean): void {
   pending = on;
 }
 
+/** Whether a badge press is still waiting for its drag to start (a release now was a plain click). */
+export function stackDragPending(): boolean {
+  return pending;
+}
+
 /** Whether the group drag that is starting moves a piece stack by its badge (and clears the mark). */
 export function takeStackDrag(): boolean {
   const was = pending;

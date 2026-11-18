@@ -25,7 +25,7 @@ import { AnnotationLayer } from '../drawing/AnnotationLayer';
 import { focusTextEditor, startEditingText } from '../drawing/textEditing';
 import { TextEditorOverlay } from '../drawing/TextEditorOverlay';
 import { HOLDER_ID_ATTR, HOLDER_ZONE_NAME, HolderZoneNode, ObjectNode } from '../objects/ObjectNode';
-import { markStackDrag } from '../objects/stackDrag';
+import { markStackDrag, stackDragPending } from '../objects/stackDrag';
 import { clampMagnifierZoom, currentTable, MULTI_BAR, useTableStore } from '../state/tableStore';
 import { ContextMenu, SelectionBar } from './SelectionBar';
 import { getGroupActions, getObjectActions, hasObjectControls } from './objectActions';
@@ -37,6 +37,7 @@ import {
   drawCardCommand,
   drawRandomFromBagCommand,
   pieceStacks,
+  pieceStacksWhileMoving,
   pressPreviewOf,
   splitTokensCommand,
   takeStackCommand,
@@ -164,7 +165,17 @@ export function TableCanvas() {
   const gridSize = useTableStore((s) => s.ui.gridSize);
   const tableColor = useTableStore((s) => s.doc?.tableColor);
   const dropTargetId = useTableStore((s) => s.dropTargetId);
+  const stackGrab = useTableStore((s) => s.stackGrab);
   const draggingId = useTableStore((s) => s.draggingId);
+  // A drop target lying in a loose pile of pieces fades as a whole pile (as a pile of cards does), not just its top piece.
+  const dropPileIds = useMemo(() => {
+    if (!dropTargetId) return EMPTY_SET;
+    const moving = !draggingId ? [] : selectedIds.length > 1 && selectedIds.includes(draggingId) ? selectedIds : [draggingId];
+    for (const pile of pieceStacksWhileMoving(objects, moving).values()) {
+      if (pile.stackId && pile.ids.includes(dropTargetId)) return new Set(pile.ids);
+    }
+    return EMPTY_SET;
+  }, [objects, dropTargetId, draggingId, selectedIds]);
   const editingId = useTableStore((s) => s.editingText?.id);
   const pen = useTableStore((s) => s.pen);
   const picking = useTableStore((s) => s.picking);
@@ -375,7 +386,11 @@ export function TableCanvas() {
   }, []);
 
   useEffect(() => {
-    const up = () => endGesture();
+    const up = () => {
+      // A badge press released without dragging leaves the stack's pieces selected, with their outline back.
+      if (stackDragPending()) useTableStore.getState().setStackGrab(false);
+      endGesture();
+    };
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
     window.addEventListener('blur', up);
@@ -528,7 +543,7 @@ export function TableCanvas() {
             const p = table.find((x) => x.id === id);
             return !!p && (s.mode === 'edit' || movableInPlay(p));
           });
-          s.setSelection(ids);
+          s.grabStack(ids);
           s.setSelectionBar(null);
           if (ids.length > 1) markStackDrag(true);
           if (!node.draggable()) gesture.current = { kind: 'group', id: obj.id, start: screen };
@@ -1074,13 +1089,14 @@ export function TableCanvas() {
                 mode={mode}
                 draggable={isDraggable(o)}
                 dropTarget={o.id === dropTargetId}
+                dropFaded={dropPileIds.has(o.id)}
                 picked={pickedSet.has(o.id)}
                 focused={automationsOpen && o.id === selectedId}
               />
             ))}
             <Transformer
               ref={trRef}
-              visible={showTransformer}
+              visible={showTransformer && !stackGrab}
               resizeEnabled={mode === 'edit'}
               rotateEnabled={mode === 'edit'}
               rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}

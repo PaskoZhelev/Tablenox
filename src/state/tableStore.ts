@@ -143,6 +143,11 @@ export interface TableStoreState {
   editingText: TextEditing | null;
   /** Object currently being dragged (hides the selection action bar). */
   draggingId: string | null;
+  /**
+   * The selection is a piece stack held / dragged by its count badge: it moves as one pile, so the Transformer's outline
+   * is hidden (as for a pile of cards). Any change of the selection clears it.
+   */
+  stackGrab: boolean;
   /** Object whose action bar was opened by a plain left click; the bar only shows while it is selected. */
   barObjectId: string | null;
   /** Deck/card a dragged card would merge into, or holder a dragged object is over, on release. */
@@ -202,6 +207,9 @@ export interface TableStoreActions {
   setUi(p: Partial<UiPrefs>): void;
   setEditingText(t: TextEditing | null): void;
   setDragging(id: string | null): void;
+  /** Selects the pieces of a stack grabbed by its count badge (see `stackGrab`). */
+  grabStack(ids: string[]): void;
+  setStackGrab(on: boolean): void;
   setSelectionBar(id: string | null): void;
   setDropTarget(id: string | null, index?: number | null): void;
   setContextMenu(m: ContextMenuState | null): void;
@@ -244,6 +252,7 @@ const transient = {
   editingText: null,
   erasingIds: EMPTY_IDS,
   draggingId: null,
+  stackGrab: false,
   barObjectId: null,
   dropTargetId: null,
   dropIndex: null,
@@ -374,24 +383,24 @@ export const useTableStore = create<TableStore>()((set, get) => ({
 
   select(id) {
     const s = get();
-    if (s.selectedId === id && s.selectedIds.length === (id ? 1 : 0)) return;
-    set({ selectedId: id, selectedIds: id ? [id] : [] });
+    if (s.selectedId === id && s.selectedIds.length === (id ? 1 : 0) && !s.stackGrab) return;
+    set({ selectedId: id, selectedIds: id ? [id] : [], stackGrab: false });
   },
 
   setSelection(ids, primary) {
     const unique = [...new Set(ids)];
     const selectedId =
       primary !== undefined && (primary === null || unique.includes(primary)) ? primary : (unique[unique.length - 1] ?? null);
-    set({ selectedIds: unique, selectedId: unique.length ? selectedId : null });
+    set({ selectedIds: unique, selectedId: unique.length ? selectedId : null, stackGrab: false });
   },
 
   toggleSelected(id) {
     const s = get();
     if (s.selectedIds.includes(id)) {
       const rest = s.selectedIds.filter((x) => x !== id);
-      set({ selectedIds: rest, selectedId: s.selectedId === id ? (rest[rest.length - 1] ?? null) : s.selectedId });
+      set({ selectedIds: rest, selectedId: s.selectedId === id ? (rest[rest.length - 1] ?? null) : s.selectedId, stackGrab: false });
     } else {
-      set({ selectedIds: [...s.selectedIds, id], selectedId: id });
+      set({ selectedIds: [...s.selectedIds, id], selectedId: id, stackGrab: false });
     }
   },
 
@@ -440,6 +449,15 @@ export const useTableStore = create<TableStore>()((set, get) => ({
   setDragging(draggingId) {
     if (get().draggingId === draggingId) return;
     set(draggingId ? { draggingId, contextMenu: null, barObjectId: null } : { draggingId });
+  },
+
+  grabStack(ids) {
+    get().setSelection(ids);
+    set({ stackGrab: ids.length > 1 });
+  },
+
+  setStackGrab(stackGrab) {
+    if (get().stackGrab !== stackGrab) set({ stackGrab });
   },
 
   setSelectionBar(barObjectId) {

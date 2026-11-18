@@ -45,6 +45,8 @@ interface Props {
   draggable: boolean;
   /** A dragged card would be added to this object on release. */
   dropTarget: boolean;
+  /** Lies in the loose pile of pieces the drop target belongs to: faded with it. */
+  dropFaded?: boolean;
   /** Chosen for the button step being picked on the table. */
   picked?: boolean;
   /** Shown from the automations panel: outlined even when locked (no Transformer). */
@@ -103,7 +105,7 @@ const LIFT = {
   shadowResolution: 240,
 };
 
-function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focused }: Props) {
+function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, dropFaded, picked, focused }: Props) {
   const liftRef = useRef<Konva.Group>(null);
   const shadowRef = useRef<Konva.Group>(null);
   const [lifted, setLifted] = useState(false);
@@ -243,6 +245,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
     const free = placesFreely(e.evt as MouseEvent | undefined);
     const s = useTableStore.getState();
     const leaderId = s.draggingId;
+    const dropTargetId = s.dropTargetId;
     land();
     s.setDropTarget(null);
     s.setDragging(null);
@@ -259,8 +262,15 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
           return m && n ? [{ id, position: { x: Math.round(n.x() - m.width / 2), y: Math.round(n.y() - m.height / 2) } }] : [];
         });
         s.dispatch(resolveGroupDrop(table, moves, leaderId ?? o.id, s.mode, { free }));
-        // After every member has landed (they all get their dragend in this same pointer-up).
-        if (groupDragKey === stackDragKey) setTimeout(() => useTableStore.getState().select(leaderId ?? o.id), 0);
+        // After every member has landed (they all get their dragend in this same pointer-up). The top piece may have
+        // merged into an identical token it was dropped on: then that one is selected.
+        if (groupDragKey === stackDragKey) {
+          setTimeout(() => {
+            const ids = currentTable().objects.map((x) => x.id);
+            const top = [leaderId ?? o.id, dropTargetId].find((id) => !!id && ids.includes(id));
+            useTableStore.getState().select(top ?? null);
+          }, 0);
+        }
       }
     } else {
       dropObject(o.id, position, free);
@@ -362,7 +372,7 @@ function ObjectNodeImpl({ object: o, mode, draggable, dropTarget, picked, focuse
       rotation={o.rotation}
       draggable={draggable}
       dragBoundFunc={gridSize ? snapDrag : undefined}
-      opacity={dropTarget && !(o.kind === 'deck' && isSpread(o)) ? 0.45 : o.visible ? 1 : 0.35}
+      opacity={(dropTarget || dropFaded) && !(o.kind === 'deck' && isSpread(o)) ? 0.45 : o.visible ? 1 : 0.35}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
